@@ -1,0 +1,124 @@
+services:
+  mongo.db.catalog:
+    restart: always
+    image: mongo:8.0-rc
+    container_name: mongo.db.catalog.container
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27030:27017"
+    volumes:
+      - mongo.db.catalog.volume:/data/db
+  mongo.db.catalog.ui:
+    image: mongo-express:1.0.2-20-alpine3.19
+    container_name: mongo.db.catalog.ui.container
+    ports:
+      - 27032:8081
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.catalog:27017/
+      ME_CONFIG_BASICAUTH: false
+  redis.db.basket:
+    restart: always
+    image: redis:7.0-alpine
+    container_name: redis.db.container
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis.db.basket.volume:/data
+  redis.db.basket.ui:
+    restart: always
+    image: rediscommander/redis-commander:latest
+    container_name: redis.db.basket.ui.container
+    ports:
+      - "27033:8081"
+    environment:
+      REDIS_HOST: redis.db.basket
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      HTTP_USER: ${REDIS_UI_USERNAME}
+      HTTP_PASSWORD: ${REDIS_UI_PASSWORD}
+  mongo.db.discount:
+    restart: always
+    image: mongo:8.0-rc
+    container_name: mongo.db.discount.container
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27034:27017"
+    volumes:
+      - mongo.db.discount.volume:/data/db
+  mongo.db.discount.ui:
+    image: mongo-express:1.0.2-20-alpine3.19
+    container_name: mongo.db.discount.ui.container
+    ports:
+      - 27036:8081
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.discount:27017/
+      ME_CONFIG_BASICAUTH: false
+  sqlserver.db.order:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver.db.order
+    user: root
+    environment:
+      SA_PASSWORD: ${SA_PASSWORD}
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver.db.order.volume:/var/opt/mssql
+  keycloak:
+    restart: always
+    container_name: keycloak
+    image: quay.io/keycloak/keycloak:25.0
+    command: start
+    environment:
+      KC_HOSTNAME_PORT: 8080
+      KC_HOSTNAME_STRICT_BACKCHANNEL: false
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HOSTNAME_STRICT: false
+      KC_HEALTH_ENABLED: true
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres.db.keycloak/${POSTGRES_DB}
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres.db.keycloak
+  postgres.db.keycloak:
+    restart: always
+    image: postgres:16.2
+    container_name: postgres.db.keycloak.container
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - posrgres.db.keycloak.volume:/var/lib/postgresql/data
+  postgres.db.keycloak.ui:
+    restart: always
+    image: dpage/pgadmin4
+    container_name: postgres.db.keycloak.container.ui
+    ports:
+      - "8888:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: user-name@domain-name.com
+      PGADMIN_DEFAULT_PASSWORD: strong-password
+    volumes:
+      - posrgres.db.keycloak.ui.volume:/var/lib/pgadmin
+volumes:
+  mongo.db.catalog.volume:
+  redis.db.basket.volume:
+  mongo.db.discount.volume:
+  sqlserver.db.order.volume:
+  posrgres.db.keycloak.volume:
+  posrgres.db.keycloak.ui.volume:
+ 
