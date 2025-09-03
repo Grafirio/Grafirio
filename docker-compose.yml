@@ -89,6 +89,9 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "8080:8080"
+    volumes:
+      # Grifirio custom theme mount
+      - ./docker-keycloak-themes:/opt/keycloak/themes
     depends_on:
       - postgres.db.keycloak
   postgres.db.keycloak:

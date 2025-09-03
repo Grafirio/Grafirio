@@ -10,8 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-keycloak/web": "^3.4.0",
+    "@tabler/core": "^1.4.0",
+    "@tabler/icons-react": "^3.34.1",
+    "bootstrap": "^5.3.8",
+    "keycloak-js": "^26.2.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
