@@ -117,6 +117,98 @@ services:
       PGADMIN_DEFAULT_PASSWORD: strong-password
     volumes:
       - posrgres.db.keycloak.ui.volume:/var/lib/pgadmin
+  rabbitmq:
+    restart: always
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq.container
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq.volume:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  django.ai:
+    build:
+      context: ./src/ai/grafirio-ai-service
+      dockerfile: Dockerfile
+    container_name: django.ai.container
+    environment:
+      SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DEBUG: "False"
+      ALLOWED_HOSTS: django-ai,localhost
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
+      REDIS_HOST: redis.db.basket
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
+      AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - rabbitmq
+      - redis.db.basket
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py start_ai_consumer &
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+  celery.worker:
+    build:
+      context: ./src/ai/grafirio-ai-service
+      dockerfile: Dockerfile
+    container_name: celery.worker.container
+    environment:
+      SECRET_KEY: ${DJANGO_SECRET_KEY}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
+      CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
+      REDIS_HOST: redis.db.basket
+      REDIS_PORT: 6379
+      AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
+      AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+    depends_on:
+      - rabbitmq
+      - redis.db.basket
+    command: celery -A config worker --loglevel=info
+  schema.analyzer:
+    build:
+      context: ./src/ai/ai-service-schema-analyzer
+      dockerfile: Dockerfile
+    container_name: schema.analyzer.container
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LOG_LEVEL: INFO
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./src/ai/ai-service-schema-analyzer:/app
+  pycaret.engine:
+    build:
+      context: ./src/ai/ai-service-pycaret-engine
+      dockerfile: Dockerfile
+    container_name: pycaret.engine.container
+    environment:
+      LOG_LEVEL: INFO
+      MODEL_STORAGE_PATH: /app/models
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./src/ai/ai-service-pycaret-engine:/app
+      - pycaret.models.volume:/app/models
 volumes:
   mongo.db.catalog.volume:
   redis.db.basket.volume:
@@ -124,4 +216,6 @@ volumes:
   sqlserver.db.order.volume:
   posrgres.db.keycloak.volume:
   posrgres.db.keycloak.ui.volume:
+  rabbitmq.volume:
+  pycaret.models.volume:
  

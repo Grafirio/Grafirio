@@ -1,0 +1,39 @@
+### GET All Companies
+GET https://localhost:7001/api/v1/companies
+Authorization: Bearer {{token}}
+
+### GET Company by ID  
+GET https://localhost:7001/api/v1/companies/11111111-1111-1111-1111-111111111111
+Authorization: Bearer {{token}}
+
+### POST Create Company
+POST https://localhost:7001/api/v1/companies
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "New Company",
+  "code": "NEW",
+  "description": "New company description",
+  "parentCompanyId": "11111111-1111-1111-1111-111111111111"
+}
+
+### POST Assign User to Company
+POST https://localhost:7001/api/v1/users/assign-to-company
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "keycloakUserId": "test-user-123",
+  "companyId": "11111111-1111-1111-1111-111111111111",
+  "role": "COMPANY_USER"
+}
+
+### GET User Companies
+GET https://localhost:7001/api/v1/users/companies
+Authorization: Bearer {{token}}rio.Identity.Api_HostAddress = http://localhost:5036
+
+GET {{Grafirio.Identity.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

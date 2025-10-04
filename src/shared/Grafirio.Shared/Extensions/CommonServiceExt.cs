@@ -15,6 +15,7 @@ namespace Grafirio.Shared.Extensions
             services.AddFluentValidationAutoValidation();
             services.AddValidatorsFromAssemblyContaining(assembly);
             services.AddScoped<IIdentityService, IdentityService>();
+            services.AddScoped<IKeycloakUserService, KeycloakUserService>();
 
             services.AddAutoMapper(assembly);
             return services;
