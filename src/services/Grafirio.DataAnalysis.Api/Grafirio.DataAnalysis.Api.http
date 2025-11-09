@@ -1,0 +1,6 @@
+@Grafirio.DataAnalysis.Api_HostAddress = http://localhost:5221
+
+GET {{Grafirio.DataAnalysis.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

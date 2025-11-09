@@ -158,6 +158,10 @@ const Header = () => {
                       <NavLink className="dropdown-item" to="/settings/data-input">
                         Veri Girdisi
                       </NavLink>
+                      <NavLink className="dropdown-item" to="/settings/sql-connection">
+                        <i className="ti ti-database-cog me-2"></i>
+                        SQL Bağlantı Ayarları
+                      </NavLink>
                       <NavLink className="dropdown-item" to="/settings/department">
                         Departman Ayarları
                       </NavLink>
