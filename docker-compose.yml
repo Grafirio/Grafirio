@@ -10,6 +10,8 @@ services:
       - "27030:27017"
     volumes:
       - mongo.db.catalog.volume:/data/db
+    networks:
+      - grifirio_network
   mongo.db.catalog.ui:
     image: mongo-express:1.0.2-20-alpine3.19
     container_name: mongo.db.catalog.ui.container
@@ -18,6 +20,10 @@ services:
     environment:
       ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.catalog:27017/
       ME_CONFIG_BASICAUTH: false
+    depends_on:
+      - mongo.db.catalog
+    networks:
+      - grifirio_network
   redis.db.basket:
     restart: always
     image: redis:7.0-alpine
@@ -27,6 +33,8 @@ services:
       - "6379:6379"
     volumes:
       - redis.db.basket.volume:/data
+    networks:
+      - grifirio_network
   redis.db.basket.ui:
     restart: always
     image: rediscommander/redis-commander:latest
@@ -39,6 +47,10 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       HTTP_USER: ${REDIS_UI_USERNAME}
       HTTP_PASSWORD: ${REDIS_UI_PASSWORD}
+    depends_on:
+      - redis.db.basket
+    networks:
+      - grifirio_network
   mongo.db.discount:
     restart: always
     image: mongo:8.0-rc
@@ -50,6 +62,8 @@ services:
       - "27034:27017"
     volumes:
       - mongo.db.discount.volume:/data/db
+    networks:
+      - grifirio_network
   mongo.db.discount.ui:
     image: mongo-express:1.0.2-20-alpine3.19
     container_name: mongo.db.discount.ui.container
@@ -58,6 +72,10 @@ services:
     environment:
       ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.discount:27017/
       ME_CONFIG_BASICAUTH: false
+    depends_on:
+      - mongo.db.discount
+    networks:
+      - grifirio_network
   sqlserver.db.order:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sqlserver.db.order
@@ -69,6 +87,8 @@ services:
       - "1433:1433"
     volumes:
       - sqlserver.db.order.volume:/var/opt/mssql
+    networks:
+      - grifirio_network
   keycloak:
     restart: always
     container_name: keycloak
@@ -94,6 +114,8 @@ services:
       - ./docker-keycloak-themes:/opt/keycloak/themes
     depends_on:
       - postgres.db.keycloak
+    networks:
+      - grifirio_network
   postgres.db.keycloak:
     restart: always
     image: postgres:16.2
@@ -106,6 +128,8 @@ services:
       - "5432:5432"
     volumes:
       - posrgres.db.keycloak.volume:/var/lib/postgresql/data
+    networks:
+      - grifirio_network
   postgres.db.keycloak.ui:
     restart: always
     image: dpage/pgadmin4
@@ -117,6 +141,24 @@ services:
       PGADMIN_DEFAULT_PASSWORD: strong-password
     volumes:
       - posrgres.db.keycloak.ui.volume:/var/lib/pgadmin
+    depends_on:
+      - postgres.db.keycloak
+    networks:
+      - grifirio_network
+  postgres.db.dataanalysis:
+    restart: always
+    image: postgres:16.2
+    container_name: postgres.db.dataanalysis.container
+    environment:
+      POSTGRES_DB: grafirio_dataanalysis
+      POSTGRES_USER: dataanalysis_user
+      POSTGRES_PASSWORD: DataAnalysis123!
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres.db.dataanalysis.volume:/var/lib/postgresql/data
+    networks:
+      - grifirio_network
   rabbitmq:
     restart: always
     image: rabbitmq:3.13-management-alpine
@@ -134,6 +176,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
+    networks:
+      - grifirio_network
   django.ai:
     build:
       context: ./src/ai/grafirio-ai-service
@@ -159,6 +203,8 @@ services:
     depends_on:
       - rabbitmq
       - redis.db.basket
+    networks:
+      - grifirio_network
     command: >
       sh -c "python manage.py migrate &&
              python manage.py start_ai_consumer &
@@ -183,6 +229,8 @@ services:
     depends_on:
       - rabbitmq
       - redis.db.basket
+    networks:
+      - grifirio_network
     command: celery -A config worker --loglevel=info
   schema.analyzer:
     build:
@@ -190,12 +238,23 @@ services:
       dockerfile: Dockerfile
     container_name: schema.analyzer.container
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      RABBITMQ_HOST: rabbitmq.container
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest123
+      BACKEND_API_URL: http://data-analysis.api.container:5221
+      SA_PASSWORD: ${SA_PASSWORD}
       LOG_LEVEL: INFO
     ports:
       - "8001:8001"
     volumes:
       - ./src/ai/ai-service-schema-analyzer:/app
+    depends_on:
+      - rabbitmq
+      - data-analysis.api
+    networks:
+      - grifirio_network
   pycaret.engine:
     build:
       context: ./src/ai/ai-service-pycaret-engine
@@ -204,11 +263,156 @@ services:
     environment:
       LOG_LEVEL: INFO
       MODEL_STORAGE_PATH: /app/models
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest123
     ports:
       - "8002:8002"
     volumes:
       - ./src/ai/ai-service-pycaret-engine:/app
       - pycaret.models.volume:/app/models
+    depends_on:
+      - rabbitmq
+    networks:
+      - grifirio_network
+  # .NET Microservices
+  identity.api:
+    build:
+      context: .
+      dockerfile: src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile
+    container_name: identity.api.container
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5036
+    ports:
+      - "5036:5036"
+    depends_on:
+      - postgres.db.keycloak
+      - rabbitmq
+    networks:
+      - grifirio_network
+  catalog.api:
+    build:
+      context: .
+      dockerfile: src/services/Grafirio.Catalog.Api/Dockerfile
+    container_name: catalog.api.container
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5280
+    ports:
+      - "5280:5280"
+    depends_on:
+      - mongo.db.catalog
+      - rabbitmq
+    networks:
+      - grifirio_network
+  basket.api:
+    build:
+      context: .
+      dockerfile: src/services/Grafirio.Basket.Api/Dockerfile
+    container_name: basket.api.container
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5023
+    ports:
+      - "5023:5023"
+    depends_on:
+      - redis.db.basket
+      - rabbitmq
+    networks:
+      - grifirio_network
+  data-analysis.api:
+    build:
+      context: .
+      dockerfile: src/services/Grafirio.DataAnalysis.Api/Dockerfile
+    container_name: data-analysis.api.container
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5221
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      PyCaret__BaseUrl: http://pycaret.engine.container:8002
+    ports:
+      - "5221:5221"
+    depends_on:
+      - postgres.db.dataanalysis
+      - rabbitmq
+    networks:
+      - grifirio_network
+  gateway:
+    build:
+      context: .
+      dockerfile: src/services/Grafirio.Gateway/Dockerfile
+    container_name: gateway.container
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - identity.api
+      - catalog.api
+      - basket.api
+      - data-analysis.api
+    networks:
+      - grifirio_network
+  frontend:
+    build:
+      context: ./src/front/grifirio.front
+      dockerfile: Dockerfile
+    container_name: frontend.container
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://gateway:5000
+    ports:
+      - "59264:59264"
+    depends_on:
+      - gateway
+    networks:
+      - grifirio_network
+  service.manager.api:
+    build:
+      context: ./src/front/admins/grifirio.projectadmin/api
+      dockerfile: Dockerfile
+    container_name: service.manager.api.container
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - grifirio_network
+  projectadmin:
+    build:
+      context: ./src/front/admins/grifirio.projectadmin
+      dockerfile: Dockerfile
+    container_name: projectadmin.container
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://gateway:5000
+      VITE_SERVICE_MANAGER_API: http://service.manager.api:3001
+    ports:
+      - "59265:59265"
+    depends_on:
+      - gateway
+      - service.manager.api
+    networks:
+      - grifirio_network
+  useradmin:
+    build:
+      context: ./src/front/admins/grifirio.useradmin
+      dockerfile: Dockerfile
+    container_name: useradmin.container
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://gateway:5000
+    ports:
+      - "59266:59266"
+    depends_on:
+      - gateway
+    networks:
+      - grifirio_network
+networks:
+  grifirio_network:
+    driver: bridge
 volumes:
   mongo.db.catalog.volume:
   redis.db.basket.volume:
@@ -216,6 +420,7 @@ volumes:
   sqlserver.db.order.volume:
   posrgres.db.keycloak.volume:
   posrgres.db.keycloak.ui.volume:
+  postgres.db.dataanalysis.volume:
   rabbitmq.volume:
   pycaret.models.volume:
  

@@ -8,6 +8,7 @@ import CompanyInfoPage from '../pages/CompanyInfoPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import AIPage from '../pages/AIPage';
 import DataAnalysisPage from '../pages/DataAnalysis/DataAnalysisPage';
+import AgentQueryPage from '../pages/AgentQueryPage';
 
 // Ayar Sayfaları
 import SettingsPage from '../pages/SettingsPage';
@@ -24,6 +25,7 @@ const routes = [
       { path: 'departments', element: <DepartmentsPage /> },
       { path: 'ai-dashboard', element: <AIPage /> },
       { path: 'data-analysis', element: <DataAnalysisPage /> },
+      { path: 'ai-query', element: <AgentQueryPage /> },
       {
         path: 'settings',
         children: [

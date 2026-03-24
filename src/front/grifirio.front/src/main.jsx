@@ -6,7 +6,7 @@ import keycloak from './keycloak';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import './styles/theme.css';
-import '@tabler/core/dist/css/tabler.min.css';
+// Bootstrap JS for interactive components
 import 'bootstrap/dist/js/bootstrap.bundle.min.js';
 
 // Keycloak event callback'leri

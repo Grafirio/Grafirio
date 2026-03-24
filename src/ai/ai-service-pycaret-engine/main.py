@@ -4,9 +4,11 @@ from pydantic import BaseModel
 from typing import Dict, Optional, List, Any
 import logging
 import os
+import threading
 from dotenv import load_dotenv
 from auto_trainer import AutoTrainer
 from predictor import RealtimePredictor
+from agent_analyzer import AgentAnalyzer
 import json
 
 load_dotenv()
@@ -247,6 +249,266 @@ async def _train_company_models(company_id: str, db_connection: DBConnection, se
             "progress": 0,
             "message": f"Training failed: {str(e)}"
         }
+
+
+# ========== Agent Analysis Endpoint ==========
+
+class AgentAnalyzeRequest(BaseModel):
+    request_id: str
+    query_id: str
+    company_id: str
+    db_host: str
+    db_port: int
+    db_name: str
+    db_user: str
+    db_password: str
+    config_json: str
+    analysis_params_json: str
+    user_question: str
+
+
+# In-memory agent analysis status
+agent_analysis_status: Dict[str, Any] = {}
+
+
+@app.post("/agent/analyze")
+async def agent_analyze(request: AgentAnalyzeRequest, background_tasks: BackgroundTasks):
+    """Run PyCaret agent analysis based on LLM-generated params"""
+    try:
+        query_id = request.query_id
+        agent_analysis_status[query_id] = {
+            "status": "processing",
+            "progress": 0,
+            "message": "Analysis started"
+        }
+
+        background_tasks.add_task(_run_agent_analysis, request)
+
+        return {
+            "query_id": query_id,
+            "status": "processing",
+            "message": "Agent analysis started"
+        }
+    except Exception as e:
+        logger.error(f"Error starting agent analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/agent/analyze/status/{query_id}")
+async def agent_analyze_status(query_id: str):
+    """Get agent analysis status"""
+    if query_id not in agent_analysis_status:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return agent_analysis_status[query_id]
+
+
+@app.get("/agent/analyze/result/{query_id}")
+async def agent_analyze_result(query_id: str):
+    """Get agent analysis result"""
+    if query_id not in agent_analysis_status:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    status = agent_analysis_status[query_id]
+    if status["status"] != "completed":
+        return {"status": status["status"], "message": status.get("message", "")}
+
+    return status
+
+
+async def _run_agent_analysis(request: AgentAnalyzeRequest):
+    """Background task for agent analysis"""
+    query_id = request.query_id
+    try:
+        logger.info(f"Running agent analysis for query: {query_id}")
+
+        conn_string = (
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={request.db_host},{request.db_port};"
+            f"DATABASE={request.db_name};"
+            f"UID={request.db_user};"
+            f"PWD={request.db_password}"
+        )
+
+        config = json.loads(request.config_json)
+        params = json.loads(request.analysis_params_json)
+
+        agent_analysis_status[query_id] = {
+            "status": "processing",
+            "progress": 30,
+            "message": "Loading data from database..."
+        }
+
+        analyzer = AgentAnalyzer(conn_string, config)
+        result = analyzer.analyze(params)
+
+        if result["success"]:
+            agent_analysis_status[query_id] = {
+                "status": "completed",
+                "progress": 100,
+                "message": "Analysis completed",
+                "query_id": query_id,
+                "request_id": request.request_id,
+                "company_id": request.company_id,
+                "charts": result.get("charts", []),
+                "insights": result.get("insights", []),
+                "summary": result.get("summary", "")
+            }
+        else:
+            agent_analysis_status[query_id] = {
+                "status": "failed",
+                "progress": 0,
+                "message": result.get("error", "Analysis failed"),
+                "query_id": query_id
+            }
+
+        # Publish result to RabbitMQ if available
+        _publish_result_to_rabbitmq(query_id, request)
+
+        logger.info(f"Agent analysis completed for query: {query_id}")
+
+    except Exception as e:
+        logger.error(f"Error in agent analysis: {str(e)}")
+        agent_analysis_status[query_id] = {
+            "status": "failed",
+            "progress": 0,
+            "message": f"Analysis failed: {str(e)}",
+            "query_id": query_id
+        }
+
+
+def _publish_result_to_rabbitmq(query_id: str, request: AgentAnalyzeRequest):
+    """Publish analysis result back to RabbitMQ for .NET consumer"""
+    try:
+        import pika
+
+        rabbitmq_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+        rabbitmq_user = os.getenv("RABBITMQ_USER", "guest")
+        rabbitmq_pass = os.getenv("RABBITMQ_PASS", "guest")
+
+        credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=rabbitmq_host, credentials=credentials)
+        )
+        channel = connection.channel()
+
+        status = agent_analysis_status.get(query_id, {})
+
+        message = {
+            "requestId": request.request_id,
+            "queryId": query_id,
+            "companyId": request.company_id,
+            "success": status.get("status") == "completed",
+            "error": status.get("message", "") if status.get("status") == "failed" else None,
+            "chartsJson": json.dumps(status.get("charts", [])),
+            "insightsJson": json.dumps(status.get("insights", [])),
+            "summary": status.get("summary", "")
+        }
+
+        channel.exchange_declare(exchange='pycaret-analysis-response', exchange_type='fanout', durable=True)
+        channel.basic_publish(
+            exchange='pycaret-analysis-response',
+            routing_key='',
+            body=json.dumps(message),
+            properties=pika.BasicProperties(
+                content_type='application/json',
+                delivery_mode=2
+            )
+        )
+
+        connection.close()
+        logger.info(f"Published result to RabbitMQ for query: {query_id}")
+
+    except Exception as e:
+        logger.warning(f"Could not publish to RabbitMQ: {str(e)}")
+
+
+# ========== RabbitMQ Consumer (Background Thread) ==========
+
+def _start_rabbitmq_consumer():
+    """Start a background RabbitMQ consumer for MassTransit messages"""
+    try:
+        import pika
+        import time
+
+        rabbitmq_host = os.getenv("RABBITMQ_HOST", "rabbitmq")
+        rabbitmq_user = os.getenv("RABBITMQ_USER", "guest")
+        rabbitmq_pass = os.getenv("RABBITMQ_PASS", "guest")
+
+        # Retry connection
+        for attempt in range(10):
+            try:
+                credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
+                connection = pika.BlockingConnection(
+                    pika.ConnectionParameters(
+                        host=rabbitmq_host,
+                        credentials=credentials,
+                        heartbeat=600,
+                        blocked_connection_timeout=300
+                    )
+                )
+                break
+            except Exception:
+                logger.warning(f"RabbitMQ connection attempt {attempt + 1}/10 failed, retrying...")
+                time.sleep(5)
+        else:
+            logger.error("Could not connect to RabbitMQ after 10 attempts")
+            return
+
+        channel = connection.channel()
+
+        # Declare queue matching MassTransit convention
+        queue_name = 'pycaret-analysis-request'
+        channel.queue_declare(queue=queue_name, durable=True)
+        channel.exchange_declare(exchange='pycaret-analysis-request', exchange_type='fanout', durable=True)
+        channel.queue_bind(queue=queue_name, exchange='pycaret-analysis-request')
+
+        def on_message(ch, method, properties, body):
+            try:
+                msg = json.loads(body)
+                logger.info(f"Received MassTransit message: {msg.get('requestId', 'unknown')}")
+
+                import asyncio
+                request = AgentAnalyzeRequest(
+                    request_id=msg.get("requestId", ""),
+                    query_id=msg.get("queryId", ""),
+                    company_id=msg.get("companyId", ""),
+                    db_host=msg.get("dbHost", ""),
+                    db_port=msg.get("dbPort", 1433),
+                    db_name=msg.get("dbName", ""),
+                    db_user=msg.get("dbUser", ""),
+                    db_password=msg.get("dbPassword", ""),
+                    config_json=msg.get("configJson", "{}"),
+                    analysis_params_json=msg.get("analysisParamsJson", "{}"),
+                    user_question=msg.get("userQuestion", "")
+                )
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(_run_agent_analysis(request))
+                loop.close()
+
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+
+            except Exception as e:
+                logger.error(f"Error processing RabbitMQ message: {str(e)}")
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+
+        channel.basic_qos(prefetch_count=1)
+        channel.basic_consume(queue=queue_name, on_message_callback=on_message)
+
+        logger.info("RabbitMQ consumer started, waiting for messages...")
+        channel.start_consuming()
+
+    except Exception as e:
+        logger.error(f"RabbitMQ consumer error: {str(e)}")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start RabbitMQ consumer in background thread"""
+    consumer_thread = threading.Thread(target=_start_rabbitmq_consumer, daemon=True)
+    consumer_thread.start()
+    logger.info("RabbitMQ consumer thread started")
 
 
 if __name__ == "__main__":

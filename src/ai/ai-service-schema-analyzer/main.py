@@ -89,9 +89,8 @@ async def analyze_schema(request: AnalyzeRequest):
             )
         elif db_type == "mssql":
             connection_string = (
-                f"mssql+pyodbc://{request.db_connection.username}:{request.db_connection.password}"
+                f"mssql+pymssql://{request.db_connection.username}:{request.db_connection.password}"
                 f"@{request.db_connection.host}:{request.db_connection.port}/{request.db_connection.database}"
-                f"?driver=ODBC+Driver+17+for+SQL+Server"
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported database type: {db_type}")
@@ -138,9 +137,8 @@ async def test_connection(db_connection: DBConnection):
             )
         elif db_type == "mssql":
             connection_string = (
-                f"mssql+pyodbc://{db_connection.username}:{db_connection.password}"
+                f"mssql+pymssql://{db_connection.username}:{db_connection.password}"
                 f"@{db_connection.host}:{db_connection.port}/{db_connection.database}"
-                f"?driver=ODBC+Driver+17+for+SQL+Server"
             )
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported database type: {db_type}")

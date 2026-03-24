@@ -1,7 +1,7 @@
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import inspect
-from openai import OpenAI
+import google.generativeai as genai
 import json
 import logging
 import os
@@ -12,7 +12,15 @@ logger = logging.getLogger(__name__)
 class SchemaAnalyzer:
     def __init__(self, connection_string: str):
         self.engine = sqlalchemy.create_engine(connection_string)
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Configure Gemini API
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.warning("GEMINI_API_KEY not found, using mock responses")
+            self.model = None
+        else:
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
     
     def analyze_database(self, company_name: str) -> dict:
         """
@@ -60,10 +68,10 @@ class SchemaAnalyzer:
     
     def _analyze_table(self, table_name: str) -> dict:
         """
-        Analyze a single table using pandas
+        Analyze a single table using pandas (100 row sample)
         """
-        # Read table (limit to first 1000 rows for analysis)
-        query = f"SELECT * FROM {table_name} LIMIT 1000"
+        # Read table (limit to first 100 rows for analysis)
+        query = f"SELECT TOP 100 * FROM {table_name}"
         df = pd.read_sql(query, self.engine)
         
         analysis = {
@@ -104,7 +112,7 @@ class SchemaAnalyzer:
     
     def _generate_semantic_schema(self, schema_info: dict, company_name: str) -> dict:
         """
-        Use LLM to generate semantic understanding of the schema
+        Use Gemini LLM to generate semantic understanding of the schema
         """
         try:
             # Prepare schema summary for LLM
@@ -128,7 +136,7 @@ Görevlerin:
 7. Tablolar arası ilişkileri tahmin et
 8. Dashboard için hangi KPI'ları gösterebiliriz?
 
-JSON formatında döndür (Türkçe açıklamalar):
+Sadece JSON formatında döndür (Türkçe açıklamalar), başka açıklama yazma:
 {{
   "industry": "...",
   "industry_tr": "...",
@@ -158,29 +166,64 @@ JSON formatında döndür (Türkçe açıklamalar):
 }}
 """
             
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "Sen bir veritabanı analiz uzmanısın. Türkçe ve JSON formatında yanıt veriyorsun."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.3
+            if not self.model:
+                # Mock response if no API key
+                logger.warning("Using mock Gemini response (no API key)")
+                return self._generate_mock_schema(schema_info)
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config={
+                    'temperature': 0.3,
+                    'top_p': 0.8,
+                    'top_k': 40,
+                    'max_output_tokens': 2048,
+                }
             )
             
-            semantic_schema = json.loads(response.choices[0].message.content)
+            # Parse JSON from response
+            response_text = response.text.strip()
+            
+            # Remove markdown code blocks if present
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.startswith('```'):
+                response_text = response_text[3:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            semantic_schema = json.loads(response_text.strip())
             return semantic_schema
             
         except Exception as e:
             logger.error(f"Error generating semantic schema: {str(e)}")
             # Return basic fallback schema
-            return {
-                "industry": "unknown",
-                "industry_tr": "Bilinmeyen",
-                "confidence": 0.0,
-                "tables": {},
-                "error": str(e)
-            }
+            return self._generate_mock_schema(schema_info)
+    
+    def _generate_mock_schema(self, schema_info: dict) -> dict:
+        """Generate a basic mock schema when Gemini API is unavailable"""
+        return {
+            "industry": "unknown",
+            "industry_tr": "Bilinmeyen",
+            "confidence": 0.5,
+            "tables": {
+                table: {
+                    "semantic_name": table,
+                    "description": f"{table} tablosu",
+                    "target_columns": [],
+                    "metric_columns": [],
+                    "dimension_columns": [],
+                    "timestamp_column": None,
+                    "primary_key": "id"
+                }
+                for table in schema_info.keys()
+                if "error" not in schema_info[table]
+            },
+            "relationships": [],
+            "suggested_kpis": [],
+            "dashboard_recommendations": [],
+            "note": "Mock data - Gemini API key not configured"
+        }
     
     def _prepare_schema_summary(self, schema_info: dict) -> dict:
         """

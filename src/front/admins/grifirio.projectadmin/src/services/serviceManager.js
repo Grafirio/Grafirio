@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// Service Manager API base URL - Docker'da container ismi, development'ta localhost
+const SERVICE_MANAGER_API = import.meta.env.VITE_SERVICE_MANAGER_API || 'http://localhost:3001';
+
 // Tüm servislerin tanımları
 export const SERVICES = {
   // AI Services
@@ -56,6 +59,7 @@ export const SERVICES = {
     url: 'http://localhost:5036',
     healthEndpoint: '/swagger',
     type: 'dotnet',
+    containerName: 'identity.api.container',
     projectPath: 'src/services/Grafirio.Identity.Api/Grafirio.Identity.Api',
     port: 5036,
     description: 'Authentication and authorization service'
@@ -67,6 +71,7 @@ export const SERVICES = {
     url: 'http://localhost:5280',
     healthEndpoint: '/swagger',
     type: 'dotnet',
+    containerName: 'catalog.api.container',
     projectPath: 'src/services/Grafirio.Catalog.Api',
     port: 5280,
     description: 'Product catalog management'
@@ -78,6 +83,7 @@ export const SERVICES = {
     url: 'http://localhost:5023',
     healthEndpoint: '/swagger',
     type: 'dotnet',
+    containerName: 'basket.api.container',
     projectPath: 'src/services/Grafirio.Basket.Api',
     port: 5023,
     description: 'Shopping basket service'
@@ -89,9 +95,22 @@ export const SERVICES = {
     url: 'http://localhost:5221',
     healthEndpoint: '/swagger',
     type: 'dotnet',
+    containerName: 'data-analysis.api.container',
     projectPath: 'src/services/Grafirio.DataAnalysis.Api',
     port: 5221,
     description: 'SQL connection & schema discovery for AI analysis'
+  },
+  gateway: {
+    id: 'gateway',
+    name: 'API Gateway',
+    category: '.NET Microservices',
+    url: 'http://localhost:5000',
+    healthEndpoint: '/health',
+    type: 'dotnet',
+    containerName: 'gateway.container',
+    projectPath: 'src/services/Grafirio.Gateway',
+    port: 5000,
+    description: 'YARP reverse proxy - main entry point'
   },
 
   // Infrastructure
@@ -189,44 +208,85 @@ export const SERVICES = {
     url: 'http://localhost:59264',
     healthEndpoint: '/',
     type: 'npm',
+    containerName: 'frontend.container',
     projectPath: 'src/front/grifirio.front',
     port: 59264,
     description: 'Main user interface'
+  },
+  projectAdmin: {
+    id: 'project-admin',
+    name: 'Project Admin',
+    category: 'Frontend',
+    url: 'http://localhost:59265',
+    healthEndpoint: '/',
+    type: 'npm',
+    containerName: 'projectadmin.container',
+    projectPath: 'src/front/admins/grifirio.projectadmin',
+    port: 59265,
+    description: 'Service manager dashboard'
+  },
+  userAdmin: {
+    id: 'user-admin',
+    name: 'User Admin',
+    category: 'Frontend',
+    url: 'http://localhost:59266',
+    healthEndpoint: '/',
+    type: 'npm',
+    containerName: 'useradmin.container',
+    projectPath: 'src/front/admins/grifirio.useradmin',
+    port: 59266,
+    description: 'User management interface'
   }
 };
 
 // Servis durumunu kontrol et
 export const checkServiceHealth = async (service) => {
   try {
-    // .NET servisleri için port kontrolü
-    if (service.type === 'dotnet' && service.port) {
-      try {
-        const response = await axios.get(`http://localhost:3001/api/dotnet/status/${service.port}`, { timeout: 3000 });
-        if (response.data.running) {
-          return { status: 'online', message: 'Service is running on port ' + service.port };
-        } else {
-          return { status: 'offline', message: 'Service is not running' };
+    // .NET servisleri için önce Docker container kontrolü, sonra port kontrolü
+    if (service.type === 'dotnet') {
+      // Önce Docker container kontrolü yap (Docker'da çalışıyorsa)
+      if (service.containerName) {
+        try {
+          const response = await axios.get(`${SERVICE_MANAGER_API}/api/docker/status/${service.containerName}`, { timeout: 3000 });
+          if (response.data.running) {
+            return { status: 'online', message: 'Container is running' };
+          } else {
+            return { status: 'offline', message: 'Container is stopped' };
+          }
+        } catch (err) {
+          // Docker API başarısız olursa port kontrolüne geç
+          console.log('Docker check failed, trying port check:', err.message);
         }
-      } catch (err) {
-        // API yoksa HTTP health check dene
-        if (service.url && service.healthEndpoint) {
-          try {
-            const healthResponse = await axios.get(service.url + service.healthEndpoint, { timeout: 3000 });
-            if (healthResponse.status >= 200 && healthResponse.status < 300) {
-              return { status: 'online', message: 'Service is healthy' };
+      }
+      
+      // Port kontrolü (manuel başlatılmış veya Docker API erişilemezse)
+      if (service.port) {
+        try {
+          const response = await axios.get(`${SERVICE_MANAGER_API}/api/dotnet/status/${service.port}`, { timeout: 3000 });
+          if (response.data.running) {
+            return { status: 'online', message: 'Service is running on port ' + service.port };
+          }
+        } catch (err) {
+          // Port kontrolü de başarısız, HTTP health check dene
+          if (service.url && service.healthEndpoint) {
+            try {
+              const healthResponse = await axios.get(service.url + service.healthEndpoint, { timeout: 3000 });
+              if (healthResponse.status >= 200 && healthResponse.status < 300) {
+                return { status: 'online', message: 'Service is healthy' };
+              }
+            } catch (healthErr) {
+              return { status: 'offline', message: 'Cannot connect' };
             }
-          } catch (healthErr) {
-            return { status: 'offline', message: 'Cannot connect' };
           }
         }
-        return { status: 'offline', message: 'Service not running' };
       }
+      return { status: 'offline', message: 'Service not running' };
     }
 
     // Docker container için özel kontrol
     if (service.type === 'docker' && service.containerName) {
       try {
-        const response = await axios.get(`http://localhost:3001/api/docker/status/${service.containerName}`, { timeout: 3000 });
+        const response = await axios.get(`${SERVICE_MANAGER_API}/api/docker/status/${service.containerName}`, { timeout: 3000 });
         if (response.data.running) {
           return { status: 'online', message: 'Container is running' };
         } else {
@@ -248,8 +308,24 @@ export const checkServiceHealth = async (service) => {
       }
     }
 
-    // NPM/Frontend servisleri için HTTP health check
-    if (service.type === 'npm' || (service.url && service.healthEndpoint)) {
+    // NPM/Frontend servisleri için önce Docker container kontrolü, sonra HTTP health check
+    if (service.type === 'npm') {
+      // Önce Docker container kontrolü yap (Docker'da çalışıyorsa)
+      if (service.containerName) {
+        try {
+          const response = await axios.get(`${SERVICE_MANAGER_API}/api/docker/status/${service.containerName}`, { timeout: 3000 });
+          if (response.data.running) {
+            return { status: 'online', message: 'Container is running' };
+          } else {
+            return { status: 'offline', message: 'Container is stopped' };
+          }
+        } catch (err) {
+          // Docker API başarısız olursa HTTP health check'e geç
+          console.log('Docker check failed for npm service, trying HTTP check:', err.message);
+        }
+      }
+      
+      // HTTP health check
       if (!service.url) {
         return { status: 'unknown', message: 'No URL configured' };
       }
@@ -270,17 +346,25 @@ export const checkServiceHealth = async (service) => {
       }
     }
 
-    // HTTP health check
-    if (!service.healthEndpoint || !service.url) {
-      return { status: 'unknown', message: 'No health endpoint configured' };
+    // Genel HTTP health check (type belirtilmemişse)
+    if (service.url && service.healthEndpoint) {
+      try {
+        const url = service.url + service.healthEndpoint;
+        const response = await axios.get(url, { timeout: 3000 });
+        
+        if (response.status >= 200 && response.status < 300) {
+          return { status: 'online', message: 'Service is healthy' };
+        }
+        return { status: 'error', message: `HTTP ${response.status}` };
+      } catch (error) {
+        if (error.code === 'ECONNABORTED') {
+          return { status: 'timeout', message: 'Request timeout' };
+        }
+        return { status: 'offline', message: 'Cannot connect to service' };
+      }
     }
 
-    const url = service.url + service.healthEndpoint;
-    const response = await axios.get(url, { timeout: 3000 });
-    
-    if (response.status >= 200 && response.status < 300) {
-      return { status: 'online', message: 'Service is healthy' };
-    }
+    return { status: 'unknown', message: 'No health check method available' };
     return { status: 'error', message: `HTTP ${response.status}` };
   } catch (error) {
     if (error.code === 'ECONNABORTED') {
@@ -307,7 +391,7 @@ export const checkAllServices = async () => {
 // Docker container'ı başlat
 export const startDockerContainer = async (containerName) => {
   try {
-    const response = await axios.post(`http://localhost:3001/api/docker/start/${containerName}`, {}, { timeout: 10000 });
+    const response = await axios.post(`${SERVICE_MANAGER_API}/api/docker/start/${containerName}`, {}, { timeout: 10000 });
     return { success: true, message: response.data.message || 'Container started' };
   } catch (error) {
     return { success: false, message: error.response?.data?.error || error.message || 'Failed to start container' };
@@ -317,7 +401,7 @@ export const startDockerContainer = async (containerName) => {
 // Docker container'ı durdur
 export const stopDockerContainer = async (containerName) => {
   try {
-    const response = await axios.post(`http://localhost:3001/api/docker/stop/${containerName}`, {}, { timeout: 10000 });
+    const response = await axios.post(`${SERVICE_MANAGER_API}/api/docker/stop/${containerName}`, {}, { timeout: 10000 });
     return { success: true, message: response.data.message || 'Container stopped' };
   } catch (error) {
     return { success: false, message: error.response?.data?.error || error.message || 'Failed to stop container' };
@@ -327,7 +411,7 @@ export const stopDockerContainer = async (containerName) => {
 // Docker container'ı yeniden başlat
 export const restartDockerContainer = async (containerName) => {
   try {
-    const response = await axios.post(`http://localhost:3001/api/docker/restart/${containerName}`, {}, { timeout: 10000 });
+    const response = await axios.post(`${SERVICE_MANAGER_API}/api/docker/restart/${containerName}`, {}, { timeout: 10000 });
     return { success: true, message: response.data.message || 'Container restarted' };
   } catch (error) {
     return { success: false, message: error.response?.data?.error || error.message || 'Failed to restart container' };
@@ -337,7 +421,7 @@ export const restartDockerContainer = async (containerName) => {
 // .NET servisi başlat
 export const startDotNetService = async (projectPath, port) => {
   try {
-    const response = await axios.post(`http://localhost:3001/api/dotnet/start`, 
+    const response = await axios.post(`${SERVICE_MANAGER_API}/api/dotnet/start`, 
       { projectPath, port }, 
       { timeout: 15000 }
     );
@@ -350,7 +434,7 @@ export const startDotNetService = async (projectPath, port) => {
 // .NET servisi durdur
 export const stopDotNetService = async (port) => {
   try {
-    const response = await axios.post(`http://localhost:3001/api/dotnet/stop`, 
+    const response = await axios.post(`${SERVICE_MANAGER_API}/api/dotnet/stop`, 
       { port }, 
       { timeout: 10000 }
     );
@@ -363,7 +447,7 @@ export const stopDotNetService = async (port) => {
 // .NET servis durumunu kontrol et
 export const checkDotNetServiceStatus = async (port) => {
   try {
-    const response = await axios.get(`http://localhost:3001/api/dotnet/status/${port}`, { timeout: 3000 });
+    const response = await axios.get(`${SERVICE_MANAGER_API}/api/dotnet/status/${port}`, { timeout: 3000 });
     return { running: response.data.running, message: response.data.message };
   } catch (error) {
     return { running: false, message: 'Status check failed' };

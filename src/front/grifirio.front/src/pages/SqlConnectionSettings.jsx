@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus } from '../services/dataAnalysisService';
+import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import TableSchema from '../components/DataAnalysis/TableSchema';
 import '../styles/SqlConnectionSettings.css';
@@ -8,6 +8,7 @@ const SqlConnectionSettings = () => {
   const [connections, setConnections] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState(null);
+  const [savedConnectionId, setSavedConnectionId] = useState(null); // Database'e kaydedilen connection ID
   
   // Modal için state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,6 +30,9 @@ const SqlConnectionSettings = () => {
   const [dataFormat, setDataFormat] = useState('json');
   const [aiLoading, setAiLoading] = useState(false);
   
+  // Notification Modal
+  const [notification, setNotification] = useState({ show: false, type: '', title: '', message: '', details: '' });
+  
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -42,16 +46,67 @@ const SqlConnectionSettings = () => {
   const [testStatus, setTestStatus] = useState({ type: '', message: '' });
   const [isTesting, setIsTesting] = useState(false);
 
-  // Load connections from localStorage on mount
-  React.useEffect(() => {
-    const saved = localStorage.getItem('sqlConnections');
-    if (saved) {
-      try {
-        setConnections(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to load connections', e);
+  // Load connections from database
+  const loadConnections = async () => {
+    try {
+      // TODO: Gerçek userId - şimdilik mock
+      const userId = 'user-123';
+      
+      console.log('🔄 Loading connections from database for userId:', userId);
+      
+      const result = await getSavedConnections(userId);
+      
+      console.log('📦 API Response:', result);
+      
+      if (result.success && result.connections) {
+        console.log(`✅ Found ${result.connections.length} connections`);
+        
+        // API'den gelen bağlantıları localStorage formatına çevir
+        const formattedConnections = result.connections.map(conn => {
+          console.log('🔧 Formatting connection:', { id: conn.id, name: conn.name });
+          return {
+            id: conn.id,
+            savedConnectionId: conn.id, // Database'deki ID'yi sakla
+            name: conn.name,
+            host: conn.host,
+            port: conn.port,
+            database: conn.database,
+            username: conn.username,
+            password: '', // Şifre frontend'de saklanmaz
+            trustServerCertificate: conn.trustServerCertificate,
+            createdAt: conn.createdAt,
+            updatedAt: conn.updatedAt,
+            lastConnectedAt: conn.lastConnectedAt,
+            selectedTables: [] // Tables localStorage'da kalabilir veya ayrı bir API
+          };
+        });
+        
+        console.log('✅ Formatted connections:', formattedConnections);
+        setConnections(formattedConnections);
+        
+        // Backward compatibility için localStorage'a da kaydet
+        localStorage.setItem('sqlConnections', JSON.stringify(formattedConnections));
+      } else {
+        console.warn('⚠️ No connections returned or success=false:', result);
+      }
+    } catch (error) {
+      console.error('Failed to load connections from database:', error);
+      
+      // Database hatası varsa fallback olarak localStorage'dan yükle
+      const saved = localStorage.getItem('sqlConnections');
+      if (saved) {
+        try {
+          setConnections(JSON.parse(saved));
+        } catch (e) {
+          console.error('Failed to load connections from localStorage', e);
+        }
       }
     }
+  };
+
+  // Load connections on mount
+  React.useEffect(() => {
+    loadConnections();
   }, []);
 
   // Save connections to localStorage
@@ -87,6 +142,46 @@ const SqlConnectionSettings = () => {
           type: 'success', 
           message: '✅ Bağlantı başarılı!' 
         });
+        
+        // Test başarılıysa bağlantıyı database'e kaydet
+        try {
+          // TODO: Gerçek userId ve companyId - şimdilik mock
+          const userId = 'user-123';
+          const companyId = 'company-456';
+          
+          const saveResult = await saveConnection(
+            userId,
+            companyId,
+            formData.name || `${formData.host}-${formData.database}`,
+            {
+              host: formData.host,
+              port: parseInt(formData.port),
+              database: formData.database,
+              username: formData.username,
+              password: formData.password,
+              trustServerCertificate: formData.trustServerCertificate
+            }
+          );
+          
+          if (saveResult.success) {
+            setSavedConnectionId(saveResult.connectionId);
+            const message = saveResult.message || 'Bağlantı kaydedildi!';
+            setTestStatus({ 
+              type: 'success', 
+              message: `✅ Bağlantı başarılı ve güvenli şekilde ${message.toLowerCase()}` 
+            });
+            
+            // Bağlantılar listesini yeniden yükle
+            await loadConnections();
+          }
+        } catch (saveError) {
+          console.error('Connection save error:', saveError);
+          // Test başarılı ama kayıt başarısız - kullanıcıya bilgi ver ama devam et
+          setTestStatus({ 
+            type: 'warning', 
+            message: '✅ Bağlantı başarılı! (Ancak kaydedilemedi: ' + saveError.message + ')' 
+          });
+        }
       } else {
         setTestStatus({ 
           type: 'error', 
@@ -130,17 +225,32 @@ const SqlConnectionSettings = () => {
     setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
   };
 
-  const handleEdit = (connection) => {
+  const handleEdit = async (connection) => {
     setEditingConnection(connection);
+    
+    // Şifreyi decrypt edip al
+    let decryptedPassword = '';
+    try {
+      if (connection.savedConnectionId || connection.id) {
+        const result = await getConnectionById(connection.savedConnectionId || connection.id);
+        if (result.success && result.connection && result.connection.password) {
+          decryptedPassword = result.connection.password;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch decrypted password:', error);
+    }
+    
     setFormData({
       name: connection.name,
       host: connection.host,
       port: connection.port,
       database: connection.database,
       username: connection.username,
-      password: connection.password,
+      password: decryptedPassword, // Decrypt edilmiş şifre
       trustServerCertificate: connection.trustServerCertificate
     });
+    setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
     setIsFormOpen(true);
     setTestStatus({ type: '', message: '' });
   };
@@ -155,6 +265,7 @@ const SqlConnectionSettings = () => {
   const handleCancel = () => {
     setIsFormOpen(false);
     setEditingConnection(null);
+    setSavedConnectionId(null); // Saved connection ID'yi temizle
     setFormData({
       name: '',
       host: '',
@@ -218,7 +329,17 @@ const SqlConnectionSettings = () => {
   };
 
   const handleShowAnalysisPanel = (connection) => {
-    setSelectedConnectionForAnalysis(connection);
+    console.log('📊 Opening Analysis Panel for connection:', {
+      name: connection.name,
+      id: connection.id,
+      savedConnectionId: connection.savedConnectionId,
+      hasSavedId: !!connection.savedConnectionId
+    });
+    
+    setSelectedConnectionForAnalysis({
+      ...connection,
+      savedConnectionId: connection.savedConnectionId || connection.id || savedConnectionId // Try multiple sources
+    });
     setShowAnalysisPanel(true);
   };
 
@@ -279,18 +400,30 @@ const SqlConnectionSettings = () => {
   const handleStartAIAnalysis = async () => {
     if (!selectedConnectionForAnalysis) return;
 
+    // Debug: Connection bilgilerini loglayalım
+    console.log('🔍 Starting AI Analysis with connection:', {
+      name: selectedConnectionForAnalysis.name,
+      savedConnectionId: selectedConnectionForAnalysis.savedConnectionId,
+      id: selectedConnectionForAnalysis.id,
+      fullConnection: selectedConnectionForAnalysis
+    });
+
+    // Eğer connection'ın savedConnectionId varsa onu kullan, yoksa hata ver
+    if (!selectedConnectionForAnalysis.savedConnectionId) {
+      console.error('❌ No savedConnectionId found in connection:', selectedConnectionForAnalysis);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: '❌ Hata',
+        message: 'Bağlantı ID\'si bulunamadı! Lütfen sayfayı yenileyin ve tekrar deneyin.',
+        details: `Connection: ${selectedConnectionForAnalysis.name}, ID: ${selectedConnectionForAnalysis.id}, SavedID: ${selectedConnectionForAnalysis.savedConnectionId}`
+      });
+      return;
+    }
+
     setAiLoading(true);
 
     try {
-      const connectionInfo = {
-        host: selectedConnectionForAnalysis.host,
-        port: selectedConnectionForAnalysis.port,
-        database: selectedConnectionForAnalysis.database,
-        username: selectedConnectionForAnalysis.username,
-        password: selectedConnectionForAnalysis.password,
-        trustServerCertificate: selectedConnectionForAnalysis.trustServerCertificate
-      };
-
       const tables = selectedConnectionForAnalysis.selectedTables?.map(t => t.fullName) || [];
 
       const settings = {
@@ -303,7 +436,13 @@ const SqlConnectionSettings = () => {
       const userId = 'user-123';
       const companyId = 'company-456';
 
-      const result = await startAIAnalysis(userId, companyId, connectionInfo, tables, settings);
+      const result = await startAIAnalysis(
+        userId, 
+        companyId, 
+        selectedConnectionForAnalysis.savedConnectionId, // connectionId gönder
+        tables, 
+        settings
+      );
 
       if (result.success) {
         // Active analysis olarak kaydet
@@ -327,18 +466,37 @@ const SqlConnectionSettings = () => {
         existingAnalyses.push(newAnalysis);
         localStorage.setItem('activeAnalyses', JSON.stringify(existingAnalyses));
 
-        alert(`✅ AI Analizi başlatıldı!\n\nRequestId: ${result.requestId}\n${result.message}\n\nTahmini süre: ${result.estimatedTime}\n\n📊 Dashboard'dan takip edebilirsiniz!`);
+        setNotification({
+          show: true,
+          type: 'success',
+          title: '✅ AI Analizi Başlatıldı!',
+          message: result.message,
+          details: `Request ID: ${result.requestId}\nTahmini süre: ${result.estimatedTime}\n\n📊 Dashboard'dan takip edebilirsiniz!`
+        });
         
         // Paneli kapat
-        handleCloseAnalysisPanel();
-
-        // Dashboard'a yönlendir
-        window.location.href = '/dashboard';
+        setTimeout(() => {
+          handleCloseAnalysisPanel();
+          // Dashboard'a yönlendir
+          window.location.href = '/dashboard';
+        }, 2000);
       } else {
-        alert('❌ AI analizi başlatılamadı: ' + result.message);
+        setNotification({
+          show: true,
+          type: 'error',
+          title: '❌ AI Analizi Başlatılamadı',
+          message: result.message || 'Bilinmeyen hata',
+          details: ''
+        });
       }
     } catch (error) {
-      alert('❌ Hata: ' + error.message);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: '❌ Hata',
+        message: error.message || 'AI analizi başlatılamadı',
+        details: error.stack || ''
+      });
       console.error('AI Analysis start error:', error);
     } finally {
       setAiLoading(false);
@@ -348,6 +506,7 @@ const SqlConnectionSettings = () => {
   const handleNewConnection = () => {
     setIsFormOpen(true);
     setEditingConnection(null);
+    setSavedConnectionId(null); // Saved connection ID'yi temizle
     setFormData({
       name: '',
       host: '',
@@ -358,6 +517,55 @@ const SqlConnectionSettings = () => {
       trustServerCertificate: true
     });
     setTestStatus({ type: '', message: '' });
+  };
+
+  const handleAnalyzeSchema = async (connection) => {
+    const connId = connection.savedConnectionId || connection.id;
+    if (!connId) {
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Hata',
+        message: 'Bağlantı ID bulunamadı'
+      });
+      return;
+    }
+
+    // Set analyzing state
+    setConnections(prev => prev.map(c => 
+      c.id === connection.id ? { ...c, _analyzing: true } : c
+    ));
+
+    try {
+      const result = await analyzeConnectionSchema(connId);
+      if (result.success) {
+        setNotification({
+          show: true,
+          type: 'success',
+          title: 'Schema Analiz Edildi!',
+          message: 'PyCaret config başarıyla oluşturuldu. AI Sorgulama sayfasına giderek sorularınızı sorabilirsiniz.',
+          details: result.schemaSummary || ''
+        });
+      } else {
+        setNotification({
+          show: true,
+          type: 'error',
+          title: 'Analiz Başarısız',
+          message: result.error || 'Schema analizi sırasında hata oluştu'
+        });
+      }
+    } catch (err) {
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Hata',
+        message: err.response?.data?.detail || err.message
+      });
+    } finally {
+      setConnections(prev => prev.map(c => 
+        c.id === connection.id ? { ...c, _analyzing: false } : c
+      ));
+    }
   };
 
   return (
@@ -584,6 +792,23 @@ const SqlConnectionSettings = () => {
                     onClick={() => handleOpenModal(connection)}
                   >
                     <i className="ti ti-table"></i> Tablo Seç
+                  </button>
+                  <button 
+                    className="btn btn-sm btn-info"
+                    onClick={() => handleAnalyzeSchema(connection)}
+                    disabled={connection._analyzing}
+                  >
+                    {connection._analyzing ? (
+                      <><span className="spinner"></span> Analiz Ediliyor...</>
+                    ) : (
+                      <><i className="ti ti-sparkles"></i> Analiz Et</>
+                    )}
+                  </button>
+                  <button 
+                    className="btn btn-sm btn-purple"
+                    onClick={() => window.location.href = `/ai-query?connectionId=${connection.savedConnectionId || connection.id}`}
+                  >
+                    <i className="ti ti-brain"></i> AI Sorgulama
                   </button>
                   {connection.selectedTables && connection.selectedTables.length > 0 && (
                     <button 
@@ -957,6 +1182,34 @@ const SqlConnectionSettings = () => {
               >
                 <i className="ti ti-check"></i> 
                 Seçilenleri Kaydet ({selectedTablesForSave.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Modal */}
+      {notification.show && (
+        <div className="notification-overlay" onClick={() => setNotification({ ...notification, show: false })}>
+          <div className="notification-modal" onClick={(e) => e.stopPropagation()}>
+            <div className={`notification-header notification-${notification.type}`}>
+              <h3>{notification.title}</h3>
+              <button className="notification-close" onClick={() => setNotification({ ...notification, show: false })}>
+                <i className="ti ti-x"></i>
+              </button>
+            </div>
+            <div className="notification-body">
+              <p className="notification-message">{notification.message}</p>
+              {notification.details && (
+                <pre className="notification-details">{notification.details}</pre>
+              )}
+            </div>
+            <div className="notification-footer">
+              <button 
+                className={`btn btn-${notification.type === 'success' ? 'primary' : 'secondary'}`}
+                onClick={() => setNotification({ ...notification, show: false })}
+              >
+                Tamam
               </button>
             </div>
           </div>

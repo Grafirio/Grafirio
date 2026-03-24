@@ -15,8 +15,14 @@ builder.Services.AddStackExchangeRedisCache(options => { options.Configuration =
 builder.Services.AddVersioningExt();
 
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
+
 var app = builder.Build();
+
+// Global Exception Handling & Logging
+app.UseGlobalExceptionHandling();
+
 app.AddBasketGroupEndpointExt(app.AddVersionSetExt());
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -26,6 +32,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Health Check
+app.MapGet("/health", () => Results.Ok(new 
+{ 
+    Status = "Healthy", 
+    Service = "Basket API",
+    Timestamp = DateTime.UtcNow 
+}))
+.WithName("HealthCheck")
+.WithTags("Health");
 
 
 app.Run();

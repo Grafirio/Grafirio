@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
+using Grafirio.DataAnalysis.Api.Services;
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
@@ -69,6 +70,7 @@ public static class AIReportEndpoints
 
     private static async Task<IResult> AskQuestion(
         AskQuestionRequest request,
+        GeminiService geminiService,
         ILogger<AskQuestionRequest> logger)
     {
         try
@@ -76,30 +78,48 @@ public static class AIReportEndpoints
             logger.LogInformation("🤖 Processing AI question. RequestId: {RequestId}, Question: {Question}", 
                 request.RequestId, request.Question);
 
-            // 🚀 TÜM SORULARI DJANGO AI'YA GÖNDER
-            // Manuel keyword matching yerine AI'nın doğal dil işleme gücünü kullan
-            logger.LogInformation("🧠 Sending all questions to Django AI for intelligent processing");
-            
-            await SendQuestionToDjangoAI(request, logger);
-            
-            // WebSocket veya polling ile cevap gelecek
-            // Şimdilik placeholder cevap
-            var placeholderChart = new ChartResponse("line", "🤖 AI Analizi Devam Ediyor", 
-                new { 
-                    labels = new[] { "Analiz Ediliyor" }, 
-                    datasets = new[] { 
-                        new { label = "Durum", data = new[] { 1 } }
-                    }
-                });
+            // Sorunun tipini belirle: Basit sohbet mi, veri analizi mi?
+            var isDataQuery = GeminiService.IsDataAnalysisQuery(request.Question);
 
-            return Results.Ok(new AskQuestionResponse(
-                Success: true,
-                Question: request.Question,
-                Answer: "🤖 Sorunuz Django AI tarafından analiz ediliyor. NLP modeli veritabanı şemasını ve sorunuzu anlayıp " +
-                        "SQL sorgusu oluşturuyor. Cevap birkaç saniye içinde hazır olacak.",
-                Charts: new[] { placeholderChart },
-                AnsweredAt: DateTime.UtcNow
-            ));
+            if (!isDataQuery)
+            {
+                // 💬 Basit sohbet - direkt Gemini ile yanıtla
+                logger.LogInformation("💬 Detected chat message, responding with Gemini");
+                
+                var chatResult = await geminiService.ChatAsync(request.Question);
+                
+                logger.LogInformation("💬 Chat result: Success={Success}, Response={Response}", 
+                    chatResult.Success, chatResult.Response);
+                
+                var responseObj = new AskQuestionResponse(
+                    Success: chatResult.Success,
+                    Question: request.Question,
+                    Answer: chatResult.Response,
+                    Charts: Array.Empty<ChartResponse>(),
+                    AnsweredAt: DateTime.UtcNow
+                );
+                
+                logger.LogInformation("💬 Sending response: Success={Success}, Answer={Answer}", 
+                    responseObj.Success, responseObj.Answer);
+                
+                return Results.Ok(responseObj);
+            }
+            else
+            {
+                // 🚀 Veri analizi sorusu - Query Executor'a gönder
+                logger.LogInformation("🧠 Detected data analysis query, sending to Query Executor via RabbitMQ");
+                
+                await SendQuestionToQueryExecutor(request, logger);
+                
+                // Return immediate response, frontend will poll for results
+                return Results.Ok(new AskQuestionResponse(
+                    Success: true,
+                    Question: request.Question,
+                    Answer: "🔄 Sorgunuz işleniyor... Sonuçlar birkaç saniye içinde hazır olacak.",
+                    Charts: Array.Empty<ChartResponse>(),
+                    AnsweredAt: DateTime.UtcNow
+                ));
+            }
         }
         catch (Exception ex)
         {
@@ -108,11 +128,11 @@ public static class AIReportEndpoints
         }
     }
 
-    private static async Task SendQuestionToDjangoAI(AskQuestionRequest request, ILogger logger)
+    private static async Task SendQuestionToQueryExecutor(AskQuestionRequest request, ILogger logger)
     {
         var factory = new ConnectionFactory
         {
-            HostName = "localhost",
+            HostName = Environment.GetEnvironmentVariable("RabbitMQ__Host") ?? "rabbitmq.container",
             Port = 5672,
             UserName = "guest",
             Password = "guest123"
@@ -121,30 +141,35 @@ public static class AIReportEndpoints
         await using var connection = await factory.CreateConnectionAsync();
         await using var channel = await connection.CreateChannelAsync();
 
-        await channel.ExchangeDeclareAsync(
-            exchange: "ai.requests",
-            type: ExchangeType.Topic,
-            durable: true
+        // Declare question queue for query executor
+        await channel.QueueDeclareAsync(
+            queue: "ai.question.queue",
+            durable: true,
+            exclusive: false,
+            autoDelete: false,
+            arguments: null
         );
 
         var message = new
         {
             request_id = request.RequestId.ToString(),
             question = request.Question,
-            database = request.Database,
-            tables = request.Tables,
-            request_type = "question",
+            database = "GrafirioECommerce",  // Test database with 67,500 products
+            host = "grafirio-sqlserver-test",  // Test SQL Server
+            port = 1433,
+            username = "sa",
             timestamp = DateTime.UtcNow
         };
 
         var json = JsonSerializer.Serialize(message);
         var body = Encoding.UTF8.GetBytes(json);
 
-        logger.LogInformation("📤 Sending question to Django AI: {Size} bytes", body.Length);
+        logger.LogInformation("📤 Sending question to Query Executor: RequestId={RequestId}, Question={Question}", 
+            request.RequestId, request.Question);
 
         await channel.BasicPublishAsync(
-            exchange: "ai.requests",
-            routingKey: "ai.request.question",
+            exchange: "",
+            routingKey: "ai.question.queue",
             body: body
         );
     }

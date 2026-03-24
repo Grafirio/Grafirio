@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { IconRefresh, IconCheck, IconClock, IconAlertCircle, IconLoader2, IconChartBar } from '@tabler/icons-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { IconRefresh, IconCheck, IconClock, IconAlertCircle, IconLoader2, IconChartBar, IconUser, IconRobot, IconSend } from '@tabler/icons-react';
 import { getAnalysisStatus, generateAIReport, askAIQuestion } from '../services/dataAnalysisService';
 import {
   Chart as ChartJS,
@@ -42,6 +42,13 @@ const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState(null); // Aktif database tab'i
   const [apiStatus, setApiStatus] = useState({ online: false, checking: true }); // API durumu
   const [loadingReport, setLoadingReport] = useState(false); // Rapor yüklenme durumu
+  
+  // Chat için yeni state'ler
+  const [messages, setMessages] = useState([]); // {role: 'user'|'ai', content, result, timestamp}
+  const [question, setQuestion] = useState('');
+  const [isQuerying, setIsQuerying] = useState(false);
+  const chatEndRef = useRef(null);
+  const questionInputRef = useRef(null);
 
   // localStorage'dan aktif analizleri yükle
   useEffect(() => {
@@ -51,7 +58,7 @@ const DashboardPage = () => {
     const interval = setInterval(() => {
       loadActiveAnalyses();
       checkApiHealth();
-    }, 5000); // Her 5 saniyede bir kontrol
+    }, 10000); // Her 10 saniyede bir kontrol (5'ten 10'a çıkardık)
     
     return () => clearInterval(interval);
   }, []);
@@ -62,6 +69,20 @@ const DashboardPage = () => {
       setActiveTab(completedAnalyses[0].requestId);
     }
   }, [completedAnalyses]);
+
+  // Auto scroll to bottom when new messages arrive
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Active tab değiştiğinde mesajları temizle
+  useEffect(() => {
+    if (activeTab) {
+      setMessages([]);
+      setCurrentReport(null);
+      setQuestion('');
+    }
+  }, [activeTab]);
 
   const checkApiHealth = async () => {
     try {
@@ -89,8 +110,15 @@ const DashboardPage = () => {
           completed.push(analysis);
         } else {
           active.push(analysis);
-          // Backend'den güncel durumu al
-          checkAnalysisStatus(analysis.requestId);
+          // Sadece processing durumundakileri kontrol et (throttle)
+          if (analysis.status === 'processing') {
+            // Son çağrıdan 8 saniye geçmediyse tekrar çağırma
+            const lastCheck = analysis.lastStatusCheck || 0;
+            const now = Date.now();
+            if (now - lastCheck > 8000) {
+              checkAnalysisStatus(analysis.requestId);
+            }
+          }
         }
       });
 
@@ -115,7 +143,8 @@ const DashboardPage = () => {
             status: result.status,
             progress: result.progress,
             message: result.message,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            lastStatusCheck: Date.now() // Son kontrol zamanını kaydet
           };
 
           // Eğer completed ise mock data ekle
@@ -186,23 +215,37 @@ const DashboardPage = () => {
     }
   };
 
-  const handleAskQuestion = async (analysis, question) => {
-    if (!question || question.trim() === '') {
+  const handleAskQuestion = async (analysis, userQuestion) => {
+    if (!userQuestion || userQuestion.trim() === '') {
       alert('⚠️ Lütfen bir soru girin!');
       return;
     }
 
-    console.log('🔄 Asking question:', question, 'for analysis:', analysis);
+    const questionText = userQuestion.trim();
     
-    setLoadingReport(true);
-    setSelectedAnalysis(analysis);
-    setActiveReportType('question');
-    setCurrentReport(null); // Önce temizle
+    // Add user message
+    const userMessage = {
+      role: 'user',
+      content: questionText,
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setQuestion('');
+    setIsQuerying(true);
+    
+    // Add AI loading message
+    const loadingMessage = {
+      role: 'ai',
+      content: 'Analiz yapılıyor...',
+      loading: true,
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, loadingMessage]);
     
     try {
       const response = await askAIQuestion(
         analysis.requestId, 
-        question, 
+        questionText, 
         analysis.database, 
         analysis.tables || []
       );
@@ -210,20 +253,172 @@ const DashboardPage = () => {
       console.log('✅ Question response:', response);
       
       if (response.success) {
-        setCurrentReport(response);
+        // Check if result is immediate or needs polling
+        if (response.charts && response.charts.length > 0) {
+          // Immediate result (mock data)
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
+              newMessages[lastIdx] = {
+                role: 'ai',
+                content: response.answer || 'Analiz tamamlandı.',
+                result: response,
+                timestamp: new Date().toISOString()
+              };
+            }
+            return newMessages;
+          });
+          setCurrentReport(response);
+        } else {
+          // Start polling for result
+          startPollingForResult(analysis.requestId, questionText);
+        }
       } else {
-        alert(`⚠️ Soru cevaplanamadı: ${response.message || 'Bilinmeyen hata'}`);
+        // Replace loading message with error
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastIdx = newMessages.length - 1;
+          if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
+            newMessages[lastIdx] = {
+              role: 'ai',
+              content: `❌ ${response.message || 'Soru cevaplanamadı'}`,
+              error: true,
+              timestamp: new Date().toISOString()
+            };
+          }
+          return newMessages;
+        });
       }
     } catch (error) {
       console.error('❌ Question error:', error);
-      alert(`❌ Soru cevaplanamadı: ${error.message}`);
+      
+      // Replace loading message with error
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastIdx = newMessages.length - 1;
+        if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
+          newMessages[lastIdx] = {
+            role: 'ai',
+            content: `❌ ${error.message || 'Bir hata oluştu'}`,
+            error: true,
+            timestamp: new Date().toISOString()
+          };
+        }
+        return newMessages;
+      });
     } finally {
-      setLoadingReport(false);
+      setIsQuerying(false);
     }
   };
 
-  const handleQuickQuestion = (analysis, question) => {
-    handleAskQuestion(analysis, question);
+  const startPollingForResult = (requestId, question) => {
+    console.log('🔄 Starting polling for:', requestId);
+    let attempts = 0;
+    const maxAttempts = 30; // 30 seconds max
+    
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      
+      try {
+        const response = await fetch(`${API_BASE}/data-analysis/api/ai/reports/status/${requestId}`);
+        const data = await response.json();
+        
+        console.log(`🔄 Poll attempt ${attempts}:`, data);
+        
+        if (data.status === 'completed') {
+          clearInterval(pollInterval);
+          
+          // Update message with result
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
+              newMessages[lastIdx] = {
+                role: 'ai',
+                content: data.result?.answer || 'Analiz tamamlandı!',
+                result: data.result,
+                timestamp: new Date().toISOString()
+              };
+            }
+            return newMessages;
+          });
+          
+          if (data.result) {
+            setCurrentReport(data.result);
+          }
+          
+          setIsQuerying(false);
+        } else if (data.status === 'failed') {
+          clearInterval(pollInterval);
+          
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (newMessages[lastIdx]?.role === 'ai') {
+              newMessages[lastIdx] = {
+                role: 'ai',
+                content: `❌ Analiz başarısız: ${data.result?.error || 'Bilinmeyen hata'}`,
+                error: true,
+                timestamp: new Date().toISOString()
+              };
+            }
+            return newMessages;
+          });
+          
+          setIsQuerying(false);
+        } else if (data.progress) {
+          // Update progress message
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
+              newMessages[lastIdx].content = `${data.progressMessage || 'İşleniyor...'} (${data.progress}%)`;
+            }
+            return newMessages;
+          });
+        }
+        
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          console.warn('⚠️ Polling timeout');
+          
+          setMessages(prev => {
+            const newMessages = [...prev];
+            const lastIdx = newMessages.length - 1;
+            if (newMessages[lastIdx]?.role === 'ai') {
+              newMessages[lastIdx] = {
+                role: 'ai',
+                content: '⏱️ Zaman aşımı. Lütfen tekrar deneyin.',
+                error: true,
+                timestamp: new Date().toISOString()
+              };
+            }
+            return newMessages;
+          });
+          
+          setIsQuerying(false);
+        }
+      } catch (error) {
+        console.error('🔄 Polling error:', error);
+      }
+    }, 1000); // Poll every second
+  };
+
+  const handleQuickQuestion = (analysis, questionText) => {
+    setQuestion(questionText);
+    setTimeout(() => {
+      handleAskQuestion(analysis, questionText);
+    }, 100);
+  };
+
+  // Mesaja tıklanınca sonucu göster
+  const handleSelectMessage = (message) => {
+    if (message.role === 'ai' && message.result) {
+      setCurrentReport(message.result);
+    }
   };
 
   // Chart render fonksiyonu
@@ -345,6 +540,47 @@ const DashboardPage = () => {
         <span className="status-time">Son kontrol: {new Date().toLocaleTimeString('tr-TR')}</span>
       </div>
 
+      {/* Aktif Analizler - İşleniyor */}
+      {activeAnalyses.length > 0 && (
+        <div className="active-analyses-section">
+          <h2 className="section-title">
+            <IconLoader2 className="spin" size={24} />
+            Devam Eden Analizler
+          </h2>
+          <div className="active-analyses-grid">
+            {activeAnalyses.map(analysis => (
+              <div key={analysis.requestId} className="active-analysis-card">
+                <div className="active-analysis-header">
+                  <div className="database-icon">💾</div>
+                  <div className="analysis-info">
+                    <h3>{analysis.database}</h3>
+                    <p className="analysis-meta">{analysis.tables?.length || 0} tablo</p>
+                  </div>
+                </div>
+                <div className="progress-section">
+                  <div className="progress-bar-container">
+                    <div className="progress-bar" style={{ width: `${analysis.progress}%` }}></div>
+                  </div>
+                  <div className="progress-info">
+                    <span className="progress-percentage">{analysis.progress}%</span>
+                    <span className="progress-message">{analysis.message}</span>
+                  </div>
+                </div>
+                <div className="analysis-details">
+                  <div className="detail-item">
+                    <IconClock size={16} />
+                    <span>{formatDate(analysis.startedAt)}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="badge badge-info">{analysis.status === 'processing' ? 'İşleniyor' : 'Bekliyor'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Tamamlanmış Analizler */}
       {completedAnalyses.length > 0 ? (
         <>
@@ -414,45 +650,93 @@ const DashboardPage = () => {
                         </div>
                       </div>
 
-                      {/* Serbest Soru Sorma Alanı */}
-                      <div className="question-area">
-                        <h4>💬 Verileriniz Hakkında Soru Sorun</h4>
-                        <div className="question-input-wrapper">
-                    <input
-                      type="text"
-                      placeholder={`Örnek: "${analysis.database}" veritabanındaki kullanıcı sayısı nedir?`}
-                      className="question-input"
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleAskQuestion(analysis, e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                    <button 
-                      className="btn-ask"
-                      onClick={(e) => {
-                        const input = e.target.previousElementSibling;
-                        handleAskQuestion(analysis, input.value);
-                        input.value = '';
-                      }}
-                    >
-                      Analiz Et
-                    </button>
+                      {/* Serbest Soru Sorma Alanı - CHAT INTERFACE */}
+                      <div className="chat-section">
+                        <h4>💬 AI Asistan</h4>
+                        
+                        {/* Chat Messages */}
+                        <div className="chat-messages-container">
+                          {messages.length === 0 ? (
+                            <div className="chat-welcome">
+                              <IconRobot size={48} />
+                              <p>Merhaba! Verileriniz hakkında soru sorabilirsiniz.</p>
+                              <div className="example-questions">
+                                <small>Örnek sorular:</small>
+                                <span onClick={() => handleQuickQuestion(analysis, 'En aktif kullanıcılar kimler?')}>
+                                  En aktif kullanıcılar kimler?
+                                </span>
+                                <span onClick={() => handleQuickQuestion(analysis, 'Aylık veri artışı nedir?')}>
+                                  Aylık veri artışı nedir?
+                                </span>
+                                <span onClick={() => handleQuickQuestion(analysis, 'Hangi tabloda en çok kayıt var?')}>
+                                  Hangi tabloda en çok kayıt var?
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            messages.map((msg, idx) => (
+                              <div
+                                key={idx}
+                                className={`chat-message ${msg.role}`}
+                                onClick={() => handleSelectMessage(msg)}
+                              >
+                                <div className="message-avatar">
+                                  {msg.role === 'user' ? (
+                                    <IconUser size={20} />
+                                  ) : (
+                                    <IconRobot size={20} />
+                                  )}
+                                </div>
+                                <div className="message-content">
+                                  <div className="message-text">
+                                    {msg.loading ? (
+                                      <div className="typing-indicator">
+                                        <span></span><span></span><span></span>
+                                      </div>
+                                    ) : (
+                                      msg.content
+                                    )}
+                                  </div>
+                                  {msg.result && msg.result.charts && (
+                                    <div className="message-meta">
+                                      <IconChartBar size={14} />
+                                      <span>{msg.result.charts.length} grafik</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                          <div ref={chatEndRef} />
                         </div>
-                        <div className="question-examples">
-                          <small>Örnek sorular:</small>
-                          <div className="example-questions">
-                            <span onClick={(e) => handleQuickQuestion(analysis, e.target.textContent)}>
-                              En aktif kullanıcılar kimler?
-                            </span>
-                            <span onClick={(e) => handleQuickQuestion(analysis, e.target.textContent)}>
-                              Aylık veri artışı nedir?
-                            </span>
-                            <span onClick={(e) => handleQuickQuestion(analysis, e.target.textContent)}>
-                              Hangi tabloda en çok kayıt var?
-                            </span>
-                          </div>
+
+                        {/* Chat Input */}
+                        <div className="chat-input-area">
+                          <input
+                            ref={questionInputRef}
+                            type="text"
+                            placeholder={`"${analysis.database}" hakkında soru sorun...`}
+                            className="chat-input"
+                            value={question}
+                            onChange={(e) => setQuestion(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter' && !isQuerying) {
+                                handleAskQuestion(analysis, question);
+                              }
+                            }}
+                            disabled={isQuerying}
+                          />
+                          <button 
+                            className="btn-send-chat"
+                            onClick={() => handleAskQuestion(analysis, question)}
+                            disabled={!question.trim() || isQuerying}
+                          >
+                            {isQuerying ? (
+                              <IconLoader2 className="spin" size={20} />
+                            ) : (
+                              <IconSend size={20} />
+                            )}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -464,19 +748,13 @@ const DashboardPage = () => {
             
             {/* Sağ Panel - Aktif Rapor Görünümü */}
             <div className="right-panel">
-            {loadingReport ? (
-              <div className="loading-report">
-                <IconLoader2 className="spin" size={48} />
-                <h3>AI Rapor Oluşturuyor...</h3>
-                <p>Verileriniz analiz ediliyor, lütfen bekleyin...</p>
-              </div>
-            ) : currentReport ? (
+            {currentReport ? (
               <div className="report-display">
                 <div className="report-header">
                   <div>
                     <h2>{currentReport.title}</h2>
                     <p className="report-description">{currentReport.description}</p>
-                    <span className="report-type-badge">{activeReportType}</span>
+                    {activeReportType && <span className="report-type-badge">{activeReportType}</span>}
                   </div>
                   <button 
                     className="btn-close-report"

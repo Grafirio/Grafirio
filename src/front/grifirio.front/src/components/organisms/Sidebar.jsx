@@ -8,7 +8,10 @@ import {
   IconFileText,
   IconKey,
   IconUserCog,
-  IconId
+  IconId,
+  IconBrain,
+  IconDatabase,
+  IconChartBar
 } from '@tabler/icons-react';
 
 const menuItems = [
@@ -19,6 +22,14 @@ const menuItems = [
     subItems: [
       { path: '/company-info', name: 'Şirket Bilgileri', icon: <IconFileText size={24} /> },
       { path: '/departments', name: 'Departmanlar', icon: <IconUsers size={24} /> },
+    ],
+  },
+  {
+    name: 'Veri Analizi',
+    icon: <IconChartBar size={24} />,
+    subItems: [
+      { path: '/data-analysis', name: 'Veri Analizi', icon: <IconDatabase size={24} /> },
+      { path: '/settings/sql-connection', name: 'SQL Bağlantıları', icon: <IconDatabase size={24} /> },
     ],
   },
   {
@@ -36,6 +47,12 @@ const menuItems = [
 ];
 
 const Sidebar = () => {
+  const [openMenus, setOpenMenus] = useState({});
+
+  const handleToggle = (name) => {
+    setOpenMenus((prev) => ({ ...prev, [name]: !prev[name] }));
+  };
+
   return (
     <aside className="navbar navbar-vertical navbar-expand-lg navbar-light">
       <div className="container-fluid">
@@ -47,10 +64,6 @@ const Sidebar = () => {
         <div className="collapse navbar-collapse" id="sidebar-menu">
           <ul className="navbar-nav pt-lg-3">
             {menuItems.map((item, idx) => {
-              const [openMenus, setOpenMenus] = useState({});
-              const handleToggle = (name) => {
-                setOpenMenus((prev) => ({ ...prev, [name]: !prev[name] }));
-              };
               if (item.subItems) {
                 return (
                   <li className="nav-item" key={item.name}>

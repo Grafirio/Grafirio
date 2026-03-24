@@ -1,10 +1,10 @@
 import Keycloak from 'keycloak-js';
 
-// Keycloak konfigürasyonu
+// Keycloak konfigürasyonu - Environment variable'lardan oku
 const keycloakConfig = {
-  url: 'http://localhost:8080',
-  realm: 'master',
-  clientId: 'Grifirio',
+  url: import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8080',
+  realm: import.meta.env.VITE_KEYCLOAK_REALM || 'grafirio',
+  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID || 'grafirio-client',
 };
 
 // Singleton pattern - Keycloak instance'ını sadece bir kez oluştur

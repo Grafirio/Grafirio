@@ -3,7 +3,7 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Serilog'u appsettings.json'dan okuyacak þekilde yapýlandýr
+// Serilog'u appsettings.json'dan okuyacak ï¿½ekilde yapï¿½landï¿½r
 builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
@@ -13,11 +13,16 @@ builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 
 var app = builder.Build();
 
-// Gateway'e gelen her isteði otomatik loglamak için bu middleware'i ekleyin
+// Global Exception Handling
+app.UseCorrelationId();
+app.UseGlobalExceptionHandler();
+
+// Gateway'e gelen her isteÄŸi otomatik loglamak iÃ§in bu middleware'i ekleyin
 app.UseSerilogRequestLogging();
 
 app.MapReverseProxy();
 app.MapGet("/", () => "YARP (Gateway)");
+app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Service = "API Gateway", Timestamp = DateTime.UtcNow }));
 app.UseAuthentication();
 app.UseAuthorization();
 
