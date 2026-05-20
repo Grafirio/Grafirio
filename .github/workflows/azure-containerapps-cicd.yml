@@ -1,0 +1,85 @@
+name: Azure Container Apps CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: grifirio-rg
+  ACR_NAME: grifirioacr
+  ACR_LOGIN_SERVER: grifirioacr.azurecr.io
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: ACR Login
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build, Push, and Deploy Images
+        env:
+          TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          build_push_update() {
+            local image_name="$1"
+            local dockerfile_path="$2"
+            local build_context="$3"
+            local app_name="$4"
+
+            local full_image="$ACR_LOGIN_SERVER/$image_name:$TAG"
+
+            echo "Building $full_image"
+            docker build -t "$full_image" -f "$dockerfile_path" "$build_context"
+
+            echo "Pushing $full_image"
+            docker push "$full_image"
+
+            echo "Updating container app $app_name"
+            az containerapp update \
+              --name "$app_name" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$full_image"
+          }
+
+          # AI services
+          build_push_update "django-ai" "./src/ai/grafirio-ai-service/Dockerfile" "./src/ai/grafirio-ai-service" "django-ai"
+          build_push_update "schema-analyzer" "./src/ai/ai-service-schema-analyzer/Dockerfile" "./src/ai/ai-service-schema-analyzer" "schema-analyzer"
+          build_push_update "pycaret-engine" "./src/ai/ai-service-pycaret-engine/Dockerfile" "./src/ai/ai-service-pycaret-engine" "pycaret-engine"
+
+          # .NET services
+          build_push_update "identity-api" "./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile" "." "identity-api"
+          build_push_update "catalog-api" "./src/services/Grafirio.Catalog.Api/Dockerfile" "." "catalog-api"
+          build_push_update "basket-api" "./src/services/Grafirio.Basket.Api/Dockerfile" "." "basket-api"
+          build_push_update "data-analysis-api" "./src/services/Grafirio.DataAnalysis.Api/Dockerfile" "." "data-analysis-api"
+          build_push_update "gateway" "./src/services/Grafirio.Gateway/Dockerfile" "." "gateway"
+
+          # Frontend services
+          build_push_update "frontend" "./src/front/grifirio.front/Dockerfile" "./src/front/grifirio.front" "frontend"
+          build_push_update "projectadmin" "./src/front/admins/grifirio.projectadmin/Dockerfile" "./src/front/admins/grifirio.projectadmin" "projectadmin"
+          build_push_update "useradmin" "./src/front/admins/grifirio.useradmin/Dockerfile" "./src/front/admins/grifirio.useradmin" "useradmin"
+          build_push_update "service-manager-api" "./src/front/admins/grifirio.projectadmin/api/Dockerfile" "./src/front/admins/grifirio.projectadmin/api" "service-manager-api"
+
+      - name: Show Service Status
+        run: |
+          az containerapp list \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[].{name:name,state:properties.runningStatus}" \
+            -o table
