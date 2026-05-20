@@ -13,8 +13,8 @@ export default defineConfig({
         port: 59264,
         host: '0.0.0.0',
         strictPort: true,
-        // Allow wildcard hosts to completely bypass local host checking on Azure.
-        allowedHosts: ['*']
+        // Bypass host checking on Azure completely by setting allowedHosts to true
+        allowedHosts: true
     },
     build: {
         outDir: 'dist',
