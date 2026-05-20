@@ -2,6 +2,18 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Add Build Arguments for Vite Environment Variables
+ARG VITE_KEYCLOAK_URL=https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
+ARG VITE_KEYCLOAK_REALM=master
+ARG VITE_KEYCLOAK_CLIENT_ID=grafirio-client
+ARG VITE_API_GATEWAY_URL=https://gateway.proudcoast-6064711b.westeurope.azurecontainerapps.io
+
+# Expose build args as Environment Variables so Vite build reads them
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
+ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
+ENV VITE_API_GATEWAY_URL=$VITE_API_GATEWAY_URL
+
 # Copy package files
 COPY package*.json ./
 
