@@ -13,6 +13,7 @@ export default defineConfig({
         port: 59264,
         host: '0.0.0.0',
         strictPort: true,
+        // Allow custom test domain behind Azure Container Apps ingress.
         allowedHosts: [
             'test.grafirio.com'
         ]
