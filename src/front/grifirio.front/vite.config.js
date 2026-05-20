@@ -13,8 +13,8 @@ export default defineConfig({
         port: 59264,
         host: '0.0.0.0',
         strictPort: true,
-        // Allow all hosts behind Azure Ingress to bypass local host filtering.
-        allowedHosts: true
+        // Allow wildcard hosts to completely bypass local host checking on Azure.
+        allowedHosts: ['*']
     },
     build: {
         outDir: 'dist',
