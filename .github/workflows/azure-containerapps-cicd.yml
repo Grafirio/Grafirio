@@ -5,7 +5,35 @@ on:
     branches:
       - main
       - master
+    paths:
+      - .github/workflows/azure-containerapps-cicd.yml
+      - src/**
   workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy target
+        required: true
+        default: all
+        type: choice
+        options:
+          - changed
+          - all
+          - django-ai
+          - schema-analyzer
+          - pycaret-engine
+          - identity-api
+          - catalog-api
+          - basket-api
+          - data-analysis-api
+          - gateway
+          - frontend
+          - projectadmin
+          - useradmin
+          - service-manager-api
+
+concurrency:
+  group: azure-containerapps-cicd-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   id-token: write
@@ -17,8 +45,138 @@ env:
   ACR_LOGIN_SERVER: grifirioacr.azurecr.io
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+      has_changes: ${{ steps.generate-matrix.outputs.has_changes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect changed services
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            django-ai:
+              - 'src/ai/grafirio-ai-service/**'
+            schema-analyzer:
+              - 'src/ai/ai-service-schema-analyzer/**'
+            pycaret-engine:
+              - 'src/ai/ai-service-pycaret-engine/**'
+            identity-api:
+              - 'src/services/Grafirio.Identity.Api/**'
+            catalog-api:
+              - 'src/services/Grafirio.Catalog.Api/**'
+            basket-api:
+              - 'src/services/Grafirio.Basket.Api/**'
+            data-analysis-api:
+              - 'src/services/Grafirio.DataAnalysis.Api/**'
+            gateway:
+              - 'src/services/Grafirio.Gateway/**'
+            frontend:
+              - 'src/front/grifirio.front/**'
+            projectadmin:
+              - 'src/front/admins/grifirio.projectadmin/**'
+            useradmin:
+              - 'src/front/admins/grifirio.useradmin/**'
+            service-manager-api:
+              - 'src/front/admins/grifirio.projectadmin/api/**'
+
+      - name: Build deployment matrix
+        id: generate-matrix
+        env:
+          FILTER_DJANGO_AI: ${{ steps.filter.outputs.django-ai }}
+          FILTER_SCHEMA_ANALYZER: ${{ steps.filter.outputs.schema-analyzer }}
+          FILTER_PYCARET_ENGINE: ${{ steps.filter.outputs.pycaret-engine }}
+          FILTER_IDENTITY_API: ${{ steps.filter.outputs.identity-api }}
+          FILTER_CATALOG_API: ${{ steps.filter.outputs.catalog-api }}
+          FILTER_BASKET_API: ${{ steps.filter.outputs.basket-api }}
+          FILTER_DATA_ANALYSIS_API: ${{ steps.filter.outputs.data-analysis-api }}
+          FILTER_GATEWAY: ${{ steps.filter.outputs.gateway }}
+          FILTER_FRONTEND: ${{ steps.filter.outputs.frontend }}
+          FILTER_PROJECTADMIN: ${{ steps.filter.outputs.projectadmin }}
+          FILTER_USERADMIN: ${{ steps.filter.outputs.useradmin }}
+          FILTER_SERVICE_MANAGER_API: ${{ steps.filter.outputs.service-manager-api }}
+          TARGET_INPUT: ${{ github.event.inputs.target || '' }}
+        run: |
+          set -euo pipefail
+
+          SERVICES='[
+            {"key":"django-ai","image":"django-ai","dockerfile":"./src/ai/grafirio-ai-service/Dockerfile","context":"./src/ai/grafirio-ai-service","app":"django-ai"},
+            {"key":"schema-analyzer","image":"schema-analyzer","dockerfile":"./src/ai/ai-service-schema-analyzer/Dockerfile","context":"./src/ai/ai-service-schema-analyzer","app":"schema-analyzer"},
+            {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine"},
+            {"key":"identity-api","image":"identity-api","dockerfile":"./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile","context":".","app":"identity-api"},
+            {"key":"catalog-api","image":"catalog-api","dockerfile":"./src/services/Grafirio.Catalog.Api/Dockerfile","context":".","app":"catalog-api"},
+            {"key":"basket-api","image":"basket-api","dockerfile":"./src/services/Grafirio.Basket.Api/Dockerfile","context":".","app":"basket-api"},
+            {"key":"data-analysis-api","image":"data-analysis-api","dockerfile":"./src/services/Grafirio.DataAnalysis.Api/Dockerfile","context":".","app":"data-analysis-api"},
+            {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway"},
+            {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend"},
+            {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin"},
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin"},
+            {"key":"service-manager-api","image":"service-manager-api","dockerfile":"./src/front/admins/grifirio.projectadmin/api/Dockerfile","context":"./src/front/admins/grifirio.projectadmin/api","app":"service-manager-api"}
+          ]'
+
+          include_all=false
+          selected_service=""
+          target="${TARGET_INPUT:-changed}"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "$target" = "all" ]; then
+              include_all=true
+            elif [ "$target" != "changed" ] && [ -n "$target" ]; then
+              selected_service="$target"
+            fi
+          fi
+
+          changed_keys=""
+          for key in django-ai schema-analyzer pycaret-engine identity-api catalog-api basket-api data-analysis-api gateway frontend projectadmin useradmin service-manager-api; do
+            env_key="FILTER_$(echo "$key" | tr '[:lower:]-' '[:upper:]_')"
+            value="${!env_key:-false}"
+            if [ "$value" = "true" ]; then
+              changed_keys="$changed_keys $key"
+            fi
+          done
+
+          if [ "$include_all" = true ]; then
+            matrix="$SERVICES"
+          elif [ -n "$selected_service" ]; then
+            matrix=$(echo "$SERVICES" | jq -c --arg key "$selected_service" '[.[] | select(.key == $key)]')
+          else
+            if [ -n "$changed_keys" ]; then
+              keys_json=$(printf '%s\n' $changed_keys | jq -R . | jq -sc .)
+              matrix=$(echo "$SERVICES" | jq -c --argjson keys "$keys_json" '[.[] | select(.key as $k | ($keys | index($k)) != null)]')
+            else
+              matrix='[]'
+            fi
+          fi
+
+          count=$(echo "$matrix" | jq 'length')
+          if [ "$count" -gt 0 ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Print selected services
+        run: |
+          echo "Has changes: ${{ steps.generate-matrix.outputs.has_changes }}"
+          echo "Matrix: ${{ steps.generate-matrix.outputs.matrix }}"
+
   build-push-deploy:
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -32,54 +190,38 @@ jobs:
       - name: ACR Login
         run: az acr login --name "$ACR_NAME"
 
-      - name: Build, Push, and Deploy Images
+      - name: Build, Push, and Deploy Service
         env:
           TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          build_push_update() {
-            local image_name="$1"
-            local dockerfile_path="$2"
-            local build_context="$3"
-            local app_name="$4"
+          full_image="$ACR_LOGIN_SERVER/${{ matrix.service.image }}:$TAG"
 
-            local full_image="$ACR_LOGIN_SERVER/$image_name:$TAG"
+          echo "Building $full_image"
+          docker build -t "$full_image" -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
 
-            echo "Building $full_image"
-            docker build -t "$full_image" -f "$dockerfile_path" "$build_context"
+          echo "Pushing $full_image"
+          docker push "$full_image"
 
-            echo "Pushing $full_image"
-            docker push "$full_image"
-
-            echo "Updating container app $app_name"
-            az containerapp update \
-              --name "$app_name" \
-              --resource-group "$RESOURCE_GROUP" \
-              --image "$full_image"
-          }
-
-          # AI services
-          build_push_update "django-ai" "./src/ai/grafirio-ai-service/Dockerfile" "./src/ai/grafirio-ai-service" "django-ai"
-          build_push_update "schema-analyzer" "./src/ai/ai-service-schema-analyzer/Dockerfile" "./src/ai/ai-service-schema-analyzer" "schema-analyzer"
-          build_push_update "pycaret-engine" "./src/ai/ai-service-pycaret-engine/Dockerfile" "./src/ai/ai-service-pycaret-engine" "pycaret-engine"
-
-          # .NET services
-          build_push_update "identity-api" "./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile" "." "identity-api"
-          build_push_update "catalog-api" "./src/services/Grafirio.Catalog.Api/Dockerfile" "." "catalog-api"
-          build_push_update "basket-api" "./src/services/Grafirio.Basket.Api/Dockerfile" "." "basket-api"
-          build_push_update "data-analysis-api" "./src/services/Grafirio.DataAnalysis.Api/Dockerfile" "." "data-analysis-api"
-          build_push_update "gateway" "./src/services/Grafirio.Gateway/Dockerfile" "." "gateway"
-
-          # Frontend services
-          build_push_update "frontend" "./src/front/grifirio.front/Dockerfile" "./src/front/grifirio.front" "frontend"
-          build_push_update "projectadmin" "./src/front/admins/grifirio.projectadmin/Dockerfile" "./src/front/admins/grifirio.projectadmin" "projectadmin"
-          build_push_update "useradmin" "./src/front/admins/grifirio.useradmin/Dockerfile" "./src/front/admins/grifirio.useradmin" "useradmin"
-          build_push_update "service-manager-api" "./src/front/admins/grifirio.projectadmin/api/Dockerfile" "./src/front/admins/grifirio.projectadmin/api" "service-manager-api"
-
-      - name: Show Service Status
-        run: |
-          az containerapp list \
+          echo "Updating container app ${{ matrix.service.app }}"
+          az containerapp update \
+            --name "${{ matrix.service.app }}" \
             --resource-group "$RESOURCE_GROUP" \
-            --query "[].{name:name,state:properties.runningStatus}" \
+            --image "$full_image"
+
+      - name: Show updated service status
+        run: |
+          az containerapp show \
+            --name "${{ matrix.service.app }}" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "{name:name,state:properties.runningStatus,latestRevision:properties.latestRevisionName}" \
             -o table
+
+  no-op:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes != 'true'
+    steps:
+      - name: No service changes detected
+        run: echo "No service-level changes detected. Skipping deployment."
