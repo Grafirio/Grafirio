@@ -12,7 +12,10 @@ export default defineConfig({
     preview: {
         port: 59264,
         host: '0.0.0.0',
-        strictPort: true
+        strictPort: true,
+        allowedHosts: [
+            'test.grafirio.com'
+        ]
     },
     build: {
         outDir: 'dist',
