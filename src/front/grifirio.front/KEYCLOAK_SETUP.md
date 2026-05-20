@@ -1,19 +1,21 @@
-# Keycloak Ayarları - 401 Unauthorized Hatası Çözümü
+# Keycloak Ayarları - Üretim Ortamı (Azure) ve Yerel Ortam Kılavuzu
 
 ## 🔧 Keycloak Admin Console'da Yapılması Gerekenler
 
 ### 1. Client Oluşturma/Düzenleme
 
-1. Keycloak Admin Console'a gidin: `http://localhost:8080`
-2. **Master** realm'ini seçin (veya kendi realm'inizi)
+1. Keycloak Admin Console'a gidin: 
+   - **Üretim (Azure):** `https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io`
+   - **Yerel (Local):** `http://localhost:8080`
+2. **Master** realm'ini seçin (veya kendi realm'inizi, örn: `master`)
 3. **Clients** menüsüne gidin
-4. **"Grifirio"** client'ını bulun veya oluşturun
+4. **"grafirio-client"** client'ını bulun veya oluşturun
 
 ### 2. Client Ayarları (Settings Tab)
 
 ```
-Client ID: Grifirio
-Name: Grifirio Frontend
+Client ID: grafirio-client
+Name: Grafirio Frontend
 Description: React Frontend Application
 
 Client Protocol: openid-connect
@@ -23,16 +25,25 @@ Implicit Flow Enabled: OFF
 Direct Access Grants Enabled: ON
 Service Accounts Enabled: OFF (public client ise)
 
-Root URL: http://localhost:59265
-Valid Redirect URIs: 
-  - http://localhost:59265/*
-  - http://localhost:59265/login/callback
-  - http://localhost:59264/*  (port değişirse diye)
+Root URL:
+  - Üretim: https://test.grafirio.com
+  - Yerel: http://localhost:59264
 
-Base URL: http://localhost:59265
-Admin URL: http://localhost:59265
+Valid Redirect URIs: 
+  - https://test.grafirio.com/*
+  - http://localhost:59264/*
+  - http://localhost:59264/login/callback
+
+Base URL: 
+  - Üretim: https://test.grafirio.com
+  - Yerel: http://localhost:59264
+
+Admin URL: 
+  - Üretim: https://test.grafirio.com
+  - Yerel: http://localhost:59264
+
 Web Origins: 
-  - http://localhost:59265
+  - https://test.grafirio.com
   - http://localhost:59264
   - +  (veya *)
 ```
@@ -58,12 +69,12 @@ Direct Grant Flow: direct grant
 
 1. **Client'ın "public" olarak ayarlandığından emin olun**
 2. **Valid Redirect URIs'nin doğru olduğunu kontrol edin**
-3. **Web Origins'e localhost eklendiğinden emin olun**
+3. **Web Origins'e localhost veya https://test.grafirio.com eklendiğinden emin olun**
 
 ### CORS Hataları
 
 Web Origins bölümüne şunları ekleyin:
-- `http://localhost:59265`
+- `https://test.grafirio.com`
 - `http://localhost:59264`
 - `*` (test için, production'da önerilmez)
 
@@ -89,9 +100,10 @@ React Console'da şu bilgileri kontrol edin:
 
 ## 🔗 Kullanışlı Keycloak Admin URLs
 
-- Admin Console: http://localhost:8080
-- Master Realm: http://localhost:8080/admin/master/console/
-- Clients: http://localhost:8080/admin/master/console/#/realms/master/clients
+- **Yerel Admin Console:** http://localhost:8080
+- **Üretim Admin Console:** https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
+- **Yerel Master Realm:** http://localhost:8080/admin/master/console/
+- **Üretim Master Realm:** https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io/admin/master/console/
 
 ---
 
