@@ -14,6 +14,7 @@ export default defineConfig({
         host: '0.0.0.0',
         strictPort: true,
         // Allow custom test domain behind Azure Container Apps ingress.
+        // Frontend-only deploy trigger: keep this comment in sync with domain rollout.
         allowedHosts: [
             'test.grafirio.com'
         ]
