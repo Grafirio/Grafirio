@@ -29,7 +29,6 @@ on:
           - frontend
           - projectadmin
           - useradmin
-          - service-manager-api
 
 concurrency:
   group: azure-containerapps-cicd-${{ github.ref }}
@@ -82,8 +81,6 @@ jobs:
               - 'src/front/admins/grifirio.projectadmin/**'
             useradmin:
               - 'src/front/admins/grifirio.useradmin/**'
-            service-manager-api:
-              - 'src/front/admins/grifirio.projectadmin/api/**'
 
       - name: Build deployment matrix
         id: generate-matrix
@@ -99,7 +96,6 @@ jobs:
           FILTER_FRONTEND: ${{ steps.filter.outputs.frontend }}
           FILTER_PROJECTADMIN: ${{ steps.filter.outputs.projectadmin }}
           FILTER_USERADMIN: ${{ steps.filter.outputs.useradmin }}
-          FILTER_SERVICE_MANAGER_API: ${{ steps.filter.outputs.service-manager-api }}
           TARGET_INPUT: ${{ github.event.inputs.target || '' }}
         run: |
           set -euo pipefail
@@ -115,8 +111,7 @@ jobs:
             {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway"},
             {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend"},
             {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin"},
-            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin"},
-            {"key":"service-manager-api","image":"service-manager-api","dockerfile":"./src/front/admins/grifirio.projectadmin/api/Dockerfile","context":"./src/front/admins/grifirio.projectadmin/api","app":"service-manager-api"}
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin"}
           ]'
 
           include_all=false
@@ -132,7 +127,7 @@ jobs:
           fi
 
           changed_keys=""
-          for key in django-ai schema-analyzer pycaret-engine identity-api catalog-api basket-api data-analysis-api gateway frontend projectadmin useradmin service-manager-api; do
+          for key in django-ai schema-analyzer pycaret-engine identity-api catalog-api basket-api data-analysis-api gateway frontend projectadmin useradmin; do
             env_key="FILTER_$(echo "$key" | tr '[:lower:]-' '[:upper:]_')"
             value="${!env_key:-false}"
             if [ "$value" = "true" ]; then
