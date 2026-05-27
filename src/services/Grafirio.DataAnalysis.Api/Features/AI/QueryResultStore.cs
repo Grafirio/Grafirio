@@ -1,17 +1,22 @@
-using System.Collections.Concurrent;
+using StackExchange.Redis;
+using System.Text.Json;
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
 /// <summary>
-/// In-memory store for AI query results (can be replaced with Redis later)
+/// Redis destekli AI sorgu sonucu deposu.
+/// In-memory değil → servis yeniden başlasa veya birden fazla instance çalışsa da veri korunur.
 /// </summary>
 public class QueryResultStore
 {
-    private readonly ConcurrentDictionary<Guid, QueryResult> _results = new();
+    private readonly IDatabase _redis;
     private readonly ILogger<QueryResultStore> _logger;
+    private static readonly TimeSpan Expiry = TimeSpan.FromHours(2);
+    private const string KeyPrefix = "ai:result:";
 
-    public QueryResultStore(ILogger<QueryResultStore> logger)
+    public QueryResultStore(IConnectionMultiplexer redis, ILogger<QueryResultStore> logger)
     {
+        _redis = redis.GetDatabase();
         _logger = logger;
     }
 
@@ -19,72 +24,49 @@ public class QueryResultStore
     {
         var queryResult = new QueryResult
         {
-            RequestId = requestId,
-            Result = result,
-            Status = status,
-            CompletedAt = DateTime.UtcNow
+            RequestId    = requestId,
+            Result       = result,
+            Status       = status,
+            CompletedAt  = DateTime.UtcNow,
+            UpdatedAt    = DateTime.UtcNow,
         };
 
-        _results[requestId] = queryResult;
-        _logger.LogInformation("📦 Stored result for RequestId: {RequestId}, Status: {Status}", requestId, status);
+        var json = JsonSerializer.Serialize(queryResult);
+        _redis.StringSet(KeyPrefix + requestId, json, Expiry);
+        _logger.LogInformation("📦 Redis'e yazıldı | RequestId: {RequestId} | Status: {Status}", requestId, status);
     }
 
     public void UpdateProgress(Guid requestId, int progress, string message)
     {
-        if (_results.TryGetValue(requestId, out var existing))
-        {
-            existing.Progress = progress;
-            existing.ProgressMessage = message;
-            existing.UpdatedAt = DateTime.UtcNow;
-        }
-        else
-        {
-            _results[requestId] = new QueryResult
-            {
-                RequestId = requestId,
-                Progress = progress,
-                ProgressMessage = message,
-                Status = "processing",
-                UpdatedAt = DateTime.UtcNow
-            };
-        }
+        var existing = GetResult(requestId);
+        var queryResult = existing ?? new QueryResult { RequestId = requestId };
 
-        _logger.LogInformation("📊 Progress update: {RequestId} - {Progress}% - {Message}", requestId, progress, message);
+        queryResult.Progress        = progress;
+        queryResult.ProgressMessage = message;
+        queryResult.Status          = "processing";
+        queryResult.UpdatedAt       = DateTime.UtcNow;
+
+        var json = JsonSerializer.Serialize(queryResult);
+        _redis.StringSet(KeyPrefix + requestId, json, Expiry);
+        _logger.LogInformation("📊 İlerleme güncellendi | {RequestId} — %{Progress} — {Message}", requestId, progress, message);
     }
 
     public QueryResult? GetResult(Guid requestId)
     {
-        _results.TryGetValue(requestId, out var result);
-        return result;
-    }
-
-    public void CleanOldResults(TimeSpan maxAge)
-    {
-        var cutoff = DateTime.UtcNow - maxAge;
-        var oldKeys = _results
-            .Where(kvp => kvp.Value.CompletedAt.HasValue && kvp.Value.CompletedAt < cutoff)
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in oldKeys)
-        {
-            _results.TryRemove(key, out _);
-        }
-
-        if (oldKeys.Count > 0)
-        {
-            _logger.LogInformation("🧹 Cleaned {Count} old results", oldKeys.Count);
-        }
+        var json = _redis.StringGet(KeyPrefix + requestId);
+        if (json.IsNullOrEmpty) return null;
+        return JsonSerializer.Deserialize<QueryResult>((string)json!);
     }
 }
 
 public class QueryResult
 {
-    public Guid RequestId { get; set; }
-    public object? Result { get; set; }
-    public string Status { get; set; } = "processing"; // processing, completed, failed
-    public int Progress { get; set; }
+    public Guid    RequestId       { get; set; }
+    public object? Result          { get; set; }
+    public string  Status          { get; set; } = "processing";
+    public int     Progress        { get; set; }
     public string? ProgressMessage { get; set; }
-    public DateTime? CompletedAt { get; set; }
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime?  CompletedAt  { get; set; }
+    public DateTime   UpdatedAt    { get; set; } = DateTime.UtcNow;
 }
+

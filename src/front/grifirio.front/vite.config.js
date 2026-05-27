@@ -7,7 +7,14 @@ export default defineConfig({
     base: '/',
     server: {
         port: 59264,
-        host: '0.0.0.0'
+        host: '0.0.0.0',
+        proxy: {
+            '/data-analysis': {
+                target: 'http://localhost:5221',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/data-analysis/, ''),
+            },
+        },
     },
     preview: {
         port: 59264,

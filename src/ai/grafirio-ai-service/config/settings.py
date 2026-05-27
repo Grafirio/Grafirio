@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -107,6 +108,12 @@ REST_FRAMEWORK = {
 # CORS Settings
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
 CORS_ALLOW_CREDENTIALS = True
+# Allow all origins in development (Vite uses dynamic ports)
+if os.getenv('DEBUG', 'True') == 'True':
+    CORS_ALLOW_ALL_ORIGINS = True
+
+# Gemini AI
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
 # Channels Configuration (WebSocket)
 CHANNEL_LAYERS = {
@@ -124,8 +131,17 @@ RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
 RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
 RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'guest')
 
+# MS SQL Server (GrafirioECommerce analytics DB)
+MSSQL_HOST     = os.getenv('MSSQL_HOST', 'sqlserver.db.order')
+MSSQL_PORT     = int(os.getenv('MSSQL_PORT', '1433'))
+MSSQL_DB       = os.getenv('MSSQL_DB', 'GrafirioECommerce')
+MSSQL_USER     = os.getenv('MSSQL_USER', 'sa')
+MSSQL_PASSWORD = os.getenv('MSSQL_PASSWORD', '')
+
 # Celery Configuration
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'amqp://{RABBITMQ_USER}:{RABBITMQ_PASSWORD}@{RABBITMQ_HOST}:{RABBITMQ_PORT}//')
+_rabbitmq_password_encoded = urllib.parse.quote(RABBITMQ_PASSWORD, safe='')
+_rabbitmq_user_encoded = urllib.parse.quote(RABBITMQ_USER, safe='')
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f'amqp://{_rabbitmq_user_encoded}:{_rabbitmq_password_encoded}@{RABBITMQ_HOST}:{RABBITMQ_PORT}//')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'

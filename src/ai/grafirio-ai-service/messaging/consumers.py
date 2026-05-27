@@ -1,6 +1,7 @@
 import pika
 import json
 import logging
+import threading
 from django.conf import settings
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -35,14 +36,15 @@ class AIRequestConsumer:
         
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
-        
-        # Declare exchange
+
+        # Fanout exchange — MassTransit IQuestionRequest buraya yayınlar.
+        # Routing key fanout'ta görmezden gelinir; tüm bağlı kuyruklar mesajı alır.
         self.channel.exchange_declare(
             exchange='ai.requests',
-            exchange_type='topic',
+            exchange_type='fanout',
             durable=True
         )
-        
+
         # Declare queue
         self.channel.queue_declare(
             queue='django.ai.requests',
@@ -64,32 +66,116 @@ class AIRequestConsumer:
         
         logger.info("AI Request Consumer connected to RabbitMQ")
     
+    def _extract_message(self, raw: dict) -> tuple[dict, str]:
+        """
+        MassTransit envelope'u veya düz mesajı normalize eder.
+        Döndürür: (message_dict, source_type)
+        MassTransit envelope formatı:
+        {
+            "messageType": ["urn:message:...:IQuestionRequest"],
+            "message": { "requestId": ..., "question": ..., "context": [...] }
+        }
+        """
+        if 'messageType' in raw and 'message' in raw:
+            # MassTransit envelope — camelCase → snake_case dönüşümü
+            inner = raw['message']
+            message = {
+                'request_id':   str(inner.get('requestId', '')),
+                'user_id':      inner.get('userId', 'web-user'),
+                'company_id':   inner.get('companyId', 'default'),
+                'request_time': inner.get('requestTime', ''),
+                'question':     inner.get('question', ''),
+                'context':      inner.get('context', []),  # List[{role, content}]
+                'database':     inner.get('database') or '',
+                'tables':       inner.get('tables') or [],
+            }
+            # Mesaj tipini belirle
+            msg_types = raw.get('messageType', [])
+            if any('IQuestionRequest' in t for t in msg_types):
+                return message, 'ai.request.question'
+            if any('IGraphDataRequest' in t for t in msg_types):
+                return message, 'ai.request.graph'
+            return message, 'unknown'
+        else:
+            # Düz mesaj (eski format / raw pika publish)
+            routing_key = raw.pop('__routing_key__', 'unknown')
+            return raw, routing_key
+
     def callback(self, ch, method, properties, body):
-        """Handle incoming AI request messages and trigger Celery tasks"""
+        """MassTransit veya düz RabbitMQ mesajlarını işle."""
         try:
-            message = json.loads(body)
-            routing_key = method.routing_key
-            
-            logger.info(f"Received AI request: {routing_key} - {message.get('request_id')}")
-            
-            # Import tasks here to avoid circular imports
-            from tasks.ai_tasks import process_graph_data_request, process_question_request
-            
-            # Trigger appropriate Celery task based on routing key
-            if routing_key == 'ai.request.graph':
-                process_graph_data_request.delay(message)
-            elif routing_key == 'ai.request.question':
-                process_question_request.delay(message)
+            raw = json.loads(body)
+
+            # MassTransit envelope için routing key'i mesaj tipinden çıkar,
+            # düz mesajlar için method.routing_key kullan
+            if 'messageType' in raw:
+                message, source = self._extract_message(raw)
             else:
-                logger.warning(f"Unknown routing key: {routing_key}")
-            
-            # Acknowledge message
+                message = raw
+                source = method.routing_key
+
+            logger.info(f"AI isteği alındı: {source} — {message.get('request_id')}")
+
+            from tasks import ai_tasks
+            import requests as http_requests
+            from django.conf import settings as dj_settings
+            import os
+            from datetime import datetime
+
+            def run_in_thread(fn, msg):
+                try:
+                    fn(msg)
+                except Exception as ex:
+                    logger.error(f"Thread task hatası: {type(ex).__name__}: {ex}")
+                    # Hata durumunda C# API'ye error sonucu gönder
+                    try:
+                        csharp_url = (
+                            getattr(dj_settings, 'CSHARP_API_URL', None)
+                            or os.getenv('CSHARP_API_URL', 'http://host.docker.internal:5221')
+                        )
+                        import json as _json
+                        err_msg = str(ex)
+                        if 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
+                            user_msg = 'AI servisi geçici olarak meşgul (rate limit). Lütfen 1 dakika sonra tekrar deneyin.'
+                        else:
+                            user_msg = f'İşlem sırasında bir hata oluştu: {err_msg[:120]}'
+                        http_requests.post(
+                            f"{csharp_url}/api/ai/query-result",
+                            json={
+                                'requestId': msg.get('request_id', ''),
+                                'status': 'error',
+                                'result': _json.dumps({'type': 'text', 'success': False, 'answer': user_msg, 'charts': []}),
+                                'completedAt': datetime.utcnow().isoformat(),
+                            },
+                            timeout=5,
+                        )
+                    except Exception as post_err:
+                        logger.error(f"Error sonucu gönderilemedi: {post_err}")
+
+            if source == 'ai.request.graph':
+                t = threading.Thread(
+                    target=run_in_thread,
+                    args=(ai_tasks._process_graph_data, message),
+                    daemon=True,
+                )
+                t.start()
+            elif source == 'ai.request.question':
+                t = threading.Thread(
+                    target=run_in_thread,
+                    args=(ai_tasks._process_question, message),
+                    daemon=True,
+                )
+                t.start()
+            else:
+                logger.warning(f"Bilinmeyen mesaj kaynağı/routing key: {source}")
+
             ch.basic_ack(delivery_tag=method.delivery_tag)
-            
+
         except Exception as e:
-            logger.error(f"Error processing AI request: {e}")
-            # Reject and requeue on error
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            import traceback
+            logger.error(f"Mesaj işleme hatası: {type(e).__name__}: {e}")
+            logger.error(traceback.format_exc())
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
     
     def start_consuming(self):
         """Start consuming messages"""

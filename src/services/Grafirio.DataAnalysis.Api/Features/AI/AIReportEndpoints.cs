@@ -1,8 +1,6 @@
-using Microsoft.AspNetCore.Mvc;
-using RabbitMQ.Client;
-using System.Text;
-using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Services;
+using Grafirio.Shared.MassTransit.Messages.AI;
+using MassTransit;
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
@@ -70,108 +68,51 @@ public static class AIReportEndpoints
 
     private static async Task<IResult> AskQuestion(
         AskQuestionRequest request,
-        GeminiService geminiService,
+        IPublishEndpoint publishEndpoint,
         ILogger<AskQuestionRequest> logger)
     {
         try
         {
-            logger.LogInformation("🤖 Processing AI question. RequestId: {RequestId}, Question: {Question}", 
+            logger.LogInformation(
+                "🤖 Soru MassTransit→RabbitMQ→Django pipeline'ına yönlendiriliyor. RequestId: {RequestId}, Soru: {Question}",
                 request.RequestId, request.Question);
 
-            // Sorunun tipini belirle: Basit sohbet mi, veri analizi mi?
-            var isDataQuery = GeminiService.IsDataAnalysisQuery(request.Question);
+            // Konuşma geçmişini IQuestionRequest.Context'e map et
+            var contextItems = request.History?
+                .Select(h => new ChatContextItem(h.Role, h.Content))
+                .ToList()
+                ?? new List<ChatContextItem>();
 
-            if (!isDataQuery)
+            // MassTransit aracılığıyla RabbitMQ'ya yayınla
+            await publishEndpoint.Publish<IQuestionRequest>(new
             {
-                // 💬 Basit sohbet - direkt Gemini ile yanıtla
-                logger.LogInformation("💬 Detected chat message, responding with Gemini");
-                
-                var chatResult = await geminiService.ChatAsync(request.Question);
-                
-                logger.LogInformation("💬 Chat result: Success={Success}, Response={Response}", 
-                    chatResult.Success, chatResult.Response);
-                
-                var responseObj = new AskQuestionResponse(
-                    Success: chatResult.Success,
-                    Question: request.Question,
-                    Answer: chatResult.Response,
-                    Charts: Array.Empty<ChartResponse>(),
-                    AnsweredAt: DateTime.UtcNow
-                );
-                
-                logger.LogInformation("💬 Sending response: Success={Success}, Answer={Answer}", 
-                    responseObj.Success, responseObj.Answer);
-                
-                return Results.Ok(responseObj);
-            }
-            else
-            {
-                // 🚀 Veri analizi sorusu - Query Executor'a gönder
-                logger.LogInformation("🧠 Detected data analysis query, sending to Query Executor via RabbitMQ");
-                
-                await SendQuestionToQueryExecutor(request, logger);
-                
-                // Return immediate response, frontend will poll for results
-                return Results.Ok(new AskQuestionResponse(
-                    Success: true,
-                    Question: request.Question,
-                    Answer: "🔄 Sorgunuz işleniyor... Sonuçlar birkaç saniye içinde hazır olacak.",
-                    Charts: Array.Empty<ChartResponse>(),
-                    AnsweredAt: DateTime.UtcNow
-                ));
-            }
+                RequestId   = request.RequestId,
+                UserId      = "web-user",
+                CompanyId   = "default",
+                RequestTime = DateTime.UtcNow,
+                Question    = request.Question,
+                Context     = contextItems,
+                Database    = request.Database,
+                Tables      = request.Tables
+            });
+
+            logger.LogInformation(
+                "✅ MassTransit'e yayınlandı | RequestId: {RequestId}",
+                request.RequestId);
+
+            return Results.Ok(new AskQuestionResponse(
+                Success:     true,
+                Question:    request.Question,
+                Answer:      "🔄 Sorunuz Gemini'ye iletildi. Sonuçlar birkaç saniye içinde hazır olacak...",
+                Charts:      Array.Empty<ChartResponse>(),
+                AnsweredAt:  DateTime.UtcNow
+            ));
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "❌ Error processing question");
+            logger.LogError(ex, "❌ MassTransit publish hatası | RequestId: {RequestId}", request.RequestId);
             return Results.BadRequest(new { success = false, message = ex.Message });
         }
-    }
-
-    private static async Task SendQuestionToQueryExecutor(AskQuestionRequest request, ILogger logger)
-    {
-        var factory = new ConnectionFactory
-        {
-            HostName = Environment.GetEnvironmentVariable("RabbitMQ__Host") ?? "rabbitmq.container",
-            Port = 5672,
-            UserName = "guest",
-            Password = "guest123"
-        };
-
-        await using var connection = await factory.CreateConnectionAsync();
-        await using var channel = await connection.CreateChannelAsync();
-
-        // Declare question queue for query executor
-        await channel.QueueDeclareAsync(
-            queue: "ai.question.queue",
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: null
-        );
-
-        var message = new
-        {
-            request_id = request.RequestId.ToString(),
-            question = request.Question,
-            database = "GrafirioECommerce",  // Test database with 67,500 products
-            host = "grafirio-sqlserver-test",  // Test SQL Server
-            port = 1433,
-            username = "sa",
-            timestamp = DateTime.UtcNow
-        };
-
-        var json = JsonSerializer.Serialize(message);
-        var body = Encoding.UTF8.GetBytes(json);
-
-        logger.LogInformation("📤 Sending question to Query Executor: RequestId={RequestId}, Question={Question}", 
-            request.RequestId, request.Question);
-
-        await channel.BasicPublishAsync(
-            exchange: "",
-            routingKey: "ai.question.queue",
-            body: body
-        );
     }
 
     private static string GetReportTitle(string reportType) => reportType switch
@@ -211,11 +152,14 @@ public record GenerateReportResponse(
     DateTime GeneratedAt
 );
 
+public record ChatHistoryItem(string Role, string Content);
+
 public record AskQuestionRequest(
     Guid RequestId,
     string Question,
     string Database,
-    List<string> Tables
+    List<string> Tables,
+    List<ChatHistoryItem>? History = null
 );
 
 public record AskQuestionResponse(

@@ -8,8 +8,10 @@ using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.MassTransit.Extensions;
+using Grafirio.Shared.MassTransit.Messages.AI;
 using Grafirio.Shared.Extensions;
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -32,8 +34,22 @@ builder.Services.AddSwaggerGen();
 // Gemini LLM Service
 builder.Services.AddSingleton<GeminiService>();
 
-// Query Result Store (in-memory cache for AI results)
-builder.Services.AddSingleton<QueryResultStore>();
+// Redis — QueryResultStore + diğer servisler
+var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString")
+    ?? Environment.GetEnvironmentVariable("REDIS__CONNECTIONSTRING")
+    ?? "localhost:6379,abortConnect=false";
+try
+{
+    var redisMultiplexer = await ConnectionMultiplexer.ConnectAsync(redisConnectionString);
+    builder.Services.AddSingleton<IConnectionMultiplexer>(redisMultiplexer);
+    builder.Services.AddSingleton<QueryResultStore>();
+}
+catch (Exception redisEx)
+{
+    // Redis bağlanamıyorsa uygulama yine çalışsın, QueryResultStore devre dışı kalır
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => throw new InvalidOperationException("Redis bağlanamadı: " + redisEx.Message));
+    builder.Services.AddSingleton<QueryResultStore>(); // hata fırlatacak ama diğer endpointler çalışır
+}
 
 // HttpClientFactory — PyCaret Engine çağrıları için
 builder.Services.AddHttpClient();
@@ -50,11 +66,21 @@ builder.Services.AddCors(options =>
 });
 
 // MassTransit - RabbitMQ
-builder.Services.AddGrafiiroMassTransit(builder.Configuration, x =>
-{
-    x.AddConsumer<DataAnalysisRequestConsumer>();  // ✅ Request'leri dinler ve AI analizi yapar
-    x.AddConsumer<DataAnalysisResponseConsumer>(); // ✅ Response'ları dinler (opsiyonel)
-});
+builder.Services.AddGrafiiroMassTransit(
+    builder.Configuration,
+    x =>
+    {
+        x.AddConsumer<DataAnalysisRequestConsumer>();  // Analiz request'lerini alır, Django'ya iletir
+        x.AddConsumer<DataAnalysisResponseConsumer>(); // Analiz response'larını dinler
+        // QuestionRequestConsumer kaldırıldı — bridge anti-pattern
+    },
+    cfg =>
+    {
+        // IQuestionRequest → Django'nun 'ai.requests' (fanout) exchange'ine yayınla
+        // Django bu exchange'e bağlı 'django.ai.requests' kuyruğunu dinliyor
+        cfg.Message<IQuestionRequest>(m => m.SetEntityName("ai.requests"));
+        cfg.Publish<IQuestionRequest>(p => p.ExchangeType = RabbitMQ.Client.ExchangeType.Fanout);
+    });
 
 var app = builder.Build();
 

@@ -32,7 +32,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  → AI servisleri başlatılıyor..." -ForegroundColor Yellow
     
     cd "d:\Projeler\Grifirio"
-    docker-compose up -d rabbitmq redis.db.basket schema.analyzer pycaret.engine django.ai celery.worker
+    docker-compose up -d mongo.db.identity mongo.db.catalog mongo.db.discount sqlserver.db.order postgres.db.keycloak postgres.db.dataanalysis rabbitmq redis.db.basket schema.analyzer pycaret.engine django.ai celery.worker
     
     Write-Host "  ✓ AI servisleri başlatıldı" -ForegroundColor Green
 } else {

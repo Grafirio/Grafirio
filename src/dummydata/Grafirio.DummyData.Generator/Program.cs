@@ -6,7 +6,7 @@ namespace Grafirio.DummyData.Generator;
 
 public class Program
 {
-    private const string ConnectionString = "Server=localhost,1434;Database=GrafirioECommerce;User Id=sa;Password=Test123!@#;TrustServerCertificate=True;";
+    private const string ConnectionString = "Server=localhost,1433;Database=GrafirioECommerce;User Id=sa;Password=Password12*;TrustServerCertificate=True;";
     
     // Configuration - Full Production Dataset
     private const int CATEGORY_COUNT = 25;

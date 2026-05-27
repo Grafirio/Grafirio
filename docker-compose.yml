@@ -1,4 +1,17 @@
 services:
+  mongo.db.identity:
+    restart: always
+    image: mongo:8.0-rc
+    container_name: mongo.db.identity.container
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo.db.identity.volume:/data/db
+    networks:
+      - grifirio_network
   mongo.db.catalog:
     restart: always
     image: mongo:8.0-rc
@@ -191,13 +204,19 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
       REDIS_HOST: redis.db.basket
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
       AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      CSHARP_API_URL: http://host.docker.internal:5221
+      MSSQL_HOST: sqlserver.db.order
+      MSSQL_PORT: 1433
+      MSSQL_DB: GrafirioECommerce
+      MSSQL_USER: sa
+      MSSQL_PASSWORD: ${SA_PASSWORD}
     ports:
       - "8000:8000"
     depends_on:
@@ -220,12 +239,17 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672//
       CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
       REDIS_HOST: redis.db.basket
       REDIS_PORT: 6379
       AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
       AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      MSSQL_HOST: sqlserver.db.order
+      MSSQL_PORT: 1433
+      MSSQL_DB: GrafirioECommerce
+      MSSQL_USER: sa
+      MSSQL_PASSWORD: ${SA_PASSWORD}
     depends_on:
       - rabbitmq
       - redis.db.basket
@@ -331,11 +355,16 @@ services:
       ASPNETCORE_URLS: http://+:5221
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       PyCaret__BaseUrl: http://pycaret.engine.container:8002
+      RabbitMQ__Host: rabbitmq.container
+      RabbitMQ__Username: ${RABBITMQ_USER}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      REDIS__CONNECTIONSTRING: redis.db.basket:6379,password=${REDIS_PASSWORD},abortConnect=false
     ports:
       - "5221:5221"
     depends_on:
       - postgres.db.dataanalysis
       - rabbitmq
+      - redis.db.basket
     networks:
       - grifirio_network
   gateway:
@@ -414,6 +443,7 @@ networks:
   grifirio_network:
     driver: bridge
 volumes:
+  mongo.db.identity.volume:
   mongo.db.catalog.volume:
   redis.db.basket.volume:
   mongo.db.discount.volume:

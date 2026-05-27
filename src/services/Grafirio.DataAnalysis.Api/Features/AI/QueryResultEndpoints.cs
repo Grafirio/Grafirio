@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
@@ -58,10 +59,25 @@ public static class QueryResultEndpoints
             logger.LogInformation("📥 Received analysis result: {RequestId}, Status: {Status}", 
                 request.RequestId, request.Status);
 
-            // Convert result to response format
-            var response = ConvertToResponse(request);
+            // Django'dan gelen JSON string'i parse et
+            object storedResult;
+            if (!string.IsNullOrEmpty(request.Result))
+            {
+                try
+                {
+                    storedResult = JsonSerializer.Deserialize<JsonElement>(request.Result);
+                }
+                catch
+                {
+                    storedResult = new { answer = request.Result, success = true, type = "text", charts = Array.Empty<object>() };
+                }
+            }
+            else
+            {
+                storedResult = new { answer = "Yanıt alındı.", success = true, type = "text", charts = Array.Empty<object>() };
+            }
 
-            store.StoreResult(request.RequestId, response, request.Status);
+            store.StoreResult(request.RequestId, storedResult, request.Status);
 
             return Results.Ok(new { success = true });
         }

@@ -33,7 +33,7 @@ class RabbitMQClient:
         # Declare exchanges (durable for persistence)
         self.channel.exchange_declare(
             exchange='ai.requests',
-            exchange_type='topic',
+            exchange_type='fanout',
             durable=True
         )
         

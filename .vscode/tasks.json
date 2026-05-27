@@ -1,0 +1,40 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start All Services Script",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\StartAllServices.ps1"
+			],
+			"isBackground": false,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Start All Services Script (full)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\StartAll.ps1"
+			],
+			"isBackground": false,
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Install @xyflow/react",
+			"type": "shell",
+			"command": "npm install @xyflow/react",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}

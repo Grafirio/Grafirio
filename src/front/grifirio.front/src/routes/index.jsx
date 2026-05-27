@@ -1,9 +1,11 @@
 import ProtectedRoute from './ProtectedRoute';
 import AuthLayout from '../layouts/AuthLayout';
+import CanvasLayout from '../layouts/CanvasLayout';
 
 // Sayfalar
 import LoginPage from '../pages/LoginPage';
 import DashboardPage from '../pages/DashboardPage';
+import CanvasPage from '../pages/CanvasPage';
 import CompanyInfoPage from '../pages/CompanyInfoPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import AIPage from '../pages/AIPage';
@@ -64,4 +66,17 @@ const routes = [
   // Diğer rotalar (404 vb.) buraya eklenebilir
 ];
 
+// ── Canvas route: full-screen, kendi layout'u var ──
+// Auth gereksiz (geliştirme kolaylığı için) — üretimde ProtectedRoute'a taşı
+const canvasRoutes = [
+  {
+    path: '/canvas/:analysisId',
+    element: <CanvasLayout />,
+    children: [
+      { path: '', element: <CanvasPage /> },
+    ],
+  },
+];
+
+export { canvasRoutes };
 export default routes;

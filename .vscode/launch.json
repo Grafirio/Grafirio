@@ -1,0 +1,150 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Grafirio Gateway",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Gateway/Grafirio.Gateway.csproj",
+      "launchSettingsProfile": "http"
+    },
+    {
+      "name": "Grafirio Identity API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Grafirio.Identity.Api.csproj",
+      "launchSettingsProfile": "http",
+      "env": {
+        "MongoOption__ConnectionString": "mongodb://myuser:Password12@localhost:27017",
+        "MongoOption__DatabaseName": "GrafiiroIdentityDb",
+        "IdentityOption__Address": "http://localhost:8080/realms/udemyTenant",
+        "IdentityOption__Issuer": "http://localhost:8080/realms/udemyTenant"
+      }
+    },
+    {
+      "name": "Grafirio Catalog API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Catalog.Api/Grafirio.Catalog.Api.csproj",
+      "launchSettingsProfile": "http",
+      "env": {
+        "MongoOption__ConnectionString": "mongodb://myuser:Password12@localhost:27030",
+        "MongoOption__DatabaseName": "catalog-db"
+      }
+    },
+    {
+      "name": "Grafirio Basket API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Basket.Api/Grafirio.Basket.Api.csproj",
+      "launchSettingsProfile": "http"
+    },
+    {
+      "name": "Grafirio Discount API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Discount.Api/Grafirio.Discount.Api.csproj",
+      "launchSettingsProfile": "http",
+      "env": {
+        "MongoOption__ConnectionString": "mongodb://myuser:Password12@localhost:27034",
+        "MongoOption__DatabaseName": "discount-db"
+      }
+    },
+    {
+      "name": "Grafirio File API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.File.Api/Grafirio.File.Api.csproj",
+      "launchSettingsProfile": "http"
+    },
+    {
+      "name": "Grafirio Payment API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.Payment.Api/Grafirio.Payment.Api.csproj",
+      "launchSettingsProfile": "http"
+    },
+    {
+      "name": "Grafirio Order API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafio.Order/Grafirio.Order.Api/Grafirio.Order.Api.csproj",
+      "launchSettingsProfile": "http",
+      "env": {
+        "ConnectionStrings__SqlServer": "Server=localhost,1433;Database=OrderDb;User=Sa;Password=Password12*;Trusted_Connection=False;TrustServerCertificate=True;Integrated Security=False"
+      }
+    },
+    {
+      "name": "Grafirio Data Analysis API",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/services/Grafirio.DataAnalysis.Api/Grafirio.DataAnalysis.Api.csproj",
+      "launchSettingsProfile": "http",
+      "env": {
+        "ConnectionStrings__DefaultConnection": "Host=localhost;Port=5433;Database=grafirio_dataanalysis;Username=dataanalysis_user;Password=DataAnalysis123!",
+        "RabbitMQ__Host": "localhost",
+        "RabbitMQ__Port": "5672"
+      }
+    },
+    {
+      "name": "Grafirio Frontend",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "59264"],
+      "cwd": "${workspaceFolder}/src/front/grifirio.front",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Grafirio Project Admin",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "59265"],
+      "cwd": "${workspaceFolder}/src/front/admins/grifirio.projectadmin",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Grafirio User Admin",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "59266"],
+      "cwd": "${workspaceFolder}/src/front/admins/grifirio.useradmin",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Grafirio AI Service",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/ai/grafirio-ai-service/manage.py",
+      "args": ["runserver", "0.0.0.0:8000"],
+      "cwd": "${workspaceFolder}/src/ai/grafirio-ai-service",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Grafirio - All Apps",
+      "configurations": [
+        "Grafirio Gateway",
+        "Grafirio Identity API",
+        "Grafirio Catalog API",
+        "Grafirio Basket API",
+        "Grafirio Discount API",
+        "Grafirio File API",
+        "Grafirio Payment API",
+        "Grafirio Order API",
+        "Grafirio Data Analysis API",
+        "Grafirio Frontend",
+        "Grafirio Project Admin",
+        "Grafirio User Admin",
+        "Grafirio AI Service"
+      ],
+      "stopAll": true
+    }
+  ]
+}
