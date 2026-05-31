@@ -93,7 +93,9 @@ public static class AIReportEndpoints
                 Question    = request.Question,
                 Context     = contextItems,
                 Database    = request.Database,
-                Tables      = request.Tables
+                Tables      = request.Tables,
+                TableName   = request.TableName,
+                PredictData = request.PredictData
             });
 
             logger.LogInformation(
@@ -159,7 +161,9 @@ public record AskQuestionRequest(
     string Question,
     string Database,
     List<string> Tables,
-    List<ChatHistoryItem>? History = null
+    List<ChatHistoryItem>? History = null,
+    string? TableName = null,
+    Dictionary<string, object>? PredictData = null
 );
 
 public record AskQuestionResponse(

@@ -22,8 +22,7 @@ on:
           - schema-analyzer
           - pycaret-engine
           - identity-api
-          - catalog-api
-          - basket-api
+          - commerce-api
           - data-analysis-api
           - gateway
           - frontend
@@ -68,10 +67,8 @@ jobs:
               - 'src/ai/ai-service-pycaret-engine/**'
             identity-api:
               - 'src/services/Grafirio.Identity.Api/**'
-            catalog-api:
-              - 'src/services/Grafirio.Catalog.Api/**'
-            basket-api:
-              - 'src/services/Grafirio.Basket.Api/**'
+            commerce-api:
+              - 'src/services/Grafirio.Commerce.Api/**'
             data-analysis-api:
               - 'src/services/Grafirio.DataAnalysis.Api/**'
             gateway:
@@ -90,8 +87,7 @@ jobs:
           FILTER_SCHEMA_ANALYZER: ${{ steps.filter.outputs.schema-analyzer }}
           FILTER_PYCARET_ENGINE: ${{ steps.filter.outputs.pycaret-engine }}
           FILTER_IDENTITY_API: ${{ steps.filter.outputs.identity-api }}
-          FILTER_CATALOG_API: ${{ steps.filter.outputs.catalog-api }}
-          FILTER_BASKET_API: ${{ steps.filter.outputs.basket-api }}
+          FILTER_COMMERCE_API: ${{ steps.filter.outputs.commerce-api }}
           FILTER_DATA_ANALYSIS_API: ${{ steps.filter.outputs.data-analysis-api }}
           FILTER_GATEWAY: ${{ steps.filter.outputs.gateway }}
           FILTER_FRONTEND: ${{ steps.filter.outputs.frontend }}
@@ -102,17 +98,16 @@ jobs:
           set -euo pipefail
 
           SERVICES='[
-            {"key":"django-ai","image":"django-ai","dockerfile":"./src/ai/grafirio-ai-service/Dockerfile","context":"./src/ai/grafirio-ai-service","app":"django-ai"},
-            {"key":"schema-analyzer","image":"schema-analyzer","dockerfile":"./src/ai/ai-service-schema-analyzer/Dockerfile","context":"./src/ai/ai-service-schema-analyzer","app":"schema-analyzer"},
-            {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine"},
-            {"key":"identity-api","image":"identity-api","dockerfile":"./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile","context":".","app":"identity-api"},
-            {"key":"catalog-api","image":"catalog-api","dockerfile":"./src/services/Grafirio.Catalog.Api/Dockerfile","context":".","app":"catalog-api"},
-            {"key":"basket-api","image":"basket-api","dockerfile":"./src/services/Grafirio.Basket.Api/Dockerfile","context":".","app":"basket-api"},
-            {"key":"data-analysis-api","image":"data-analysis-api","dockerfile":"./src/services/Grafirio.DataAnalysis.Api/Dockerfile","context":".","app":"data-analysis-api"},
-            {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway"},
-            {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend"},
-            {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin"},
-            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin"}
+            {"key":"django-ai","image":"django-ai","dockerfile":"./src/ai/grafirio-ai-service/Dockerfile","context":"./src/ai/grafirio-ai-service","app":"django-ai","port":8000,"ingress":"internal"},
+            {"key":"schema-analyzer","image":"schema-analyzer","dockerfile":"./src/ai/ai-service-schema-analyzer/Dockerfile","context":"./src/ai/ai-service-schema-analyzer","app":"schema-analyzer","port":8001,"ingress":"internal"},
+            {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine","port":8002,"ingress":"internal"},
+            {"key":"identity-api","image":"identity-api","dockerfile":"./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile","context":".","app":"identity-api","port":8080,"ingress":"internal"},
+            {"key":"commerce-api","image":"commerce-api","dockerfile":"./src/services/Grafirio.Commerce.Api/Dockerfile","context":".","app":"commerce-api","port":8080,"ingress":"internal"},
+            {"key":"data-analysis-api","image":"data-analysis-api","dockerfile":"./src/services/Grafirio.DataAnalysis.Api/Dockerfile","context":".","app":"data-analysis-api","port":8080,"ingress":"internal"},
+            {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway","port":8080,"ingress":"external"},
+            {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend","port":80,"ingress":"external"},
+            {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin","port":80,"ingress":"external"},
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin","port":80,"ingress":"external"}
           ]'
 
           include_all=false
@@ -128,7 +123,7 @@ jobs:
           fi
 
           changed_keys=""
-          for key in django-ai schema-analyzer pycaret-engine identity-api catalog-api basket-api data-analysis-api gateway frontend projectadmin useradmin; do
+          for key in django-ai schema-analyzer pycaret-engine identity-api commerce-api data-analysis-api gateway frontend projectadmin useradmin; do
             env_key="FILTER_$(echo "$key" | tr '[:lower:]-' '[:upper:]_')"
             value="${!env_key:-false}"
             if [ "$value" = "true" ]; then
@@ -200,11 +195,24 @@ jobs:
           echo "Pushing $full_image"
           docker push "$full_image"
 
-          echo "Updating container app ${{ matrix.service.app }}"
-          az containerapp update \
-            --name "${{ matrix.service.app }}" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$full_image"
+          echo "Deploying container app ${{ matrix.service.app }}"
+          if az containerapp show --name "${{ matrix.service.app }}" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+            az containerapp update \
+              --name "${{ matrix.service.app }}" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$full_image"
+          else
+            echo "App not found, creating ${{ matrix.service.app }}"
+            ENV_ID=$(az containerapp show --name identity-api --resource-group "$RESOURCE_GROUP" --query "properties.environmentId" -o tsv)
+            az containerapp create \
+              --name "${{ matrix.service.app }}" \
+              --resource-group "$RESOURCE_GROUP" \
+              --environment "$ENV_ID" \
+              --image "$full_image" \
+              --registry-server "$ACR_LOGIN_SERVER" \
+              --target-port "${{ matrix.service.port }}" \
+              --ingress "${{ matrix.service.ingress }}"
+          fi
 
       - name: Show updated service status
         run: |

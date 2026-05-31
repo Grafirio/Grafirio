@@ -74,8 +74,16 @@ Start-DetachedPowerShell -Title "Project Admin starting..." -WorkingDirectory "d
 Start-DetachedPowerShell -Title "User Admin starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\front\admins\grifirio.useradmin" -Command "npm run dev"
 
 Write-Host ""
-Write-Host "[4/5] Starting AI service..." -ForegroundColor Yellow
-Start-DetachedPowerShell -Title "Django AI starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\ai\grafirio-ai-service" -Command "python manage.py runserver 0.0.0.0:8000"
+Write-Host "[4/5] Starting AI service (Docker)..." -ForegroundColor Yellow
+$dockerExe = "C:\Program Files\Docker\Docker\resources\bin\docker-compose.exe"
+if (Test-Path $dockerExe) {
+    Push-Location "d:\Projeler\Grifirio"
+    & $dockerExe up -d --build django.ai 2>&1 | Out-Null
+    Pop-Location
+    Write-Host "  Django AI container started (port 8000)" -ForegroundColor Green
+} else {
+    Write-Host "  Docker not found — skipping AI service" -ForegroundColor Yellow
+}
 
 Write-Host ""
 Write-Host "[5/5] Done. Services were launched in separate terminals." -ForegroundColor Yellow

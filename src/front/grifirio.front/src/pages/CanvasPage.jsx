@@ -139,7 +139,8 @@ export default function CanvasPage() {
   // Chat state
   const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState('');
-  const [isQuerying, setIsQuerying] = useState(false);
+  const [queryCount, setQueryCount] = useState(0);
+  const isQuerying = queryCount > 0; // sadece topbar yüklenme göstergesi — input'u bloklamaz
   const [loadingReport, setLoadingReport] = useState(false);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -210,7 +211,8 @@ export default function CanvasPage() {
     const userMsg = { role: 'user', content: text, ts: Date.now() };
     setMessages(p => [...p, userMsg]);
     setQuestion('');
-    setIsQuerying(true);
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+    setQueryCount(c => c + 1);
     setMessages(p => [...p, { role: 'ai', content: '', loading: true, ts: Date.now() }]);
 
     // Build Gemini history from existing messages (exclude the loading placeholder we just added)
@@ -256,7 +258,10 @@ export default function CanvasPage() {
     }
 
     try {
-      const res = await sendChatMessage(text, history);
+      const res = await sendChatMessage(text, history, {
+        database: analysis?.database || '',
+        tables:   analysis?.tables   || [],
+      });
 
       if (res.success) {
         const answer = res.answer || '';
@@ -322,10 +327,14 @@ export default function CanvasPage() {
           addToCanvas({ answer, charts: [], insights: [] }, text);
         }
       } else {
-        // Hata — varsa loading node'u kaldır
+        // Hata — loading node'u error insight'a dönüştür (silme)
         if (loadingNodeId) {
-          setCanvasNodes(p => p.filter(n => n.id !== loadingNodeId));
-          setCanvasEdges(p => p.filter(e => e.target !== loadingNodeId));
+          setCanvasNodes(p => p.map(n =>
+            n.id === loadingNodeId
+              ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: res.error || 'Hata oluştu' } }
+              : n
+          ));
+          setCanvasEdges(p => p.map(e => e.target === loadingNodeId ? { ...e, animated: false } : e));
         }
         setMessages(p => {
           const a = [...p];
@@ -335,8 +344,12 @@ export default function CanvasPage() {
       }
     } catch (e) {
       if (loadingNodeId) {
-        setCanvasNodes(p => p.filter(n => n.id !== loadingNodeId));
-        setCanvasEdges(p => p.filter(e => e.target !== loadingNodeId));
+        setCanvasNodes(p => p.map(n =>
+          n.id === loadingNodeId
+            ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: e.message } }
+            : n
+        ));
+        setCanvasEdges(p => p.map(e => e.target === loadingNodeId ? { ...e, animated: false } : e));
       }
       setMessages(p => {
         const a = [...p];
@@ -344,7 +357,7 @@ export default function CanvasPage() {
         return a;
       });
     } finally {
-      setIsQuerying(false);
+      setQueryCount(c => Math.max(0, c - 1));
     }
   };
 
@@ -452,18 +465,28 @@ export default function CanvasPage() {
 
             {/* Input */}
             <div className="cp-input-row">
-              <input
+              <textarea
                 ref={inputRef}
-                type="text"
+                rows={1}
                 placeholder={analysis ? `"${analysis.database}" hakkında sor…` : 'Yükleniyor…'}
                 value={question}
-                onChange={e => setQuestion(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !isQuerying && handleAsk()}
-                disabled={isQuerying || !analysis}
+                onChange={e => {
+                  setQuestion(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!question.trim() || !analysis) return;
+                    handleAsk();
+                  }
+                }}
+                disabled={!analysis}
                 className="cp-input"
               />
-              <button className="cp-send" onClick={() => handleAsk()} disabled={!question.trim() || isQuerying || !analysis}>
-                {isQuerying ? <IconLoader2 size={16} className="spin" /> : <IconSend size={16} />}
+              <button className="cp-send" onClick={() => handleAsk()} disabled={!question.trim() || !analysis}>
+                <IconSend size={16} />
               </button>
             </div>
           </div>

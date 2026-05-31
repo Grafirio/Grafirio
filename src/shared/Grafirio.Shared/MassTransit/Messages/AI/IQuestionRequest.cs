@@ -16,6 +16,8 @@ public interface IQuestionRequest
     List<ChatContextItem>? Context { get; } // Önceki konuşma geçmişi
     string? Database { get; }              // Sorgulanacak veritabanı adı
     List<string>? Tables { get; }          // İlgili tablo listesi (ipucu)
+    string? TableName { get; }             // Predictive istekler icin hedef tablo
+    Dictionary<string, object>? PredictData { get; } // Predictive istekler icin satir verisi
 }
 
 /// <summary>Concrete implementation</summary>
@@ -27,5 +29,7 @@ public record QuestionRequest(
     string Question,
     List<ChatContextItem>? Context,
     string? Database,
-    List<string>? Tables
+    List<string>? Tables,
+    string? TableName,
+    Dictionary<string, object>? PredictData
 ) : IQuestionRequest;

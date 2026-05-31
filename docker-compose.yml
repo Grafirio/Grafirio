@@ -1,40 +1,27 @@
 services:
-  mongo.db.identity:
+  mongo.db:
     restart: always
     image: mongo:8.0-rc
-    container_name: mongo.db.identity.container
+    container_name: mongo.db.container
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
     ports:
       - "27017:27017"
     volumes:
-      - mongo.db.identity.volume:/data/db
+      - mongo.db.volume:/data/db
     networks:
       - grifirio_network
-  mongo.db.catalog:
-    restart: always
-    image: mongo:8.0-rc
-    container_name: mongo.db.catalog.container
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-    ports:
-      - "27030:27017"
-    volumes:
-      - mongo.db.catalog.volume:/data/db
-    networks:
-      - grifirio_network
-  mongo.db.catalog.ui:
+  mongo.db.ui:
     image: mongo-express:1.0.2-20-alpine3.19
-    container_name: mongo.db.catalog.ui.container
+    container_name: mongo.db.ui.container
     ports:
-      - 27032:8081
+      - "27032:8081"
     environment:
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.catalog:27017/
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017/
       ME_CONFIG_BASICAUTH: false
     depends_on:
-      - mongo.db.catalog
+      - mongo.db
     networks:
       - grifirio_network
   redis.db.basket:
@@ -62,31 +49,6 @@ services:
       HTTP_PASSWORD: ${REDIS_UI_PASSWORD}
     depends_on:
       - redis.db.basket
-    networks:
-      - grifirio_network
-  mongo.db.discount:
-    restart: always
-    image: mongo:8.0-rc
-    container_name: mongo.db.discount.container
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-    ports:
-      - "27034:27017"
-    volumes:
-      - mongo.db.discount.volume:/data/db
-    networks:
-      - grifirio_network
-  mongo.db.discount.ui:
-    image: mongo-express:1.0.2-20-alpine3.19
-    container_name: mongo.db.discount.ui.container
-    ports:
-      - 27036:8081
-    environment:
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db.discount:27017/
-      ME_CONFIG_BASICAUTH: false
-    depends_on:
-      - mongo.db.discount
     networks:
       - grifirio_network
   sqlserver.db.order:
@@ -199,7 +161,7 @@ services:
     environment:
       SECRET_KEY: ${DJANGO_SECRET_KEY}
       DEBUG: "False"
-      ALLOWED_HOSTS: django-ai,localhost
+      ALLOWED_HOSTS: django.ai.container,localhost
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER}
@@ -208,10 +170,9 @@ services:
       REDIS_HOST: redis.db.basket
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
-      AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+      PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      CSHARP_API_URL: http://host.docker.internal:5221
+      CSHARP_API_URL: http://data-analysis.api.container:5221
       MSSQL_HOST: sqlserver.db.order
       MSSQL_PORT: 1433
       MSSQL_DB: GrafirioECommerce
@@ -222,6 +183,7 @@ services:
     depends_on:
       - rabbitmq
       - redis.db.basket
+      - pycaret.engine
     networks:
       - grifirio_network
     command: >
@@ -242,8 +204,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
       REDIS_HOST: redis.db.basket
       REDIS_PORT: 6379
-      AI_SERVICE_1_URL: ${AI_SERVICE_1_URL}
-      AI_SERVICE_2_URL: ${AI_SERVICE_2_URL}
+      PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       MSSQL_HOST: sqlserver.db.order
       MSSQL_PORT: 1433
@@ -253,6 +214,7 @@ services:
     depends_on:
       - rabbitmq
       - redis.db.basket
+      - pycaret.engine
     networks:
       - grifirio_network
     command: celery -A config worker --loglevel=info
@@ -263,10 +225,10 @@ services:
     container_name: schema.analyzer.container
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      RABBITMQ_HOST: rabbitmq.container
+      RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-      RABBITMQ_USER: guest
-      RABBITMQ_PASSWORD: guest123
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       BACKEND_API_URL: http://data-analysis.api.container:5221
       SA_PASSWORD: ${SA_PASSWORD}
       LOG_LEVEL: INFO
@@ -288,8 +250,8 @@ services:
       LOG_LEVEL: INFO
       MODEL_STORAGE_PATH: /app/models
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: guest
-      RABBITMQ_PASS: guest123
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASSWORD}
     ports:
       - "8002:8002"
     volumes:
@@ -308,41 +270,44 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5036
+      MongoOption__ConnectionString: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017
+      MongoOption__DatabaseName: GrafirioIdentityDb
+      IdentityOption__Address: http://keycloak:8080
+      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Audience: grafirio-api
+      KeycloakAdmin__Realm: grafirio
+      KeycloakAdmin__Username: ${KEYCLOAK_ADMIN}
+      KeycloakAdmin__Password: ${KEYCLOAK_ADMIN_PASSWORD}
     ports:
       - "5036:5036"
     depends_on:
-      - postgres.db.keycloak
-      - rabbitmq
+      - mongo.db
+      - keycloak
     networks:
       - grifirio_network
-  catalog.api:
+  commerce.api:
     build:
       context: .
-      dockerfile: src/services/Grafirio.Catalog.Api/Dockerfile
-    container_name: catalog.api.container
+      dockerfile: src/services/Grafirio.Commerce.Api/Dockerfile
+    container_name: commerce.api.container
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: http://+:5280
+      ASPNETCORE_URLS: http://+:5300
+      MongoOption__ConnectionString: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017
+      CatalogMongoOption__DatabaseName: catalog-db
+      DiscountMongoOption__DatabaseName: discount-db
+      ConnectionStrings__Redis: redis.db.basket:6379,password=${REDIS_PASSWORD},abortConnect=false
+      ConnectionStrings__SqlServer: Server=sqlserver.db.order,1433;Database=GrafirioECommerce;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True
+      IdentityOption__Address: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Audience: commerce.api
     ports:
-      - "5280:5280"
+      - "5300:5300"
     depends_on:
-      - mongo.db.catalog
-      - rabbitmq
-    networks:
-      - grifirio_network
-  basket.api:
-    build:
-      context: .
-      dockerfile: src/services/Grafirio.Basket.Api/Dockerfile
-    container_name: basket.api.container
-    environment:
-      ASPNETCORE_ENVIRONMENT: Development
-      ASPNETCORE_URLS: http://+:5023
-    ports:
-      - "5023:5023"
-    depends_on:
+      - mongo.db
       - redis.db.basket
-      - rabbitmq
+      - sqlserver.db.order
+      - keycloak
     networks:
       - grifirio_network
   data-analysis.api:
@@ -375,12 +340,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5000
+      ReverseProxy__Clusters__commerce.cluster__Destinations__destination1__Address: http://commerce.api.container:5300
+      ReverseProxy__Clusters__identity.cluster__Destinations__destination1__Address: http://identity.api.container:5036
+      ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221
     ports:
       - "5000:5000"
     depends_on:
       - identity.api
-      - catalog.api
-      - basket.api
+      - commerce.api
       - data-analysis.api
     networks:
       - grifirio_network
@@ -443,10 +410,8 @@ networks:
   grifirio_network:
     driver: bridge
 volumes:
-  mongo.db.identity.volume:
-  mongo.db.catalog.volume:
+  mongo.db.volume:
   redis.db.basket.volume:
-  mongo.db.discount.volume:
   sqlserver.db.order.volume:
   posrgres.db.keycloak.volume:
   posrgres.db.keycloak.ui.volume:

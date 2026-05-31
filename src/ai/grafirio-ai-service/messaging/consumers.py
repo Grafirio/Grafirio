@@ -88,6 +88,8 @@ class AIRequestConsumer:
                 'context':      inner.get('context', []),  # List[{role, content}]
                 'database':     inner.get('database') or '',
                 'tables':       inner.get('tables') or [],
+                'table_name':   inner.get('tableName') or '',
+                'predict_data': inner.get('predictData') or {},
             }
             # Mesaj tipini belirle
             msg_types = raw.get('messageType', [])
@@ -135,7 +137,11 @@ class AIRequestConsumer:
                         )
                         import json as _json
                         err_msg = str(ex)
-                        if 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
+                        # RATE_LIMIT:<seconds> — ai_tasks'tan gelen özel exception
+                        if err_msg.startswith('RATE_LIMIT:'):
+                            wait_secs = err_msg.split(':')[1]
+                            user_msg = f'AI servisi geçici olarak meşgul (rate limit). ~{wait_secs} saniye sonra tekrar deneyin.'
+                        elif 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
                             user_msg = 'AI servisi geçici olarak meşgul (rate limit). Lütfen 1 dakika sonra tekrar deneyin.'
                         else:
                             user_msg = f'İşlem sırasında bir hata oluştu: {err_msg[:120]}'

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -75,6 +75,14 @@ function normalizeType(raw) {
 }
 
 export default function BiChartNode({ data }) {
+  // ── Timeout state (90s) ────────────────────────────────────────────
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!data?.loading) { setTimedOut(false); return; }
+    const t = setTimeout(() => setTimedOut(true), 90_000);
+    return () => clearTimeout(t);
+  }, [data?.loading]);
+
   // ── Loading state ──────────────────────────────────────────────────
   if (data?.loading) {
     return (
@@ -85,8 +93,19 @@ export default function BiChartNode({ data }) {
           <span className="bi-node-type-badge">Chart</span>
         </div>
         <div className="bi-chart-loading-body">
-          <div className="bi-chart-spinner" />
-          <span className="bi-chart-loading-text">AI veri analiz ediyor...</span>
+          {timedOut ? (
+            <>
+              <span style={{ fontSize: 28 }}>⏱️</span>
+              <span className="bi-chart-loading-text" style={{ color: '#f59e0b' }}>
+                Yanıt gecikmeli. Tekrar soru sorabilirsiniz.
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="bi-chart-spinner" />
+              <span className="bi-chart-loading-text">AI veri analiz ediyor...</span>
+            </>
+          )}
         </div>
       </div>
     );

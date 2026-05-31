@@ -10,15 +10,16 @@ const CSHARP_BASE =
     : '/data-analysis';
 
 const POLL_INTERVAL_MS = 2000;
-const POLL_MAX_ATTEMPTS = 120; // ~240 saniye (rate-limit retry 65s + işlem süresi)
+const POLL_MAX_ATTEMPTS = 45; // ~90 saniye (BiChartNode visual timeout ile eşleşir)
 
 /**
  * Soruyu MassTransit pipeline'ına gönder ve yanıtı bekle.
  * @param {string} question
  * @param {Array<{role:'user'|'model', content:string}>} history
+ * @param {{tableName?: string, predictData?: Object, database?: string, tables?: string[]}} options
  * @returns {Promise<{success:boolean, answer?:string, error?:string}>}
  */
-export const sendChatMessage = async (question, history = []) => {
+export const sendChatMessage = async (question, history = [], options = {}) => {
   const requestId = crypto.randomUUID();
 
   // 1. C# API'ye gönder → MassTransit publish tetiklenir
@@ -28,9 +29,11 @@ export const sendChatMessage = async (question, history = []) => {
     body: JSON.stringify({
       requestId,
       question,
-      database: '',
-      tables:   [],
+      database: options.database || '',
+      tables:   options.tables   || [],
       history,          // List<ChatHistoryItem>? — C# bunu MassTransit context'ine ekler
+      tableName: options.tableName || null,
+      predictData: options.predictData || null,
     }),
   });
 

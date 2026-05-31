@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 # Sabitler
 # ──────────────────────────────────────────────
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
 
 CHART_KEYWORDS = [
     # ── Genel tetikleyiciler ───────────────────────────────────────────
@@ -69,6 +70,12 @@ CHART_KEYWORDS = [
     'bar grafiği', 'sütun grafiği', 'alan grafiği',
 ]
 
+PREDICTIVE_KEYWORDS = [
+    'tahmin', 'forecast', 'prediction', 'predict', 'beklenen', 'gelecek',
+    'sonraki', 'onumuzdeki', 'önümüzdeki', 'olasilik', 'olasılık', 'risk',
+    'churn', 'terk', 'anomali', 'anomaly', 'senaryo', 'what if',
+]
+
 CHART_COLORS = [
     'rgba(124,58,237,0.8)',
     'rgba(16,185,129,0.8)',
@@ -109,6 +116,20 @@ TEXT_SYSTEM_PROMPT = (
 def is_chart_request(question: str) -> bool:
     q = question.lower()
     return any(kw in q for kw in CHART_KEYWORDS)
+
+
+def is_predictive_request(question: str) -> bool:
+    q = question.lower()
+    return any(kw in q for kw in PREDICTIVE_KEYWORDS)
+
+
+def classify_question_intent(question: str) -> str:
+    # Predictive intent has higher priority than chart intent.
+    if is_predictive_request(question):
+        return 'predictive'
+    if is_chart_request(question):
+        return 'chart'
+    return 'text'
 
 
 def get_db_connection():
@@ -178,9 +199,16 @@ def _process_question(message: dict):
     request_id = message.get('request_id', '')
     question   = message.get('question', '').strip()
     context    = message.get('context', [])
+    intent     = classify_question_intent(question)
 
-    logger.info("Soru alindi | RequestId=%s | Grafik=%s | Soru=%s",
-                request_id, is_chart_request(question), question)
+    logger.info(
+        "Soru alindi | RequestId=%s | Intent=%s | Grafik=%s | Predictive=%s | Soru=%s",
+        request_id,
+        intent,
+        is_chart_request(question),
+        is_predictive_request(question),
+        question,
+    )
 
     csharp_api_url = (
         getattr(settings, 'CSHARP_API_URL', None)
@@ -205,14 +233,69 @@ def _process_question(message: dict):
         except Exception as pe:
             logger.error("C# API POST hatasi | %s", pe)
 
+    def try_pycaret_predict() -> tuple[bool, str]:
+        """
+        Attempt to route predictive intent to PyCaret engine.
+        Expected message shape (at least):
+          company_id, and either
+          - predict_request: { table_name: str, data: dict }
+          - or table_name + predict_data at top level.
+        """
+        pycaret_base_url = (
+            os.getenv('PYCARET_ENGINE_URL')
+            or os.getenv('AI_SERVICE_1_URL')
+            or ''
+        ).rstrip('/')
+
+        if not pycaret_base_url:
+            return False, 'PYCARET_ENGINE_URL tanimli degil'
+
+        company_id = message.get('company_id', '')
+        req = message.get('predict_request') or {}
+        table_name = req.get('table_name') or message.get('table_name')
+        predict_data = req.get('data') or message.get('predict_data')
+
+        if not company_id or not table_name or not isinstance(predict_data, dict):
+            return False, 'PyCaret icin gerekli predict payload eksik'
+
+        payload = {
+            'company_id': company_id,
+            'table_name': table_name,
+            'data': predict_data,
+        }
+
+        try:
+            resp = http_requests.post(
+                f"{pycaret_base_url}/predict",
+                json=payload,
+                timeout=20,
+            )
+            if resp.status_code >= 400:
+                return False, f'PyCaret HTTP {resp.status_code}: {resp.text[:120]}'
+
+            pred_body = resp.json()
+            post_result('completed', {
+                'type': 'predictive',
+                'success': True,
+                'question': question,
+                'answer': 'PyCaret tahmin sonucu olusturuldu.',
+                'charts': [],
+                'predictions': pred_body.get('predictions', pred_body),
+                'answeredAt': datetime.utcnow().isoformat(),
+            })
+            return True, ''
+        except Exception as ex:
+            return False, str(ex)
+
     api_key = getattr(settings, 'GEMINI_API_KEY', '') or os.getenv('GEMINI_API_KEY', '')
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY yapilandirilmamis")
 
     genai.configure(api_key=api_key)
 
-    def gemini_generate(model, prompt_or_fn, max_retries=2):
-        """Rate limit (429) durumunda otomatik bekleyip yeniden dener (max 1 retry)."""
+    def gemini_generate(model, prompt_or_fn, max_retries=1):
+        """Rate limit (429) gelince hemen hata firlat — frontend 90s'de timeout'a ugrar,
+        kullaniciya anlik rate-limit mesaji gonderilsin, 1 dakika sonra tekrar denesin."""
         for attempt in range(max_retries):
             try:
                 if callable(prompt_or_fn):
@@ -222,17 +305,54 @@ def _process_question(message: dict):
                 err = str(e)
                 if '429' in err or 'quota' in err.lower() or 'rate' in err.lower():
                     m = re.search(r'seconds:\s*(\d+)', err)
-                    wait = min(int(m.group(1)) + 2 if m else 65, 70)  # max 70s
-                    logger.warning("Rate limit — %d/%d — %ds bekleniyor...", attempt + 1, max_retries, wait)
-                    if attempt < max_retries - 1:
-                        time.sleep(wait)
-                        continue
+                    wait_secs = int(m.group(1)) + 2 if m else 60
+                    logger.warning("Rate limit — aninda hata bildiriliyor (bekleme: %ds)", wait_secs)
+                    # Rate limit icin ozel exception olustur — consumers.py bunu yakalar
+                    raise RuntimeError(f"RATE_LIMIT:{wait_secs}")
                 raise
 
-    if is_chart_request(question):
+    force_chart_fallback = False
+    if intent == 'predictive':
+        routed, route_err = try_pycaret_predict()
+        if routed:
+            logger.info("Predictive intent PyCaret'e yonlendirildi | RequestId=%s", request_id)
+            return
+
+        logger.warning(
+            "Predictive intent fallback | RequestId=%s | Sebep=%s",
+            request_id,
+            route_err,
+        )
+
+        # If user also explicitly asked for a chart, fallback to SQL chart path.
+        if is_chart_request(question):
+            force_chart_fallback = True
+        else:
+            text_model = genai.GenerativeModel(
+                model_name=GEMINI_MODEL,
+                system_instruction=TEXT_SYSTEM_PROMPT,
+            )
+            fb_prompt = (
+                f"Kullanici sorusu: {question}\n"
+                "Bu soru predictive niyet tasiyor ancak model/feature payload hazir degil. "
+                "Kullaniciyi kisa ve net bicimde bilgilendir: once model egitimi ve gerekli alanlarin secimi gerektigini soyle, "
+                "ardindan ayni soru icin su an hangi tarihsel grafiklerin gosterilebilecegine 1-2 ornek ver."
+            )
+            response = gemini_generate(text_model, fb_prompt)
+            post_result('completed', {
+                'type': 'text',
+                'success': True,
+                'question': question,
+                'answer': response.text,
+                'charts': [],
+                'answeredAt': datetime.utcnow().isoformat(),
+            })
+            return
+
+    if intent == 'chart' or force_chart_fallback:
         logger.info("Grafik istegi tespit edildi")
         sql_gen_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name=GEMINI_MODEL,
             system_instruction=SQL_GEN_SYSTEM,
         )
         sql_prompt = (
@@ -255,7 +375,7 @@ def _process_question(message: dict):
         except Exception as db_err:
             logger.warning("SQL calistirilamadi, ornek veri isteniyor | %s", db_err)
             fallback_model = genai.GenerativeModel(
-                model_name='gemini-1.5-flash',
+                model_name=GEMINI_MODEL,
                 system_instruction=TEXT_SYSTEM_PROMPT,
             )
             fb_prompt = (
@@ -294,7 +414,7 @@ def _process_question(message: dict):
 
         if not rows:
             fallback_model2 = genai.GenerativeModel(
-                model_name='gemini-1.5-flash',
+                model_name=GEMINI_MODEL,
                 system_instruction=TEXT_SYSTEM_PROMPT,
             )
             fb2_prompt = (
@@ -324,7 +444,7 @@ def _process_question(message: dict):
 
     else:
         text_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name=GEMINI_MODEL,
             system_instruction=TEXT_SYSTEM_PROMPT,
         )
         history = []

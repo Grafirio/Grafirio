@@ -271,14 +271,19 @@ export const generateAIReport = async (requestId, reportType, database, tables) 
 };
 
 // AI'ya soru sorma
-export const askAIQuestion = async (requestId, question, database, tables) => {
+export const askAIQuestion = async (requestId, question, database, tables, options = {}) => {
   try {
-    console.log('Asking AI question:', { requestId, question, database, tables });
+    const tableName = options.tableName || null;
+    const predictData = options.predictData || null;
+
+    console.log('Asking AI question:', { requestId, question, database, tables, tableName, predictData });
     const response = await axios.post(`${API_BASE_URL}/api/ai/reports/ask-question`, {
       requestId,
       question,
       database,
-      tables
+      tables,
+      tableName,
+      predictData
     }, { timeout: 30000 });
     return response.data;
   } catch (error) {

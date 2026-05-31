@@ -283,6 +283,7 @@
   border-top: 1px solid #f3f4f6;
   background: white;
   flex-shrink: 0;
+  align-items: flex-end;
 }
 .cp-input {
   flex: 1;
@@ -294,6 +295,13 @@
   transition: border-color 0.15s;
   background: #fafafa;
   color: #1e293b;
+  resize: none;
+  overflow: hidden;
+  min-height: 36px;
+  max-height: 120px;
+  line-height: 1.5;
+  font-family: inherit;
+  display: block;
 }
 .cp-input:focus { border-color: #7c3aed; background: white; }
 .cp-input::placeholder { color: #9ca3af; }

@@ -1,0 +1,10 @@
+global using System.Net;
+global using System.Text.Json;
+global using Microsoft.EntityFrameworkCore;
+global using Microsoft.Extensions.Options;
+global using MongoDB.Driver;
+global using FluentValidation;
+global using MassTransit;
+global using Grafirio.Shared;
+global using Grafirio.Shared.Extensions;
+global using Grafirio.Shared.Services;
