@@ -51,17 +51,7 @@ Write-Host ""
 Write-Host "[2/5] Starting .NET services..." -ForegroundColor Yellow
 Start-DetachedPowerShell -Title "Identity API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Identity.Api\Grafirio.Identity.Api" -Command "dotnet run"
 Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "Catalog API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Catalog.Api" -Command "dotnet run"
-Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "Basket API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Basket.Api" -Command "dotnet run"
-Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "Discount API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Discount.Api" -Command "dotnet run"
-Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "File API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.File.Api" -Command "dotnet run"
-Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "Payment API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Payment.Api" -Command "dotnet run"
-Start-Sleep -Seconds 2
-Start-DetachedPowerShell -Title "Order API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafio.Order\Grafirio.Order.Api" -Command "dotnet run"
+Start-DetachedPowerShell -Title "Commerce API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Commerce.Api" -Command "dotnet run"
 Start-Sleep -Seconds 2
 Start-DetachedPowerShell -Title "Data Analysis API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.DataAnalysis.Api" -Command "dotnet run"
 Start-Sleep -Seconds 2

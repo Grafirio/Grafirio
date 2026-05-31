@@ -14,9 +14,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddVersioningExt();
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
-
-// FluentValidation — tüm validator'ları tek seferde tara
-builder.Services.AddValidatorsFromAssemblyContaining<Grafirio.Commerce.Api.CommerceAssembly>();
+builder.Services.AddCommonServiceExt(typeof(Grafirio.Commerce.Api.CommerceAssembly));
 
 // ── Paylaşımlı MongoDB istemcisi (tek instance, farklı DB'ler) ───────────────
 builder.Services.Configure<Grafirio.Commerce.Api.MongoOption>(

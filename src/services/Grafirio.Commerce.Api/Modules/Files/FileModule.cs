@@ -7,8 +7,9 @@ public static class FileModule
 {
     public static IServiceCollection AddFileModule(this IServiceCollection services)
     {
-        services.AddSingleton<IFileProvider>(
-            new PhysicalFileProvider(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot")));
+        var wwwroot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+        Directory.CreateDirectory(wwwroot);
+        services.AddSingleton<IFileProvider>(new PhysicalFileProvider(wwwroot));
 
         services.AddScoped<FileService>();
         return services;

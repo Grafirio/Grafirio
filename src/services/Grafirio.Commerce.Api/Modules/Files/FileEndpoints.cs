@@ -20,8 +20,8 @@ public static class FileEndpoints
             .DisableAntiforgery();
 
         group.MapDelete("/",
-            (DeleteFileRequest req, FileService svc) =>
-                svc.Delete(req.FileName).ToGenericResult())
+            ([FromQuery] string fileName, [FromServices] FileService svc) =>
+                svc.Delete(fileName).ToGenericResult())
             .WithName("DeleteFile")
             .MapToApiVersion(1, 0);
     }
