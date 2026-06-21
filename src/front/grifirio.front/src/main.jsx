@@ -44,12 +44,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     onEvent={eventLogger}
     onTokens={tokenLogger}
     initOptions={{
-      onLoad: 'check-sso',
+      onLoad: 'login-required',
       checkLoginIframe: false,
       enableLogging: true,
       flow: 'standard',
       responseMode: 'fragment',
-      redirectUri: window.location.origin,
+      redirectUri: window.location.origin + '/',
       // CORS için önemli
       adapter: 'default',
     }}

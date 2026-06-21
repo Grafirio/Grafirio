@@ -9,7 +9,7 @@ const AuthLayout = () => {
       <div className="container container-tight py-4">
         <div className="text-center mb-4">
           <a href="." className="navbar-brand navbar-brand-autodark">
-            <img src="https://preview.tabler.io/static/logo.svg" height="36" alt="Grifirio" />
+            <span style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>Grafirio</span>
           </a>
         </div>
         <Outlet />

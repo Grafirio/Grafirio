@@ -8,15 +8,21 @@ namespace Grafirio.DataAnalysis.Api.Services;
 /// </summary>
 public class GeminiService
 {
-    private readonly GenerativeModel _model;
+    private readonly GenerativeModel? _model;
     private readonly ILogger<GeminiService> _logger;
 
     public GeminiService(IConfiguration configuration, ILogger<GeminiService> logger)
     {
         _logger = logger;
         var apiKey = configuration["Gemini:ApiKey"]
-            ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
-            ?? throw new InvalidOperationException("Gemini API key not configured. Set Gemini:ApiKey in appsettings or GEMINI_API_KEY env var.");
+            ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            _logger.LogWarning("Gemini API key bulunamadı — mock mode aktif.");
+            _model = null;
+            return;
+        }
 
         var googleAi = new GoogleAI(apiKey);
         _model = googleAi.GenerativeModel(Model.Gemini20Flash);
@@ -27,6 +33,20 @@ public class GeminiService
     /// </summary>
     public async Task<GeminiAnalysisResult> AnalyzeSchemaForPyCaret(SchemaInfo schemaInfo)
     {
+        // Mock mode — Gemini key yok
+        if (_model == null)
+        {
+            _logger.LogWarning("Mock mode: Gemini API key yok, mock analiz döndürülüyor.");
+            var tableNames = string.Join(", ", schemaInfo.Tables.Select(t => t.TableName));
+            return new GeminiAnalysisResult
+            {
+                Success = true,
+                ConfigJson = "{}",
+                SchemaSummary = $"Mock analiz — {schemaInfo.Tables.Count} tablo bulundu: {tableNames}",
+                RawResponse = "mock"
+            };
+        }
+
         var prompt = BuildSchemaAnalysisPrompt(schemaInfo);
 
         _logger.LogInformation("Gemini'ye schema analizi gönderiliyor. Tablo sayısı: {Count}", schemaInfo.Tables.Count);

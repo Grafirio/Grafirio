@@ -64,8 +64,8 @@ public static class ConnectionEndpoints
     {
         var builder = new SqlConnectionStringBuilder
         {
-            // Port eklemeden server adını kullan (FSSARUHAN gibi)
-            DataSource = request.Port == 1433 ? request.Host : $"{request.Host},{request.Port}",
+            // tcp: prefix ile Named Pipes yerine TCP zorla (Docker container'lar için gerekli)
+            DataSource = $"tcp:{request.Host},{request.Port}",
             InitialCatalog = request.Database,
             UserID = request.Username,
             Password = request.Password,

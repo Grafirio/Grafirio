@@ -93,7 +93,7 @@ public static class SchemaEndpoints
                 SELECT 
                     COLUMN_NAME as ColumnName,
                     DATA_TYPE as DataType,
-                    CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END as IsNullable,
+                    CAST(CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS BIT) as IsNullable,
                     CHARACTER_MAXIMUM_LENGTH as MaxLength
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @Table

@@ -27,7 +27,7 @@ const DashboardPage = () => {
   };
 
   const formatDate = (str) =>
-    str ? new Date(str).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "\u2014";
+    str ? new Date(str).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 
   return (
     <div className="db-home">
@@ -35,11 +35,11 @@ const DashboardPage = () => {
         <div className="db-home-title">
           <IconDatabase size={28} strokeWidth={1.5} />
           <div>
-            <h1>Veritaban\u0131 Ba\u011flant\u0131lar\u0131</h1>
-            <p>Analiz tuvaline a\u00e7mak i\u00e7in bir veritaban\u0131na <strong>\u00e7ift t\u0131klay\u0131n</strong></p>
+            <h1>Veritabanı Bağlantıları</h1>
+            <p>Analiz tuvaline açmak için bir veritabanına <strong>çift tıklayın</strong></p>
           </div>
         </div>
-        <button className="db-btn-new" onClick={() => navigate("/data-analysis")}>
+        <button className="db-btn-new" onClick={() => navigate("/settings/sql-connection")}>
           <IconPlus size={16} />
           Yeni Analiz
         </button>
@@ -60,10 +60,10 @@ const DashboardPage = () => {
       {completedAnalyses.length === 0 ? (
         <div className="db-empty">
           <IconAlertCircle size={56} strokeWidth={1.2} />
-          <h2>Hen\u00fcz analiz yok</h2>
-          <p>Veri Analizi sayfas\u0131nda yeni bir veritaban\u0131 ba\u011flant\u0131s\u0131 olu\u015fturun.</p>
-          <button className="db-btn-new" onClick={() => navigate("/data-analysis")}>
-            <IconPlus size={16} /> Yeni Analiz Ba\u015flat
+          <h2>Henüz analiz yok</h2>
+          <p>Ayarlar &gt; SQL Bağlantı sayfasında bağlantı ekleyin ve Analiz Et'e tıklayın.</p>
+          <button className="db-btn-new" onClick={() => navigate("/settings/sql-connection")}>
+            <IconPlus size={16} /> Yeni Analiz Başlat
           </button>
         </div>
       ) : (
@@ -73,7 +73,7 @@ const DashboardPage = () => {
               key={analysis.requestId}
               className={`db-card ${analysis.status === "failed" ? "db-card--failed" : ""}`}
               onDoubleClick={() => handleCardDoubleClick(analysis)}
-              title="Analiz tuvaline a\u00e7mak i\u00e7in \u00e7ift t\u0131klay\u0131n"
+              title="Analiz tuvaline açmak için çift tıklayın"
             >
               <div className="db-card-icon-wrap">
                 <IconDatabase size={32} strokeWidth={1.2} />
@@ -83,21 +83,21 @@ const DashboardPage = () => {
                 <div className="db-card-meta">
                   <span className="db-card-tables">{analysis.tables?.length ?? 0} tablo</span>
                   <span className={`db-card-badge ${analysis.status === "failed" ? "badge--failed" : "badge--ok"}`}>
-                    {analysis.status === "failed" ? "Ba\u015far\u0131s\u0131z" : "Haz\u0131r"}
+                    {analysis.status === "failed" ? "Başarısız" : "Hazır"}
                   </span>
                 </div>
                 <div className="db-card-date">{formatDate(analysis.completedAt || analysis.updatedAt)}</div>
               </div>
               <div className="db-card-cta">
                 <IconChevronRight size={18} />
-                <span>Tuvali A\u00e7</span>
+                <span>Tuvali Aç</span>
               </div>
             </div>
           ))}
-          <div className="db-card db-card--add" onClick={() => navigate("/data-analysis")}>
+          <div className="db-card db-card--add" onClick={() => navigate("/settings/sql-connection")}>
             <div className="db-card-add-inner">
               <IconPlus size={28} strokeWidth={1.5} />
-              <span>Yeni Ba\u011flant\u0131</span>
+              <span>Yeni Bağlantı</span>
             </div>
           </div>
         </div>

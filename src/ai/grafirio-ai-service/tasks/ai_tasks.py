@@ -113,6 +113,125 @@ TEXT_SYSTEM_PROMPT = (
 )
 
 
+def _rule_based_sql(question: str) -> tuple:
+    """Gemini rate-limit fallback: soruya gore hazır T-SQL şablonu döndürür.
+    Returns (sql, chart_type, title, y_label)"""
+    q = question.lower()
+    m = re.search(r'\b(\d+)\b', q)
+    top_n = int(m.group(1)) if m else 10
+
+    # Kullanıcının istediği grafik tipini tespit et
+    def detect_chart_type(default: str) -> str:
+        if any(k in q for k in ('pasta', 'pie', 'dilim', 'yuzde', 'yüzde', 'oran')):
+            return 'pie'
+        if any(k in q for k in ('halka', 'donut', 'doughnut')):
+            return 'doughnut'
+        if any(k in q for k in ('cizgi', 'çizgi', 'line', 'trend', 'zaman', 'alan', 'area')):
+            return 'line'
+        if any(k in q for k in ('radar', 'spider')):
+            return 'radar'
+        if any(k in q for k in ('sutun', 'sütun', 'bar', 'cubuk', 'çubuk', 'kolon')):
+            return 'bar'
+        return default
+    if any(k in q for k in ('en çok satan', 'cok satan', 'çok satan', 'en fazla satan',
+                             'populer urun', 'popüler ürün', 'satis miktari')):
+        sql = f"""
+            SELECT TOP {top_n} p.Name AS Urun, SUM(oi.Quantity) AS ToplamSatis
+            FROM Products p
+            JOIN OrderItems oi ON p.Id = oi.ProductId
+            GROUP BY p.Name
+            ORDER BY ToplamSatis DESC
+        """
+        return sql, detect_chart_type('bar'), f'En Çok Satan {top_n} Ürün', 'Satış Miktarı'
+
+    # Sipariş durumu
+    if any(k in q for k in ('sipariş durumu', 'siparis durumu', 'order status',
+                             'duruma gore', 'duruma göre', 'siparis dagilim')):
+        sql = """
+            SELECT Status AS Durum, COUNT(*) AS Adet
+            FROM Orders
+            GROUP BY Status
+            ORDER BY Adet DESC
+        """
+        return sql, detect_chart_type('pie'), 'Sipariş Durum Dağılımı', 'Sipariş Adedi'
+
+    # Aylık/trend gelir
+    if any(k in q for k in ('aylik', 'aylık', 'trend', 'zaman', 'haftalik', 'haftalık',
+                             'gunluk', 'günlük')):
+        sql = """
+            SELECT FORMAT(OrderDate, 'yyyy-MM') AS Ay, SUM(TotalAmount) AS ToplamGelir
+            FROM Orders
+            WHERE OrderDate >= DATEADD(MONTH, -12, GETDATE())
+            GROUP BY FORMAT(OrderDate, 'yyyy-MM')
+            ORDER BY Ay
+        """
+        return sql, detect_chart_type('line'), 'Aylık Gelir Trendi (Son 12 Ay)', 'Gelir (TL)'
+
+    # Kategori
+    if 'kategori' in q:
+        sql = """
+            SELECT c.Name AS Kategori, SUM(oi.Quantity) AS ToplamSatis
+            FROM Categories c
+            JOIN Products p ON c.Id = p.CategoryId
+            JOIN OrderItems oi ON p.Id = oi.ProductId
+            GROUP BY c.Name
+            ORDER BY ToplamSatis DESC
+        """
+        return sql, detect_chart_type('bar'), 'Kategoriye Göre Satışlar', 'Satış Miktarı'
+
+    # Müşteri tipi
+    if any(k in q for k in ('musteri', 'müşteri', 'customer')):
+        sql = """
+            SELECT CustomerType AS MusteriTipi, COUNT(*) AS Adet
+            FROM Customers
+            GROUP BY CustomerType
+            ORDER BY Adet DESC
+        """
+        return sql, detect_chart_type('doughnut'), 'Müşteri Tipi Dağılımı', 'Müşteri Sayısı'
+
+    # Gelir / satış genel
+    if any(k in q for k in ('gelir', 'revenue', 'satis', 'satış', 'kazanc', 'kazanç')):
+        sql = f"""
+            SELECT TOP {top_n} p.Name AS Urun, SUM(oi.TotalPrice) AS ToplamGelir
+            FROM Products p
+            JOIN OrderItems oi ON p.Id = oi.ProductId
+            GROUP BY p.Name
+            ORDER BY ToplamGelir DESC
+        """
+        return sql, detect_chart_type('bar'), f'En Çok Gelir Getiren {top_n} Ürün', 'Gelir (TL)'
+
+    # Stok durumu
+    if any(k in q for k in ('stok', 'stock', 'envanter', 'inventory')):
+        sql = f"""
+            SELECT TOP {top_n} Name AS Urun, Stock AS Stok, Price AS Fiyat
+            FROM Products
+            WHERE IsActive = 1
+            ORDER BY Stock ASC
+        """
+        return sql, detect_chart_type('bar'), f'En Düşük Stoklu {top_n} Ürün', 'Stok Adedi'
+
+    # İnceleme / rating
+    if any(k in q for k in ('rating', 'puan', 'inceleme', 'review', 'yorum')):
+        sql = f"""
+            SELECT TOP {top_n} p.Name AS Urun, AVG(CAST(r.Rating AS FLOAT)) AS OrtPuan, COUNT(r.Id) AS YorumSayisi
+            FROM Products p
+            JOIN Reviews r ON p.Id = r.ProductId
+            GROUP BY p.Name
+            ORDER BY OrtPuan DESC
+        """
+        return sql, detect_chart_type('bar'), f'En Yüksek Puanlı {top_n} Ürün', 'Ortalama Puan'
+
+    # Default: aylık gelir
+    sql = """
+        SELECT FORMAT(OrderDate, 'yyyy-MM') AS Ay, SUM(TotalAmount) AS ToplamGelir
+        FROM Orders
+        WHERE OrderDate >= DATEADD(MONTH, -6, GETDATE())
+        GROUP BY FORMAT(OrderDate, 'yyyy-MM')
+        ORDER BY Ay
+    """
+    return sql, 'line', 'Son 6 Ay Gelir Trendi', 'Gelir (TL)'
+
+
 def is_chart_request(question: str) -> bool:
     q = question.lower()
     return any(kw in q for kw in CHART_KEYWORDS)
@@ -311,164 +430,186 @@ def _process_question(message: dict):
                     raise RuntimeError(f"RATE_LIMIT:{wait_secs}")
                 raise
 
-    force_chart_fallback = False
-    if intent == 'predictive':
-        routed, route_err = try_pycaret_predict()
-        if routed:
-            logger.info("Predictive intent PyCaret'e yonlendirildi | RequestId=%s", request_id)
-            return
+    try:
+        force_chart_fallback = False
+        if intent == 'predictive':
+            routed, route_err = try_pycaret_predict()
+            if routed:
+                logger.info("Predictive intent PyCaret'e yonlendirildi | RequestId=%s", request_id)
+                return
 
-        logger.warning(
-            "Predictive intent fallback | RequestId=%s | Sebep=%s",
-            request_id,
-            route_err,
-        )
+            logger.warning(
+                "Predictive intent fallback | RequestId=%s | Sebep=%s",
+                request_id,
+                route_err,
+            )
 
-        # If user also explicitly asked for a chart, fallback to SQL chart path.
-        if is_chart_request(question):
-            force_chart_fallback = True
+            # If user also explicitly asked for a chart, fallback to SQL chart path.
+            if is_chart_request(question):
+                force_chart_fallback = True
+            else:
+                text_model = genai.GenerativeModel(
+                    model_name=GEMINI_MODEL,
+                    system_instruction=TEXT_SYSTEM_PROMPT,
+                )
+                fb_prompt = (
+                    f"Kullanici sorusu: {question}\n"
+                    "Bu soru predictive niyet tasiyor ancak model/feature payload hazir degil. "
+                    "Kullaniciyi kisa ve net bicimde bilgilendir: once model egitimi ve gerekli alanlarin secimi gerektigini soyle, "
+                    "ardindan ayni soru icin su an hangi tarihsel grafiklerin gosterilebilecegine 1-2 ornek ver."
+                )
+                response = gemini_generate(text_model, fb_prompt)
+                post_result('completed', {
+                    'type': 'text',
+                    'success': True,
+                    'question': question,
+                    'answer': response.text,
+                    'charts': [],
+                    'answeredAt': datetime.utcnow().isoformat(),
+                })
+                return
+
+        if intent == 'chart' or force_chart_fallback:
+            logger.info("Grafik istegi tespit edildi")
+            sql_gen_model = genai.GenerativeModel(
+                model_name=GEMINI_MODEL,
+                system_instruction=SQL_GEN_SYSTEM,
+            )
+            sql_prompt = (
+                f"{DB_SCHEMA}\n\nKullanici sorusu: {question}\n\n"
+                "Yukaridaki semaya uygun bir T-SQL SELECT sorgusu ve grafik metadatasi uret. Sadece JSON dondur."
+            )
+            sql_resp = gemini_generate(sql_gen_model, sql_prompt)
+            sql_meta = extract_json(sql_resp.text)
+
+            sql        = sql_meta.get('sql', '')
+            chart_type = sql_meta.get('chart_type', 'bar').lower()
+            title      = sql_meta.get('title', question[:60])
+            y_label    = sql_meta.get('y_label', 'Deger')
+
+            logger.info("Uretilen SQL | %s", sql[:200])
+
+            try:
+                columns, rows = execute_sql(sql)
+                logger.info("SQL calistirildi | %d satir", len(rows))
+            except Exception as db_err:
+                logger.warning("SQL calistirilamadi, ornek veri isteniyor | %s", db_err)
+                fallback_model = genai.GenerativeModel(
+                    model_name=GEMINI_MODEL,
+                    system_instruction=TEXT_SYSTEM_PROMPT,
+                )
+                fb_prompt = (
+                    f"{question} -- Veritabanina su an ulasilamiyor. "
+                    "Bu analiz icin gercekci ornek veriler olustur ve yaniti SADECE asagidaki JSON formatinda ver:\n"
+                    '{"labels":["..."],"datasets":[{"label":"...","data":[...]}]}'
+                )
+                fb_resp = gemini_generate(fallback_model, fb_prompt)
+                fb_data = extract_json(fb_resp.text)
+                post_result('completed', {
+                    'type': 'chart', 'chartType': chart_type, 'title': title,
+                    'success': True,
+                    'answer': f'Ornek veri gosteriliyor (DB baglantisi yok): {str(db_err)[:80]}',
+                    'charts': [{'type': chart_type, 'title': title, 'data': fb_data}],
+                    'answeredAt': datetime.utcnow().isoformat(),
+                })
+                return
+
+            if not rows:
+                logger.warning("Sorgu bos dondu, genis aralikla retry | SQL=%s", sql[:200])
+                retry_prompt = (
+                    f"{DB_SCHEMA}\n\nKullanici sorusu: {question}\n\n"
+                    "Onceki sorgu hic sonuc dondurmedi (muhtemelen tarih filtresi cok dar). "
+                    "Bu kez tarih filtresini KALDIR veya cok daha genis bir tarih araligi kullan (orn. son 2 yil). "
+                    "Sadece JSON dondur."
+                )
+                retry_resp = gemini_generate(sql_gen_model, retry_prompt)
+                retry_meta = extract_json(retry_resp.text)
+                retry_sql  = retry_meta.get('sql', '')
+                logger.info("Retry SQL | %s", retry_sql[:200])
+                try:
+                    columns, rows = execute_sql(retry_sql)
+                except Exception as retry_err:
+                    logger.error("Retry SQL de basarisiz | %s", retry_err)
+                    rows = []
+
+            if not rows:
+                fallback_model2 = genai.GenerativeModel(
+                    model_name=GEMINI_MODEL,
+                    system_instruction=TEXT_SYSTEM_PROMPT,
+                )
+                fb2_prompt = (
+                    f"{question} -- Veritabaninda bu soruya uygun veri bulunamadi. "
+                    "Bu analiz icin gercekci ornek veriler olustur ve yaniti SADECE asagidaki JSON formatinda ver:\n"
+                    '{"labels":["..."],"datasets":[{"label":"...","data":[...]}]}'
+                )
+                fb2_resp = gemini_generate(fallback_model2, fb2_prompt)
+                fb2_data = extract_json(fb2_resp.text)
+                post_result('completed', {
+                    'type': 'chart', 'chartType': chart_type, 'title': title,
+                    'success': True,
+                    'answer': 'Veritabaninda bu donem icin veri bulunamadi. Ornek veri gosteriliyor.',
+                    'charts': [{'type': chart_type, 'title': title, 'data': fb2_data}],
+                    'answeredAt': datetime.utcnow().isoformat(),
+                })
+                return
+
+            chart_data = rows_to_chartjs(columns, rows, y_label)
+            post_result('completed', {
+                'type': 'chart', 'chartType': chart_type, 'title': title,
+                'success': True,
+                'answer': f'"{title}" grafigi olusturuldu ({len(rows)} veri noktasi).',
+                'charts': [{'type': chart_type, 'title': title, 'data': chart_data}],
+                'answeredAt': datetime.utcnow().isoformat(),
+            })
+
         else:
             text_model = genai.GenerativeModel(
                 model_name=GEMINI_MODEL,
                 system_instruction=TEXT_SYSTEM_PROMPT,
             )
-            fb_prompt = (
-                f"Kullanici sorusu: {question}\n"
-                "Bu soru predictive niyet tasiyor ancak model/feature payload hazir degil. "
-                "Kullaniciyi kisa ve net bicimde bilgilendir: once model egitimi ve gerekli alanlarin secimi gerektigini soyle, "
-                "ardindan ayni soru icin su an hangi tarihsel grafiklerin gosterilebilecegine 1-2 ornek ver."
-            )
-            response = gemini_generate(text_model, fb_prompt)
+            history = []
+            for item in context:
+                try:
+                    parsed = json.loads(item) if isinstance(item, str) else item
+                    role    = parsed.get('role', 'user')
+                    content = parsed.get('content', '')
+                    if role in ('user', 'model') and content:
+                        history.append({'role': role, 'parts': [{'text': content}]})
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
+            chat     = text_model.start_chat(history=history)
+            response = gemini_generate(text_model, lambda: chat.send_message(question))
+            answer   = response.text
+
+            logger.info("Gemini metin yaniti | %d karakter", len(answer))
+
             post_result('completed', {
-                'type': 'text',
-                'success': True,
-                'question': question,
-                'answer': response.text,
-                'charts': [],
-                'answeredAt': datetime.utcnow().isoformat(),
+                'type': 'text', 'success': True,
+                'question': question, 'answer': answer,
+                'charts': [], 'answeredAt': datetime.utcnow().isoformat(),
             })
-            return
 
-    if intent == 'chart' or force_chart_fallback:
-        logger.info("Grafik istegi tespit edildi")
-        sql_gen_model = genai.GenerativeModel(
-            model_name=GEMINI_MODEL,
-            system_instruction=SQL_GEN_SYSTEM,
-        )
-        sql_prompt = (
-            f"{DB_SCHEMA}\n\nKullanici sorusu: {question}\n\n"
-            "Yukaridaki semaya uygun bir T-SQL SELECT sorgusu ve grafik metadatasi uret. Sadece JSON dondur."
-        )
-        sql_resp = gemini_generate(sql_gen_model, sql_prompt)
-        sql_meta = extract_json(sql_resp.text)
-
-        sql        = sql_meta.get('sql', '')
-        chart_type = sql_meta.get('chart_type', 'bar').lower()
-        title      = sql_meta.get('title', question[:60])
-        y_label    = sql_meta.get('y_label', 'Deger')
-
-        logger.info("Uretilen SQL | %s", sql[:200])
-
+    except RuntimeError as rate_err:
+        if not str(rate_err).startswith('RATE_LIMIT:'):
+            raise
+        logger.warning("Rate limit — kural tabanli fallback devreye giriyor | soru=%s", question)
         try:
-            columns, rows = execute_sql(sql)
-            logger.info("SQL calistirildi | %d satir", len(rows))
-        except Exception as db_err:
-            logger.warning("SQL calistirilamadi, ornek veri isteniyor | %s", db_err)
-            fallback_model = genai.GenerativeModel(
-                model_name=GEMINI_MODEL,
-                system_instruction=TEXT_SYSTEM_PROMPT,
-            )
-            fb_prompt = (
-                f"{question} -- Veritabanina su an ulasilamiyor. "
-                "Bu analiz icin gercekci ornek veriler olustur ve yaniti SADECE asagidaki JSON formatinda ver:\n"
-                '{"labels":["..."],"datasets":[{"label":"...","data":[...]}]}'
-            )
-            fb_resp = gemini_generate(fallback_model, fb_prompt)
-            fb_data = extract_json(fb_resp.text)
-            post_result('completed', {
-                'type': 'chart', 'chartType': chart_type, 'title': title,
-                'success': True,
-                'answer': f'Ornek veri gosteriliyor (DB baglantisi yok): {str(db_err)[:80]}',
-                'charts': [{'type': chart_type, 'title': title, 'data': fb_data}],
-                'answeredAt': datetime.utcnow().isoformat(),
-            })
-            return
-
-        if not rows:
-            logger.warning("Sorgu bos dondu, genis aralikla retry | SQL=%s", sql[:200])
-            retry_prompt = (
-                f"{DB_SCHEMA}\n\nKullanici sorusu: {question}\n\n"
-                "Onceki sorgu hic sonuc dondurmedi (muhtemelen tarih filtresi cok dar). "
-                "Bu kez tarih filtresini KALDIR veya cok daha genis bir tarih araligi kullan (orn. son 2 yil). "
-                "Sadece JSON dondur."
-            )
-            retry_resp = gemini_generate(sql_gen_model, retry_prompt)
-            retry_meta = extract_json(retry_resp.text)
-            retry_sql  = retry_meta.get('sql', '')
-            logger.info("Retry SQL | %s", retry_sql[:200])
-            try:
-                columns, rows = execute_sql(retry_sql)
-            except Exception as retry_err:
-                logger.error("Retry SQL de basarisiz | %s", retry_err)
-                rows = []
-
-        if not rows:
-            fallback_model2 = genai.GenerativeModel(
-                model_name=GEMINI_MODEL,
-                system_instruction=TEXT_SYSTEM_PROMPT,
-            )
-            fb2_prompt = (
-                f"{question} -- Veritabaninda bu soruya uygun veri bulunamadi. "
-                "Bu analiz icin gercekci ornek veriler olustur ve yaniti SADECE asagidaki JSON formatinda ver:\n"
-                '{"labels":["..."],"datasets":[{"label":"...","data":[...]}]}'
-            )
-            fb2_resp = gemini_generate(fallback_model2, fb2_prompt)
-            fb2_data = extract_json(fb2_resp.text)
-            post_result('completed', {
-                'type': 'chart', 'chartType': chart_type, 'title': title,
-                'success': True,
-                'answer': 'Veritabaninda bu donem icin veri bulunamadi. Ornek veri gosteriliyor.',
-                'charts': [{'type': chart_type, 'title': title, 'data': fb2_data}],
-                'answeredAt': datetime.utcnow().isoformat(),
-            })
-            return
-
-        chart_data = rows_to_chartjs(columns, rows, y_label)
-        post_result('completed', {
-            'type': 'chart', 'chartType': chart_type, 'title': title,
-            'success': True,
-            'answer': f'"{title}" grafigi olusturuldu ({len(rows)} veri noktasi).',
-            'charts': [{'type': chart_type, 'title': title, 'data': chart_data}],
-            'answeredAt': datetime.utcnow().isoformat(),
-        })
-
-    else:
-        text_model = genai.GenerativeModel(
-            model_name=GEMINI_MODEL,
-            system_instruction=TEXT_SYSTEM_PROMPT,
-        )
-        history = []
-        for item in context:
-            try:
-                parsed = json.loads(item) if isinstance(item, str) else item
-                role    = parsed.get('role', 'user')
-                content = parsed.get('content', '')
-                if role in ('user', 'model') and content:
-                    history.append({'role': role, 'parts': [{'text': content}]})
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        chat     = text_model.start_chat(history=history)
-        response = gemini_generate(text_model, lambda: chat.send_message(question))
-        answer   = response.text
-
-        logger.info("Gemini metin yaniti | %d karakter", len(answer))
-
-        post_result('completed', {
-            'type': 'text', 'success': True,
-            'question': question, 'answer': answer,
-            'charts': [], 'answeredAt': datetime.utcnow().isoformat(),
-        })
+            fb_sql, fb_chart_type, fb_title, fb_y_label = _rule_based_sql(question)
+            columns, rows = execute_sql(fb_sql.strip())
+            if rows:
+                chart_data = rows_to_chartjs(columns, rows, fb_y_label)
+                post_result('completed', {
+                    'type': 'chart', 'chartType': fb_chart_type, 'title': fb_title,
+                    'success': True,
+                    'answer': f'"{fb_title}" ({len(rows)} veri noktası — kural tabanlı sorgu)',
+                    'charts': [{'type': fb_chart_type, 'title': fb_title, 'data': chart_data}],
+                    'answeredAt': datetime.utcnow().isoformat(),
+                })
+                return
+        except Exception as fb_err:
+            logger.error("Kural tabanli fallback da basarisiz: %s", fb_err)
+        raise rate_err
 
 
 def _process_graph_data(message: dict):

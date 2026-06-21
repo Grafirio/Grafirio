@@ -1,0 +1,354 @@
+/* Grifirio Account Theme - Dark Mode */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #242424;
+  --bg-secondary: #1a1a1a;
+  --bg-card: #2a2a2a;
+  --bg-input: #1e1e1e;
+  --border-color: #3a3a3a;
+  --border-focus: #646cff;
+  --text-primary: rgba(255, 255, 255, 0.87);
+  --text-secondary: rgba(255, 255, 255, 0.5);
+  --text-muted: rgba(255, 255, 255, 0.35);
+  --accent: #646cff;
+  --accent-hover: #535bf2;
+  --accent-light: rgba(100, 108, 255, 0.15);
+  --accent-glow: rgba(100, 108, 255, 0.3);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.1);
+  --danger-border: rgba(248, 113, 113, 0.3);
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.1);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.1);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --transition: 0.2s ease;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Navbar */
+.navbar,
+nav.navbar,
+.pf-v5-c-page__header,
+header {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  box-shadow: none !important;
+}
+
+.navbar-brand,
+.navbar-brand:hover {
+  color: var(--text-primary) !important;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.navbar-nav > li > a,
+.nav-link {
+  color: var(--text-secondary) !important;
+  transition: color var(--transition) !important;
+}
+
+.navbar-nav > li > a:hover,
+.nav-link:hover,
+.navbar-nav > li.active > a {
+  color: var(--accent) !important;
+}
+
+/* Page body */
+.container,
+.pf-v5-c-page__main,
+.container-fluid {
+  background: var(--bg-primary) !important;
+}
+
+/* Cards / Panels */
+.card,
+.panel,
+.pf-v5-c-card,
+.account-details {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+.card-header,
+.panel-heading,
+.pf-v5-c-card__header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600;
+  padding: 1rem 1.5rem;
+}
+
+.card-body,
+.panel-body,
+.pf-v5-c-card__body {
+  padding: 1.5rem;
+}
+
+/* Form elements */
+.form-group,
+.pf-v5-c-form__group {
+  margin-bottom: 1.25rem;
+}
+
+label,
+.form-label,
+.pf-v5-c-form__label {
+  color: var(--text-secondary) !important;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+  display: block;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="tel"],
+select,
+textarea,
+.form-control,
+.pf-v5-c-form-control {
+  width: 100% !important;
+  padding: 0.625rem 0.875rem !important;
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.875rem !important;
+  font-family: inherit !important;
+  transition: border-color var(--transition), box-shadow var(--transition) !important;
+  outline: none !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.form-control:focus {
+  border-color: var(--border-focus) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+  background: #222233 !important;
+}
+
+/* Buttons */
+.btn,
+button {
+  font-family: inherit !important;
+  border-radius: var(--radius-sm) !important;
+  cursor: pointer !important;
+  transition: all var(--transition) !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  padding: 0.5rem 1rem !important;
+}
+
+.btn-primary,
+.pf-v5-c-button.pf-m-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: white !important;
+}
+
+.btn-primary:hover,
+.pf-v5-c-button.pf-m-primary:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  box-shadow: 0 0 12px var(--accent-glow) !important;
+}
+
+.btn-default,
+.btn-secondary,
+.pf-v5-c-button.pf-m-secondary {
+  background: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.btn-default:hover,
+.btn-secondary:hover {
+  border-color: var(--accent) !important;
+  background: var(--accent-light) !important;
+}
+
+.btn-danger,
+.pf-v5-c-button.pf-m-danger {
+  background: var(--danger-bg) !important;
+  border-color: var(--danger-border) !important;
+  color: var(--danger) !important;
+}
+
+.btn-danger:hover {
+  background: rgba(248, 113, 113, 0.2) !important;
+}
+
+/* Tables */
+table,
+.table {
+  color: var(--text-primary) !important;
+  width: 100%;
+}
+
+.table > thead > tr > th,
+th {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+}
+
+.table > tbody > tr > td,
+td {
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+  padding: 0.75rem 1rem;
+}
+
+.table > tbody > tr:hover > td,
+tr:hover td {
+  background: var(--accent-light) !important;
+}
+
+/* Alerts */
+.alert {
+  border-radius: var(--radius-sm) !important;
+  font-size: 0.875rem !important;
+  padding: 0.75rem 1rem !important;
+}
+
+.alert-danger, .alert-error {
+  background: var(--danger-bg) !important;
+  border-color: var(--danger-border) !important;
+  color: var(--danger) !important;
+}
+
+.alert-success {
+  background: var(--success-bg) !important;
+  border-color: rgba(74, 222, 128, 0.3) !important;
+  color: var(--success) !important;
+}
+
+.alert-warning {
+  background: var(--warning-bg) !important;
+  border-color: rgba(251, 191, 36, 0.3) !important;
+  color: var(--warning) !important;
+}
+
+.alert-info {
+  background: rgba(96, 165, 250, 0.1) !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+  color: #60a5fa !important;
+}
+
+/* Links */
+a {
+  color: var(--accent) !important;
+  text-decoration: none !important;
+  transition: color var(--transition) !important;
+}
+
+a:hover {
+  color: var(--accent-hover) !important;
+  text-decoration: underline !important;
+}
+
+/* Breadcrumb */
+.breadcrumb {
+  background: transparent !important;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.breadcrumb > li + li::before {
+  color: var(--text-muted) !important;
+}
+
+/* Section headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+
+/* Tabs */
+.nav-tabs {
+  border-color: var(--border-color) !important;
+}
+
+.nav-tabs > li > a {
+  color: var(--text-secondary) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.nav-tabs > li > a:hover {
+  color: var(--accent) !important;
+  border-color: transparent transparent var(--accent) !important;
+  background: transparent !important;
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:focus,
+.nav-tabs > li.active > a:hover {
+  color: var(--accent) !important;
+  background: transparent !important;
+  border-color: var(--border-color) var(--border-color) transparent !important;
+  border-bottom-color: transparent !important;
+}
+
+/* Divider */
+hr {
+  border-color: var(--border-color) !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .card-body,
+  .panel-body {
+    padding: 1rem;
+  }
+}

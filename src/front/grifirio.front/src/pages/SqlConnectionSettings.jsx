@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import TableSchema from '../components/DataAnalysis/TableSchema';
 import '../styles/SqlConnectionSettings.css';
 
 const SqlConnectionSettings = () => {
+  const navigate = useNavigate();
   const [connections, setConnections] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState(null);
@@ -539,13 +541,28 @@ const SqlConnectionSettings = () => {
     try {
       const result = await analyzeConnectionSchema(connId);
       if (result.success) {
+        // Dashboard'a analiz kartı ekle
+        const entry = {
+          requestId: connId,
+          database: connection.database || connection.name,
+          tables: connection.selectedTables || [],
+          status: 'completed',
+          completedAt: new Date().toISOString()
+        };
+        const existing = JSON.parse(localStorage.getItem('activeAnalyses') || '[]');
+        const filtered = existing.filter(a => a.requestId !== connId);
+        filtered.push(entry);
+        localStorage.setItem('activeAnalyses', JSON.stringify(filtered));
+
         setNotification({
           show: true,
           type: 'success',
-          title: 'Schema Analiz Edildi!',
-          message: 'PyCaret config başarıyla oluşturuldu. AI Sorgulama sayfasına giderek sorularınızı sorabilirsiniz.',
+          title: 'Analiz Tamamlandı!',
+          message: 'Analiz Dashboard\'a eklendi. Kanvasa geçmek için Dashboard\'daki karta çift tıklayın.',
           details: result.schemaSummary || ''
         });
+
+        setTimeout(() => navigate('/'), 1500);
       } else {
         setNotification({
           show: true,
