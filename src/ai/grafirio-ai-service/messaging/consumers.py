@@ -137,11 +137,7 @@ class AIRequestConsumer:
                         )
                         import json as _json
                         err_msg = str(ex)
-                        # RATE_LIMIT:<seconds> — ai_tasks'tan gelen özel exception
-                        if err_msg.startswith('RATE_LIMIT:'):
-                            wait_secs = err_msg.split(':')[1]
-                            user_msg = f'AI servisi geçici olarak meşgul (rate limit). ~{wait_secs} saniye sonra tekrar deneyin.'
-                        elif 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
+                        if 'quota' in err_msg.lower() or 'rate' in err_msg.lower():
                             user_msg = 'AI servisi geçici olarak meşgul (rate limit). Lütfen 1 dakika sonra tekrar deneyin.'
                         else:
                             user_msg = f'İşlem sırasında bir hata oluştu: {err_msg[:120]}'

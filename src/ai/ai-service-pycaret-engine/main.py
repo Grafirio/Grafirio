@@ -57,6 +57,23 @@ class PredictRequest(BaseModel):
     data: Dict[str, Any]
 
 
+class SeriesPoint(BaseModel):
+    period: str
+    value: float
+
+
+class ForecastRequest(BaseModel):
+    series: List[SeriesPoint]
+    horizon: int = 12
+    seasonality: Optional[int] = 12
+
+
+class ForecastResponse(BaseModel):
+    forecast: List[Dict[str, Any]]
+    model_name: str
+    status: str = "success"
+
+
 class TrainResponse(BaseModel):
     company_id: str
     status: str
@@ -83,6 +100,26 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.post("/forecast", response_model=ForecastResponse)
+async def forecast(request: ForecastRequest):
+    """Aylik zaman serisinden gelecek donem tahmini uretir (Holt-Winters/Holt/lineer trend)."""
+    from forecaster import ForecastError, forecast_series
+
+    try:
+        result = forecast_series(
+            [p.model_dump() for p in request.series],
+            horizon=request.horizon,
+            seasonality=request.seasonality,
+        )
+    except ForecastError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Forecast hatasi: {e}")
+        raise HTTPException(status_code=500, detail=f"Forecast uretilemedi: {e}")
+
+    return ForecastResponse(forecast=result["forecast"], model_name=result["model_name"])
 
 
 @app.post("/train", response_model=TrainResponse)
@@ -338,8 +375,8 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
             "message": "Loading data from database..."
         }
 
-        analyzer = AgentAnalyzer(conn_string, config)
-        result = analyzer.analyze(params)
+        analyzer = AgentAnalyzer(conn_string)
+        result = analyzer.run_analysis(config, params)
 
         if result["success"]:
             agent_analysis_status[query_id] = {

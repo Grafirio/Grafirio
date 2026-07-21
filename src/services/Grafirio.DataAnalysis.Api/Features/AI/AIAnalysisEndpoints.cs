@@ -23,11 +23,10 @@ public static class AIAnalysisEndpoints
         group.MapGet("/analysis-status/{requestId:guid}", GetAnalysisStatus)
             .WithName("GetAnalysisStatus")
             .WithTags("AI Analysis");
-        
-        group.MapPost("/update-progress", UpdateProgress)
-            .WithName("UpdateProgress")
-            .WithTags("AI Analysis");
-        
+
+        // NOT: /update-progress route'u QueryResultEndpoints'te (Redis tabanlı) tanımlı.
+        // Burada ikinci kez map'lenmesi ambiguous-route 500'üne yol açıyordu.
+
         group.MapPost("/analysis-result", SaveAnalysisResult)
             .WithName("SaveAnalysisResult")
             .WithTags("AI Analysis");
@@ -188,109 +187,36 @@ public static class AIAnalysisEndpoints
         );
     }
 
-    private static async Task<IResult> GetAnalysisStatus(
+    private static Task<IResult> GetAnalysisStatus(
         Guid requestId,
         [FromServices] ILogger<AIAnalysisRequest> logger)
     {
-        // Status can be tracked via Redis: await _redis.GetAsync($"status:{requestId}")
-        // Or from database: await _db.AnalysisStatus.FindAsync(requestId)
         logger.LogInformation("Checking analysis status for RequestId: {RequestId}", requestId);
 
-        // Simüle edilmiş progress - Her çağrıda artacak
         var statusKey = $"analysis_status_{requestId}";
-        
-        // İlk çağrıda başlangıç değerlerini ayarla
-        if (!StatusCache.ContainsKey(statusKey))
+        var statusData = StatusCache.Get(statusKey);
+
+        if (statusData is null)
         {
-            StatusCache.Set(statusKey, new AnalysisStatusData
+            return Task.FromResult(Results.Ok(new
             {
-                RequestId = requestId,
-                Status = "processing",
-                Progress = 15,
-                Message = "AI analizi başlatıldı...",
-                StartTime = DateTime.UtcNow
-            });
+                requestId,
+                status = "not_found",
+                progress = 0,
+                message = "Bu istek için durum kaydı bulunamadı"
+            }));
         }
 
-        var statusData = StatusCache.Get(statusKey)!;
-        var elapsed = (DateTime.UtcNow - statusData.StartTime).TotalSeconds;
-
-        // Progress'i zamanla artır
-        if (statusData.Status == "processing")
-        {
-            // Her 5 saniyede progress artır
-            statusData.Progress = Math.Min(95, 15 + (int)(elapsed / 5) * 15);
-            
-            // 60 saniye sonra tamamla
-            if (elapsed > 60)
-            {
-                statusData.Status = "completed";
-                statusData.Progress = 100;
-                statusData.Message = "AI analizi tamamlandı! Sonuçlar hazır.";
-            }
-            else if (statusData.Progress >= 80)
-            {
-                statusData.Message = "Sonuçlar hazırlanıyor...";
-            }
-            else if (statusData.Progress >= 50)
-            {
-                statusData.Message = "Veri analizi yapılıyor...";
-            }
-            else if (statusData.Progress >= 30)
-            {
-                statusData.Message = "Tablolar taranıyor...";
-            }
-            else
-            {
-                statusData.Message = "AI modeli verileri işliyor...";
-            }
-        }
-
-        return Results.Ok(new
+        return Task.FromResult(Results.Ok(new
         {
             requestId = statusData.RequestId,
             status = statusData.Status,
             progress = statusData.Progress,
             message = statusData.Message,
-            elapsedSeconds = (int)elapsed
-        });
+            elapsedSeconds = (int)(DateTime.UtcNow - statusData.StartTime).TotalSeconds
+        }));
     }
-    
-    private static Task<IResult> UpdateProgress(
-        [FromBody] ProgressUpdate update,
-        [FromServices] ILogger<AIAnalysisRequest> logger)
-    {
-        logger.LogInformation("Updating progress for RequestId: {RequestId} - {Progress}% - {Message}", 
-            update.RequestId, update.Progress, update.Message);
-        
-        var statusKey = $"analysis_status_{update.RequestId}";
-        
-        if (StatusCache.ContainsKey(statusKey))
-        {
-            var statusData = StatusCache.Get(statusKey)!;
-            statusData.Progress = update.Progress;
-            statusData.Message = update.Message;
-            
-            logger.LogInformation("Progress updated: {RequestId} - {Progress}%", update.RequestId, update.Progress);
-        }
-        else
-        {
-            // Create new status entry
-            StatusCache.Set(statusKey, new AnalysisStatusData
-            {
-                RequestId = update.RequestId,
-                Status = "processing",
-                Progress = update.Progress,
-                Message = update.Message,
-                StartTime = DateTime.UtcNow
-            });
-            
-            logger.LogInformation("New status created: {RequestId}", update.RequestId);
-        }
-        
-        return Task.FromResult(Results.Ok(new { success = true }));
-    }
-    
+
     private static Task<IResult> SaveAnalysisResult(
         [FromBody] AnalysisResult result,
         [FromServices] ILogger<AIAnalysisRequest> logger)
@@ -357,16 +283,6 @@ internal class AnalysisStatusData
     public string Message { get; set; } = "";
     public DateTime StartTime { get; set; }
 }
-
-/// <summary>
-/// Progress update from AI service
-/// </summary>
-public record ProgressUpdate(
-    Guid RequestId,
-    int Progress,
-    string Message,
-    DateTime Timestamp
-);
 
 /// <summary>
 /// Final analysis result from AI service

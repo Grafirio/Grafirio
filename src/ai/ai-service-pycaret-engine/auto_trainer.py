@@ -116,12 +116,11 @@ class AutoTrainer:
             if len(df_numeric) < 100:
                 raise Exception(f"Not enough data (< 100 rows) for {target}")
             
-            # PyCaret setup
+            # PyCaret 3.x setup ('silent' parametresi 2.x'te vardi, 3.x'te TypeError verir)
             exp = setup(
                 data=df_numeric,
                 target=target,
                 session_id=123,
-                silent=True,
                 verbose=False,
                 html=False,
                 n_jobs=1
@@ -173,11 +172,10 @@ class AutoTrainer:
             if len(df_numeric) < 100:
                 raise Exception(f"Not enough data (< 100 rows) for anomaly detection")
             
-            # PyCaret setup
+            # PyCaret 3.x setup ('silent' parametresi 2.x'te vardi, 3.x'te TypeError verir)
             exp = setup(
                 data=df_numeric,
                 session_id=123,
-                silent=True,
                 verbose=False,
                 html=False
             )

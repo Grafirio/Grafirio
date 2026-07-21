@@ -171,13 +171,22 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
+      MAX_PLAN_TASKS: 5
+      FORECAST_ENABLED: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       CSHARP_API_URL: http://data-analysis.api.container:5221
       MSSQL_HOST: sqlserver.db.order
       MSSQL_PORT: 1433
       MSSQL_DB: GrafirioECommerce
-      MSSQL_USER: sa
-      MSSQL_PASSWORD: ${SA_PASSWORD}
+      # LLM'in urettigi SQL sa yerine salt-okunur kullanici ile calisir
+      # (bkz. scripts/sql/create_readonly_login.sql)
+      MSSQL_USER: grafirio_readonly
+      MSSQL_PASSWORD: ${MSSQL_READONLY_PASSWORD}
     ports:
       - "8000:8000"
     depends_on:
@@ -205,12 +214,22 @@ services:
       REDIS_HOST: redis.db.basket
       REDIS_PORT: 6379
       PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
+      MAX_PLAN_TASKS: 5
+      FORECAST_ENABLED: "true"
+      CSHARP_API_URL: http://data-analysis.api.container:5221
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       MSSQL_HOST: sqlserver.db.order
       MSSQL_PORT: 1433
       MSSQL_DB: GrafirioECommerce
-      MSSQL_USER: sa
-      MSSQL_PASSWORD: ${SA_PASSWORD}
+      # LLM'in urettigi SQL sa yerine salt-okunur kullanici ile calisir
+      # (bkz. scripts/sql/create_readonly_login.sql)
+      MSSQL_USER: grafirio_readonly
+      MSSQL_PASSWORD: ${MSSQL_READONLY_PASSWORD}
     depends_on:
       - rabbitmq
       - redis.db.basket

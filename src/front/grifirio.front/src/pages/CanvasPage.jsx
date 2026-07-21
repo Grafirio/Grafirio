@@ -8,85 +8,9 @@ import './CanvasPage.css';
 
 /* ─────────────────────────────────────────────────────────────
    Canvas-node builder helpers
+   Render tamamen sonuç odaklıdır: backend'in döndürdüğü composite
+   payload'daki answer + charts[] + insights[] neyse o çizilir.
 ───────────────────────────────────────────────────────────── */
-const CHART_KEYWORDS = [
-  // ── Genel tetikleyiciler ──────────────────────────────────────────────
-  'grafik', 'chart', 'görselleştir', 'gorselleştir', 'görsel olarak', 'diyagram', 'diagram',
-  'grafikle', 'grafiğini', 'grafiği', 'göster', 'goster', 'çiz', 'ciz', 'oluştur',
-  'grafik olarak', 'olarak göster', 'olarak goster', 'grafigini', 'grafigi', 'grafik olustur',
-
-  // ── Bar / Sütun / Kolon ───────────────────────────────────────────────
-  'bar', 'bar chart', 'bar grafik', 'bar grafiği',
-  'çubuk', 'cubuk', 'çubuk grafik', 'çubuk grafiği',
-  'sütun', 'sutun', 'sütun grafiği', 'sütun grafik',
-  'kolon', 'kolon grafik',
-  'dikey grafik', 'yatay grafik',
-  'grouped bar', 'stacked bar', 'yığılmış çubuk', 'yığılmış bar',
-  'karşılaştırmalı grafik', 'karşılaştır',
-
-  // ── Çizgi / Alan / Trend ─────────────────────────────────────────────
-  'çizgi', 'cizgi', 'çizgi grafik', 'çizgi grafiği', 'line', 'line chart',
-  'trend', 'trend grafiği', 'trend analizi',
-  'zaman serisi', 'time series', 'zaman grafik',
-  'alan', 'alan grafiği', 'area', 'area chart',
-  'yığılmış alan', 'stacked area',
-  'step chart', 'adım grafik',
-  'spline', 'eğri grafik',
-
-  // ── Pasta / Halka / Dilim ─────────────────────────────────────────────
-  'pasta', 'pasta grafik', 'pasta grafiği', 'pie', 'pie chart', 'pie grafik',
-  'halka', 'halka grafik', 'halka grafiği', 'doughnut', 'donut',
-  'dilim', 'oran grafiği', 'yüzde grafiği', 'yüzde dağılımı',
-  'oranlar', 'yüzde',
-
-  // ── Dağılım / Nokta ───────────────────────────────────────────────────
-  'dağılım', 'dagılım', 'dağılım grafiği', 'scatter', 'scatter plot',
-  'nokta grafik', 'nokta grafiği', 'bubble', 'balon', 'balon grafik',
-  'korelasyon', 'correlation',
-
-  // ── Histogram / Frekans ───────────────────────────────────────────────
-  'histogram', 'frekans grafiği', 'frekans dağılımı', 'dağılım histogramı',
-
-  // ── Radar / Örümcek ───────────────────────────────────────────────────
-  'radar', 'radar grafik', 'spider', 'örümcek ağı', 'örümcek grafik',
-  'polar', 'polar grafik',
-
-  // ── Isı Haritası ─────────────────────────────────────────────────────
-  'ısı haritası', 'isi haritası', 'heatmap', 'heat map',
-
-  // ── Kutu / İstatistik ─────────────────────────────────────────────────
-  'kutu grafik', 'kutu grafiği', 'box plot', 'box-whisker', 'whisker',
-  'violin plot', 'keman grafik',
-
-  // ── Huni / Satış Hunisi ───────────────────────────────────────────────
-  'huni', 'huni grafik', 'huni grafiği', 'funnel', 'funnel chart',
-  'satış hunisi', 'dönüşüm hunisi',
-
-  // ── Şelale / Waterfall ────────────────────────────────────────────────
-  'şelale', 'şelale grafik', 'şelale grafiği', 'waterfall', 'waterfall chart',
-  'kümülatif grafik', 'kümülatif',
-
-  // ── Ağaç Haritası / Treemap ───────────────────────────────────────────
-  'treemap', 'ağaç haritası', 'agac haritası', 'hiyerarşik grafik',
-
-  // ── Pareto ────────────────────────────────────────────────────────────
-  'pareto', 'pareto grafik', 'pareto analizi',
-
-  // ── Gantt / Zaman Çizelgesi ───────────────────────────────────────────
-  'gantt', 'gantt grafik', 'zaman çizelgesi', 'timeline',
-
-  // ── Finansal ─────────────────────────────────────────────────────────
-  'mum grafik', 'mum grafiği', 'candlestick', 'ohlc',
-
-  // ── İstatistik Genel ─────────────────────────────────────────────────
-  'istatistik', 'istatistiksel', 'analiz grafik', 'dağılımı göster',
-  'görselle', 'tablo grafik',
-];
-
-const isChartRequest = (text) => {
-  const lower = text.toLowerCase();
-  return CHART_KEYWORDS.some(kw => lower.includes(kw));
-};
 const buildCanvasNodes = (report, parentId, posRef) => {
   const newNodes = [];
   const newEdges = [];
@@ -203,7 +127,7 @@ export default function CanvasPage() {
     }
   };
 
-  /* ── Ask AI question (Gemini via Django AI service) ── */
+  /* ── Ask AI question (Planner → Executor pipeline) ── */
   const handleAsk = async (q) => {
     const text = (q || question).trim();
     if (!text) return;
@@ -215,117 +139,88 @@ export default function CanvasPage() {
     setQueryCount(c => c + 1);
     setMessages(p => [...p, { role: 'ai', content: '', loading: true, ts: Date.now() }]);
 
-    // Build Gemini history from existing messages (exclude the loading placeholder we just added)
+    // Build history from existing messages (exclude the loading placeholder we just added)
     const history = messages.map(m => ({
       role: m.role === 'user' ? 'user' : 'model',
       content: m.content,
     })).filter(m => m.content);
 
-    // ── Grafik isteği ise tuval'e hemen loading node ekle ──
-    const chartReq = isChartRequest(text);
-    let loadingNodeId = null;
+    // ── Her soru için tuvale hemen soru + loading node ekle ──
+    // (grafik gelip gelmeyeceğine keyword değil, backend'in sonucu karar verir)
+    const qNodeId       = `q-${Date.now()}`;
+    const loadingNodeId = `chart-loading-${Date.now()}`;
+    const qPos          = { ...nextPosRef.current };
 
-    if (chartReq) {
-      const qNodeId       = `q-${Date.now()}`;
-      loadingNodeId       = `chart-loading-${Date.now()}`;
-      const qPos          = { ...nextPosRef.current };
+    const qNode = {
+      id: qNodeId, type: 'biInsightNode',
+      position: qPos,
+      data: { type: 'question', title: '💬 Soru', description: text },
+    };
+    const loadingNode = {
+      id: loadingNodeId, type: 'biChartNode',
+      position: { x: qPos.x + 460, y: qPos.y },
+      data: { loading: true, title: 'Analiz ediliyor…' },
+    };
+    const qEdge = lastGroupIdRef.current ? {
+      id: `e-${lastGroupIdRef.current}-${qNodeId}`,
+      source: lastGroupIdRef.current, target: qNodeId,
+      animated: true, style: { stroke: '#a78bfa' },
+    } : null;
+    const loadEdge = {
+      id: `e-${qNodeId}-${loadingNodeId}`,
+      source: qNodeId, target: loadingNodeId,
+      animated: true, style: { stroke: '#7c3aed' },
+    };
 
-      const qNode = {
-        id: qNodeId, type: 'biInsightNode',
-        position: qPos,
-        data: { type: 'question', title: '💬 Soru', description: text },
-      };
-      const loadingNode = {
-        id: loadingNodeId, type: 'biChartNode',
-        position: { x: qPos.x + 460, y: qPos.y },
-        data: { loading: true, title: 'Grafik Hazırlanıyor...' },
-      };
-      const qEdge = lastGroupIdRef.current ? {
-        id: `e-${lastGroupIdRef.current}-${qNodeId}`,
-        source: lastGroupIdRef.current, target: qNodeId,
-        animated: true, style: { stroke: '#a78bfa' },
-      } : null;
-      const loadEdge = {
-        id: `e-${qNodeId}-${loadingNodeId}`,
-        source: qNodeId, target: loadingNodeId,
-        animated: true, style: { stroke: '#7c3aed' },
-      };
-
-      setCanvasNodes(p => [...p, qNode, loadingNode]);
-      setCanvasEdges(p => [...p, ...(qEdge ? [qEdge] : []), loadEdge]);
-      nextPosRef.current    = { x: qPos.x, y: qPos.y + 360 };
-      lastGroupIdRef.current = qNodeId;
-    }
+    setCanvasNodes(p => [...p, qNode, loadingNode]);
+    setCanvasEdges(p => [...p, ...(qEdge ? [qEdge] : []), loadEdge]);
+    lastGroupIdRef.current = qNodeId;
 
     try {
       const res = await sendChatMessage(text, history, {
         database: analysis?.database || '',
         tables:   analysis?.tables   || [],
+        onProgress: (_progress, message) => {
+          if (!message) return;
+          setCanvasNodes(p => p.map(n =>
+            n.id === loadingNodeId
+              ? { ...n, data: { ...n.data, title: message } }
+              : n
+          ));
+        },
       });
 
       if (res.success) {
         const answer = res.answer || '';
         setMessages(p => {
           const a = [...p];
-          a[a.length - 1] = { role: 'ai', content: answer, ts: Date.now() };
+          a[a.length - 1] = {
+            role: 'ai', content: answer, ts: Date.now(),
+            result: { charts: res.charts || [] },
+          };
           return a;
         });
 
-        // Yanıt tipine göre karar ver — keyword'e değil, gerçek sonuca bak
-        const isChartResponse = res.type === 'chart' && (res.charts?.length ?? 0) > 0;
+        // Loading node'u kaldır, tüm artifact'leri (answer + N grafik +
+        // başarısız görev uyarıları) soru node'una bağlı olarak yerleştir
+        setCanvasNodes(p => p.filter(n => n.id !== loadingNodeId));
+        setCanvasEdges(p => p.filter(e => e.target !== loadingNodeId));
 
-        if (chartReq && loadingNodeId) {
-          // Loading node zaten tuvale eklendi — sonuca göre güncelle
-          if (isChartResponse) {
-            setCanvasNodes(p => p.map(n =>
-              n.id === loadingNodeId
-                ? { ...n, data: { ...res.charts[0], loading: false } }
-                : n
-            ));
-          } else {
-            // Grafik bekleniyordu ama metin geldi — insight'a dönüştür
-            setCanvasNodes(p => p.map(n =>
-              n.id === loadingNodeId
-                ? { ...n, type: 'biInsightNode', data: { type: 'info', title: '🤖 AI Yanıtı', description: answer } }
-                : n
-            ));
-          }
-          setCanvasEdges(p => p.map(e =>
-            e.target === loadingNodeId ? { ...e, animated: false } : e
-          ));
-        } else if (isChartResponse) {
-          // Grafik keyword'ü yoktu ama yanıt grafik — loading node olmadan chart node ekle
-          const qNodeId2      = `q-${Date.now()}`;
-          const chartNodeId2  = `chart-${Date.now()}-0`;
-          const qPos2         = { ...nextPosRef.current };
-          const qNode2 = {
-            id: qNodeId2, type: 'biInsightNode',
-            position: qPos2,
-            data: { type: 'question', title: '💬 Soru', description: text },
-          };
-          const chartNode2 = {
-            id: chartNodeId2, type: 'biChartNode',
-            position: { x: qPos2.x + 460, y: qPos2.y },
-            data: { ...res.charts[0], loading: false },
-          };
-          const qEdge2 = lastGroupIdRef.current ? {
-            id: `e-${lastGroupIdRef.current}-${qNodeId2}`,
-            source: lastGroupIdRef.current, target: qNodeId2,
-            animated: false, style: { stroke: '#a78bfa' },
-          } : null;
-          const chartEdge2 = {
-            id: `e-${qNodeId2}-${chartNodeId2}`,
-            source: qNodeId2, target: chartNodeId2,
-            animated: false, style: { stroke: '#7c3aed' },
-          };
-          setCanvasNodes(p => [...p, qNode2, chartNode2]);
-          setCanvasEdges(p => [...p, ...(qEdge2 ? [qEdge2] : []), chartEdge2]);
-          nextPosRef.current     = { x: qPos2.x, y: qPos2.y + 360 };
-          lastGroupIdRef.current = qNodeId2;
-        } else {
-          // Saf metin yanıtı
-          addToCanvas({ answer, charts: [], insights: [] }, text);
-        }
+        const report = {
+          answer,
+          charts: res.charts || [],
+          insights: (res.failedTasks || []).map(f => ({
+            type: 'warning',
+            title: `⚠ ${f.title || 'Görev tamamlanamadı'}`,
+            description: f.reason || '',
+          })),
+        };
+
+        nextPosRef.current = { x: qPos.x + 460, y: qPos.y };
+        const { newNodes, newEdges } = buildCanvasNodes(report, qNodeId, nextPosRef);
+        setCanvasNodes(p => [...p, ...newNodes]);
+        setCanvasEdges(p => [...p, ...newEdges]);
+        nextPosRef.current = { x: qPos.x, y: nextPosRef.current.y };
       } else {
         // Hata — loading node'u error insight'a dönüştür (silme)
         if (loadingNodeId) {

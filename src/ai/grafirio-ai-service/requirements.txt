@@ -31,6 +31,8 @@ sqlalchemy==2.0.35
 # Utilities
 python-dotenv==1.0.1
 requests==2.32.3
+pydantic==2.9.2
+PyYAML==6.0.2
 
 # Monitoring & Logging
 flower==2.0.1

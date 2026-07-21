@@ -1,8 +1,8 @@
 /**
- * Gemini Chat Service
+ * AI Chat Service
  * Pipeline: Frontend → C# DataAnalysis API → MassTransit → RabbitMQ
- *           → Django AI Consumer → Celery Task → Gemini
- *           → C# QueryResultStore → Frontend poll
+ *           → Django AI (Planner → Executor → Composer) → LLM
+ *           → C# QueryResultStore (Redis) → Frontend poll
  */
 const CSHARP_BASE =
   import.meta.env.VITE_API_URL
@@ -10,17 +10,20 @@ const CSHARP_BASE =
     : '/data-analysis';
 
 const POLL_INTERVAL_MS = 2000;
-const POLL_MAX_ATTEMPTS = 45; // ~90 saniye (BiChartNode visual timeout ile eşleşir)
+const POLL_MAX_ATTEMPTS = 90; // ~3 dakika — çok görevli planlar 90 saniyeyi aşabilir
 
 /**
  * Soruyu MassTransit pipeline'ına gönder ve yanıtı bekle.
  * @param {string} question
  * @param {Array<{role:'user'|'model', content:string}>} history
- * @param {{tableName?: string, predictData?: Object, database?: string, tables?: string[]}} options
- * @returns {Promise<{success:boolean, answer?:string, error?:string}>}
+ * @param {{tableName?: string, predictData?: Object, database?: string, tables?: string[],
+ *          onProgress?: (progress:number, message:string) => void}} options
+ * @returns {Promise<{success:boolean, type?:string, answer?:string, charts?:Array,
+ *                    failedTasks?:Array<{title:string, reason:string}>, error?:string}>}
  */
 export const sendChatMessage = async (question, history = [], options = {}) => {
   const requestId = crypto.randomUUID();
+  const { onProgress } = options;
 
   // 1. C# API'ye gönder → MassTransit publish tetiklenir
   const sendRes = await fetch(`${CSHARP_BASE}/api/ai/reports/ask-question`, {
@@ -55,9 +58,10 @@ export const sendChatMessage = async (question, history = [], options = {}) => {
       const result = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
       return {
         success: result?.success ?? true,
-        type:    result?.type   ?? 'text',      // 'text' | 'chart'
+        type:    result?.type   ?? 'text',      // 'text' | 'chart' | 'composite'
         answer:  result?.answer ?? 'Yanıt alındı.',
         charts:  result?.charts ?? [],
+        failedTasks: result?.failedTasks ?? [],
       };
     }
 
@@ -69,8 +73,11 @@ export const sendChatMessage = async (question, history = [], options = {}) => {
       return { success: false, error: result?.answer ?? 'İşlem başarısız.' };
     }
 
-    // 'processing' veya 'not_found' → beklemeye devam
+    // 'processing' → ilerleme bildir, beklemeye devam
+    if (data.status === 'processing' && onProgress) {
+      onProgress(data.progress ?? 0, data.progressMessage ?? '');
+    }
   }
 
-  return { success: false, error: 'Zaman aşımı — AI servisi 4 dakika içinde yanıt vermedi. Lütfen tekrar deneyin.' };
+  return { success: false, error: 'Zaman aşımı — AI servisi 3 dakika içinde yanıt vermedi. Lütfen tekrar deneyin.' };
 };
