@@ -16,7 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\shared\Grafirio.Shared\Grafirio.Shared.csproj" />
+    <PackageReference Include="Grafirio.Shared.Infrastructure" Version="1.0.0" />
+    <PackageReference Include="Grafirio.Shared.Identity" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

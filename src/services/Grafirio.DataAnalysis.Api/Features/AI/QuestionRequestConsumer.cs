@@ -1,8 +1,8 @@
-// Bu dosya artık kullanılmıyor — bridge anti-pattern kaldırıldı.
-// IQuestionRequest mesajları MassTransit topoloji konfigürasyonu sayesinde
-// doğrudan 'ai.requests' (fanout) exchange'ine yayınlanır.
-// Django AI servisi bu exchange'e bağlı 'django.ai.requests' kuyruğunu dinler.
-// Bakınız: Program.cs → AddGrafiiroMassTransit configureTopology callback
+﻿// Bu dosya artÄ±k kullanÄ±lmÄ±yor â€” bridge anti-pattern kaldÄ±rÄ±ldÄ±.
+// IQuestionRequest mesajlarÄ± MassTransit topoloji konfigÃ¼rasyonu sayesinde
+// doÄŸrudan 'ai.requests' (fanout) exchange'ine yayÄ±nlanÄ±r.
+// Django AI servisi bu exchange'e baÄŸlÄ± 'django.ai.requests' kuyruÄŸunu dinler.
+// BakÄ±nÄ±z: Program.cs â†’ AddGrafirioMassTransit configureTopology callback
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 

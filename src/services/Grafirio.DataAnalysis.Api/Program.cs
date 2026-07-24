@@ -7,9 +7,9 @@ using Grafirio.DataAnalysis.Api.Features.AI;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Services;
-using Grafirio.Shared.MassTransit.Extensions;
-using Grafirio.Shared.MassTransit.Messages.AI;
-using Grafirio.Shared.Extensions;
+using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
+using Grafirio.Contracts.AI;
+using Grafirio.Shared.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
@@ -66,7 +66,7 @@ builder.Services.AddCors(options =>
 });
 
 // MassTransit - RabbitMQ
-builder.Services.AddGrafiiroMassTransit(
+builder.Services.AddGrafirioMassTransit(
     builder.Configuration,
     x =>
     {

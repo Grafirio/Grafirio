@@ -1,4 +1,4 @@
-using Grafirio.Shared.MassTransit.Messages.AI;
+﻿using Grafirio.Contracts.AI;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using MassTransit;
@@ -24,8 +24,8 @@ public static class AIAnalysisEndpoints
             .WithName("GetAnalysisStatus")
             .WithTags("AI Analysis");
 
-        // NOT: /update-progress route'u QueryResultEndpoints'te (Redis tabanlı) tanımlı.
-        // Burada ikinci kez map'lenmesi ambiguous-route 500'üne yol açıyordu.
+        // NOT: /update-progress route'u QueryResultEndpoints'te (Redis tabanlÄ±) tanÄ±mlÄ±.
+        // Burada ikinci kez map'lenmesi ambiguous-route 500'Ã¼ne yol aÃ§Ä±yordu.
 
         group.MapPost("/analysis-result", SaveAnalysisResult)
             .WithName("SaveAnalysisResult")
@@ -44,7 +44,7 @@ public static class AIAnalysisEndpoints
             if (request == null)
             {
                 logger.LogError("Request is null");
-                return Results.BadRequest(new { success = false, message = "Request body boş olamaz" });
+                return Results.BadRequest(new { success = false, message = "Request body boÅŸ olamaz" });
             }
 
             logger.LogInformation("Request received: UserId={UserId}, ConnectionId={ConnectionId}, Tables={Tables}", 
@@ -69,25 +69,25 @@ public static class AIAnalysisEndpoints
             if (connection == null)
             {
                 logger.LogError("Connection not found: {ConnectionId}", request.ConnectionId);
-                return Results.BadRequest(new { success = false, message = "Bağlantı bulunamadı" });
+                return Results.BadRequest(new { success = false, message = "BaÄŸlantÄ± bulunamadÄ±" });
             }
 
             // Decrypt password
-            logger.LogInformation("🔐 Decrypting password for connection: {ConnectionId}, Encrypted length: {Length}", 
+            logger.LogInformation("ğŸ” Decrypting password for connection: {ConnectionId}, Encrypted length: {Length}", 
                 connection.Id, connection.EncryptedPassword?.Length ?? 0);
             
             var decryptedPassword = EncryptionHelper.Decrypt(connection.EncryptedPassword);
             
             if (string.IsNullOrEmpty(decryptedPassword))
             {
-                logger.LogError("❌ Decryption failed or password is empty for connection: {ConnectionId}", connection.Id);
-                return Results.BadRequest(new { success = false, message = "Şifre çözülemedi" });
+                logger.LogError("âŒ Decryption failed or password is empty for connection: {ConnectionId}", connection.Id);
+                return Results.BadRequest(new { success = false, message = "Åifre Ã§Ã¶zÃ¼lemedi" });
             }
             
-            logger.LogInformation("✅ Password decrypted successfully. Length: {Length}", decryptedPassword.Length);
+            logger.LogInformation("âœ… Password decrypted successfully. Length: {Length}", decryptedPassword.Length);
 
             var requestId = Guid.NewGuid();
-            logger.LogInformation("🚀 Starting AI analysis with RequestId: {RequestId}, Database: {Database}", 
+            logger.LogInformation("ğŸš€ Starting AI analysis with RequestId: {RequestId}, Database: {Database}", 
                 requestId, connection.Database);
 
             // Create connection info from saved connection
@@ -107,13 +107,13 @@ public static class AIAnalysisEndpoints
             connection.LastConnectedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
 
-            logger.LogInformation("✅ AI analysis request sent to Django successfully. RequestId: {RequestId}", requestId);
+            logger.LogInformation("âœ… AI analysis request sent to Django successfully. RequestId: {RequestId}", requestId);
 
             return Results.Ok(new
             {
                 success = true,
                 requestId = requestId,
-                message = "AI analizi başlatıldı. İşlem tamamlandığında dashboard'da görebilirsiniz.",
+                message = "AI analizi baÅŸlatÄ±ldÄ±. Ä°ÅŸlem tamamlandÄ±ÄŸÄ±nda dashboard'da gÃ¶rebilirsiniz.",
                 estimatedTime = "2-5 dakika"
             });
         }
@@ -123,7 +123,7 @@ public static class AIAnalysisEndpoints
             return Results.BadRequest(new
             {
                 success = false,
-                message = $"AI analizi başlatılamadı: {ex.Message}"
+                message = $"AI analizi baÅŸlatÄ±lamadÄ±: {ex.Message}"
             });
         }
     }
@@ -178,7 +178,7 @@ public static class AIAnalysisEndpoints
         var json = JsonSerializer.Serialize(message);
         var body = Encoding.UTF8.GetBytes(json);
 
-        logger.LogInformation("📤 Publishing to Django AI: {Size} bytes", body.Length);
+        logger.LogInformation("ğŸ“¤ Publishing to Django AI: {Size} bytes", body.Length);
 
         await channel.BasicPublishAsync(
             exchange: "ai.requests",
@@ -203,7 +203,7 @@ public static class AIAnalysisEndpoints
                 requestId,
                 status = "not_found",
                 progress = 0,
-                message = "Bu istek için durum kaydı bulunamadı"
+                message = "Bu istek iÃ§in durum kaydÄ± bulunamadÄ±"
             }));
         }
 
@@ -232,8 +232,8 @@ public static class AIAnalysisEndpoints
             statusData.Status = result.Status;
             statusData.Progress = result.Status == "completed" ? 100 : statusData.Progress;
             statusData.Message = result.Status == "completed" 
-                ? "Analiz tamamlandı! Sonuçlar hazır." 
-                : result.Result?.ToString() ?? "Analiz tamamlandı";
+                ? "Analiz tamamlandÄ±! SonuÃ§lar hazÄ±r." 
+                : result.Result?.ToString() ?? "Analiz tamamlandÄ±";
             
             // Store full result in separate cache
             ResultCache.Set($"analysis_result_{result.RequestId}", result.Result);
@@ -249,7 +249,7 @@ public static class AIAnalysisEndpoints
     }
 }
 
-// In-memory status cache (Production'da Redis kullanılmalı)
+// In-memory status cache (Production'da Redis kullanÄ±lmalÄ±)
 internal static class StatusCache
 {
     private static readonly Dictionary<string, AnalysisStatusData> _cache = new();
@@ -295,7 +295,7 @@ public record AnalysisResult(
 );
 
 /// <summary>
-/// AI Analizi başlatma isteği
+/// AI Analizi baÅŸlatma isteÄŸi
 /// </summary>
 public record AIAnalysisRequest(
     string UserId,

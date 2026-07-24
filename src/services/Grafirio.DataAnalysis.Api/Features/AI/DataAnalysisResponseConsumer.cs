@@ -1,10 +1,10 @@
-using Grafirio.Shared.MassTransit.Messages.AI;
+﻿using Grafirio.Contracts.AI;
 using MassTransit;
 
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
 /// <summary>
-/// AI analiz response'larını dinleyen consumer
+/// AI analiz response'larÄ±nÄ± dinleyen consumer
 /// </summary>
 public class DataAnalysisResponseConsumer : IConsumer<IDataAnalysisResponse>
 {
@@ -28,7 +28,7 @@ public class DataAnalysisResponseConsumer : IConsumer<IDataAnalysisResponse>
 
         if (response.Success)
         {
-            _logger.LogInformation("✅ AI Analysis completed successfully for RequestId: {RequestId}", response.RequestId);
+            _logger.LogInformation("âœ… AI Analysis completed successfully for RequestId: {RequestId}", response.RequestId);
             
             // Response handling logic can be added here:
             // - Store in database/Redis for caching

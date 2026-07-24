@@ -14,8 +14,9 @@
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
   </ItemGroup>
 
-  <ItemGroup>    <ProjectReference Include="..\..\shared\Grafirio.Shared\Grafirio.Shared.csproj" />
-
+  <ItemGroup>
+    <PackageReference Include="Grafirio.Shared.Infrastructure" Version="1.0.0" />
+    <PackageReference Include="Grafirio.Shared.Identity" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

@@ -1,5 +1,6 @@
 using Grafirio.Gateway.Metrics;
-using Grafirio.Shared.Extensions;
+using Grafirio.Shared.Infrastructure.Extensions;
+using Grafirio.Shared.Identity.Extensions;
 using Serilog;
 using Yarp.ReverseProxy.Model;
 

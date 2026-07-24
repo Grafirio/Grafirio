@@ -1,4 +1,4 @@
-using Grafirio.Shared.MassTransit.Messages.AI;
+﻿using Grafirio.Contracts.AI;
 using MassTransit;
 using RabbitMQ.Client;
 using System.Text;
@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace Grafirio.DataAnalysis.Api.Features.AI;
 
 /// <summary>
-/// .NET → Django AI Bridge Consumer
+/// .NET â†’ Django AI Bridge Consumer
 /// Converts MassTransit messages to Django AI format and forwards via RabbitMQ
 /// </summary>
 public class DataAnalysisRequestConsumer : IConsumer<IDataAnalysisRequest>
@@ -28,7 +28,7 @@ public class DataAnalysisRequestConsumer : IConsumer<IDataAnalysisRequest>
         var request = context.Message;
         
         _logger.LogInformation(
-            "🤖 .NET → Django AI Bridge | RequestId: {RequestId}, DB: {Database}, Tables: {Count}",
+            "ğŸ¤– .NET â†’ Django AI Bridge | RequestId: {RequestId}, DB: {Database}, Tables: {Count}",
             request.RequestId, request.Database, request.Tables?.Count ?? 0
         );
 
@@ -37,14 +37,14 @@ public class DataAnalysisRequestConsumer : IConsumer<IDataAnalysisRequest>
             await SendToDjangoAI(request);
             
             _logger.LogInformation(
-                "✅ Forwarded to Django AI | RequestId: {RequestId}",
+                "âœ… Forwarded to Django AI | RequestId: {RequestId}",
                 request.RequestId
             );
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, 
-                "❌ Django AI forward failed | RequestId: {RequestId}",
+                "âŒ Django AI forward failed | RequestId: {RequestId}",
                 request.RequestId
             );
         }
@@ -86,14 +86,14 @@ public class DataAnalysisRequestConsumer : IConsumer<IDataAnalysisRequest>
         };        await using var connection = await factory.CreateConnectionAsync();
         await using var channel = await connection.CreateChannelAsync();
 
-        // Exchange declare et (Django'nun beklediği)
+        // Exchange declare et (Django'nun beklediÄŸi)
         await channel.ExchangeDeclareAsync(
             exchange: "ai.requests",
             type: ExchangeType.Topic,
             durable: true
         );
 
-        // Mesajı JSON'a çevir
+        // MesajÄ± JSON'a Ã§evir
         var json = JsonSerializer.Serialize(message);
         var body = Encoding.UTF8.GetBytes(json);
 
@@ -105,7 +105,7 @@ public class DataAnalysisRequestConsumer : IConsumer<IDataAnalysisRequest>
         );
 
         _logger.LogInformation(
-            "📤 → Django AI: exchange=ai.requests, routing_key=ai.request.graph, size={Size}bytes",
+            "ğŸ“¤ â†’ Django AI: exchange=ai.requests, routing_key=ai.request.graph, size={Size}bytes",
             body.Length
         );
 

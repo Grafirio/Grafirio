@@ -6,7 +6,6 @@ using Grafirio.Commerce.Api.Modules.Discount;
 using Grafirio.Commerce.Api.Modules.Files;
 using Grafirio.Commerce.Api.Modules.Orders;
 using Grafirio.Commerce.Api.Modules.Payments;
-using Grafirio.Shared.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +14,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddVersioningExt();
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 builder.Services.AddCommonServiceExt(typeof(Grafirio.Commerce.Api.CommerceAssembly));
+builder.Services.AddIdentityServicesExt();
 
 // ── Paylaşımlı MongoDB istemcisi (tek instance, farklı DB'ler) ───────────────
 builder.Services.Configure<Grafirio.Commerce.Api.MongoOption>(
