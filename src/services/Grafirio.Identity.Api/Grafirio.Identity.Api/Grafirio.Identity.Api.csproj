@@ -18,6 +18,7 @@
   <ItemGroup>
     <PackageReference Include="Grafirio.Shared.Infrastructure" Version="1.0.0" />
     <PackageReference Include="Grafirio.Shared.Identity" Version="1.0.0" />
+    <PackageReference Include="Grafirio.Contracts.Commerce" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

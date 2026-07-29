@@ -4,6 +4,7 @@ using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Options;
 using Grafirio.Identity.Api.Repositories;
+using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,14 @@ builder.Services.AddCommonServiceExt(typeof(IdentityAssembly));
 builder.Services.AddIdentityServicesExt();
 builder.Services.AddVersioningExt();
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
+
+// Odeme alindiginda ticaret tarafinin duyurdugu olay dinlenir; satin almanin
+// erisim hakkina donusup donusmeyecegine bu servis karar veriyor.
+builder.Services.AddGrafirioMassTransit(builder.Configuration, x =>
+{
+    x.AddConsumer<OrderPaidConsumer>();
+});
+
 var app = builder.Build();
 
 // Global Exception Handling & Logging

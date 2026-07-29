@@ -11,4 +11,14 @@ public class Product
     public DateTime Created { get; set; }
     public Guid CategoryId { get; set; }
     public ProductFeature Feature { get; set; } = default!;
+
+    /// <summary>
+    /// Bu ürün bir abonelik planını temsil ediyorsa planın adı (TRIAL,
+    /// STANDARD, ENTERPRISE); sıradan üründe null.
+    ///
+    /// Planlar katalogda ürün olarak duruyor ki tek bir sepet ve ödeme akışı
+    /// yeterli olsun. Ödeme alındığında bu alan, siparişin bir erişim hakkına
+    /// dönüşüp dönüşmeyeceğini belirler.
+    /// </summary>
+    public string? SubscriptionPlan { get; set; }
 }

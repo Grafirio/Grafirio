@@ -6,6 +6,7 @@ using Grafirio.Commerce.Api.Modules.Discount;
 using Grafirio.Commerce.Api.Modules.Files;
 using Grafirio.Commerce.Api.Modules.Orders;
 using Grafirio.Commerce.Api.Modules.Payments;
+using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,6 +30,10 @@ builder.Services.AddDiscountModule(builder.Configuration);
 builder.Services.AddOrderModule(builder.Configuration);
 builder.Services.AddPaymentModule();
 builder.Services.AddFileModule();
+
+// Odeme alindiginda kimlik tarafi haberdar olmali; abonelik acma karari orada
+// veriliyor. Yalnizca yayin yapiyoruz, bu serviste tuketici yok.
+builder.Services.AddGrafirioMassTransit(builder.Configuration);
 
 var app = builder.Build();
 

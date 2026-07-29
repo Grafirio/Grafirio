@@ -17,9 +17,8 @@ COPY ["src/services/Grafirio.DataAnalysis.Api/Grafirio.DataAnalysis.Api.csproj",
 ARG SHARED_PACKAGES_REF=main
 RUN curl -sSLf "https://github.com/Grafirio/Packages/archive/refs/heads/${SHARED_PACKAGES_REF}.tar.gz" \
       | tar xz -C /tmp \
- && for proj in Grafirio.Shared.Infrastructure Grafirio.Shared.Identity Grafirio.Contracts.AI; do \
-      dotnet pack "/tmp/Packages-${SHARED_PACKAGES_REF}/src/${proj}/${proj}.csproj" \
-        -c Release -o /local-packages; \
+ && for csproj in /tmp/Packages-${SHARED_PACKAGES_REF}/src/*/*.csproj; do \
+      dotnet pack "$csproj" -c Release -o /local-packages; \
     done \
  && dotnet nuget add source /local-packages --name local-packages --configfile ./nuget.config
 
