@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconX, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
 import { generateAIReport } from '../services/dataAnalysisService';
-import { sendChatMessage } from '../services/geminiChatService';
+import { sendChatMessage } from '../services/aiChatService';
 import './CanvasPage.css';
 
 /* ─────────────────────────────────────────────────────────────

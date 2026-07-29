@@ -136,7 +136,7 @@ const AgentQueryPage = () => {
     }
   };
 
-  // Analyze connection schema with Gemini
+  // Analyze connection schema with the configured LLM (Azure OpenAI)
   const handleAnalyze = async () => {
     if (!selectedConnectionId) return;
     setIsAnalyzing(true);

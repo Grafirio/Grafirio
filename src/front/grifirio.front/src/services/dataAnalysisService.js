@@ -321,11 +321,11 @@ export const askAIQuestion = async (requestId, question, database, tables, optio
 
 // ========== AI Agent Pipeline ==========
 
-// Bağlantı schema'sını Gemini ile analiz et → PyCaret config oluştur
+// Bağlantı schema'sını LLM ile analiz et → PyCaret config oluştur
 export const analyzeConnectionSchema = async (connectionId) => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/agent/analyze-connection/${connectionId}`, null, {
-      timeout: 120000 // 2 dakika — Gemini analizi zaman alabilir
+      timeout: 120000 // 2 dakika — şema analizi zaman alabilir
     });
     return response.data;
   } catch (error) {
@@ -360,7 +360,7 @@ export const getAgentConfig = async (connectionId) => {
   }
 };
 
-// Doğal dil sorgusu gönder → Gemini + PyCaret
+// Doğal dil sorgusu gönder → LLM + PyCaret
 export const submitAgentQuery = async (connectionId, question) => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/agent/query`, {
