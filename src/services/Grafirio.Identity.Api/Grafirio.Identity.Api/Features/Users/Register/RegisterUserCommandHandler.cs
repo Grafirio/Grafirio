@@ -31,19 +31,26 @@ public class RegisterUserCommandHandler(
                 HttpStatusCode.NotFound);
         }
 
-        // Check if current user has access to this company
-        if (!identityService.HasCompanyAccess(request.CompanyId))
-        {
-            return ServiceResult<RegisterUserResponse>.Error("Access denied to company",
-                HttpStatusCode.Forbidden);
-        }
+        // Platform ekibi musteri adina kullanici acabilmeli; kendi
+        // accessible_companies listesinde olmayan firmalar da dahil.
+        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
 
-        // Only admins and managers can register users
-        if (!identityService.HasBusinessRole("COMPANY_ADMIN", request.CompanyId) &&
-            !identityService.HasBusinessRole("COMPANY_MANAGER", request.CompanyId))
+        if (!isPlatformAdmin)
         {
-            return ServiceResult<RegisterUserResponse>.Error("Insufficient permissions",
-                "Only company admins and managers can register users", HttpStatusCode.Forbidden);
+            // Check if current user has access to this company
+            if (!identityService.HasCompanyAccess(request.CompanyId))
+            {
+                return ServiceResult<RegisterUserResponse>.Error("Access denied to company",
+                    HttpStatusCode.Forbidden);
+            }
+
+            // Only admins and managers can register users
+            if (!identityService.HasBusinessRole(CompanyRoles.COMPANY_ADMIN, request.CompanyId) &&
+                !identityService.HasBusinessRole(CompanyRoles.COMPANY_MANAGER, request.CompanyId))
+            {
+                return ServiceResult<RegisterUserResponse>.Error("Insufficient permissions",
+                    "Only company admins and managers can register users", HttpStatusCode.Forbidden);
+            }
         }
 
         // Create user in Keycloak
