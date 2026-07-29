@@ -16,15 +16,20 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────
 # Sabitler
 # ──────────────────────────────────────────────
+# Frontend'in Modern Minimalist paletiyle ayni sira ve tonlar
+# (src/front/grifirio.front/src/components/Canvas/nodes/BiChartNode.jsx).
+# Burasi eski mor/indigo paletini tasidigi icin AI'dan gelen grafikler
+# temanin disina dusuyordu.
 CHART_COLORS = [
-    'rgba(124,58,237,0.8)',
-    'rgba(16,185,129,0.8)',
-    'rgba(245,158,11,0.8)',
-    'rgba(239,68,68,0.8)',
-    'rgba(59,130,246,0.8)',
-    'rgba(236,72,153,0.8)',
-    'rgba(99,102,241,0.8)',
-    'rgba(6,182,212,0.8)',
+    'rgba(54,69,79,0.8)',    # charcoal
+    'rgba(112,128,144,0.8)', # slate
+    'rgba(63,107,82,0.8)',   # muted green
+    'rgba(140,74,74,0.8)',   # muted clay
+    'rgba(138,109,59,0.8)',  # muted ochre
+    'rgba(74,107,112,0.8)',  # deep teal
+    'rgba(168,178,188,0.8)', # light slate
+    'rgba(125,115,104,0.8)', # warm grey
+    'rgba(90,104,124,0.8)',  # blue grey
 ]
 
 DB_SCHEMA = """

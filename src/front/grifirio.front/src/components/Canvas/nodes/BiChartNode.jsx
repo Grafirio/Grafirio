@@ -46,11 +46,10 @@ function buildDatasets(rawDatasets, chartType) {
       fill:        ds.fill  ?? (chartType === 'area'),
     };
 
-    // Renk: AI'dan geldiyse kullan, yoksa palette'den ata
-    if (ds.backgroundColor) {
-      base.backgroundColor = ds.backgroundColor;
-      base.borderColor     = ds.borderColor || PALETTE_BORDER[i % PALETTE_BORDER.length];
-    } else if (isLine) {
+    // Renk her zaman buradaki paletten gelir. Backend de bir palet gonderiyor
+    // ama sunum karari istemcinin: aksi halde tema degistiginde grafikler eski
+    // renklerde kalir ve tuval geri kalan arayuzle uyumsuz gorunur.
+    if (isLine) {
       base.backgroundColor = 'rgba(54,69,79,0.12)';
       base.borderColor     = PALETTE_BORDER[i % PALETTE_BORDER.length];
       base.pointBackgroundColor = PALETTE_BORDER[i % PALETTE_BORDER.length];
