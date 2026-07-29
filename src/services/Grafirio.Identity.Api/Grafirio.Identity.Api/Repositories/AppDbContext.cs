@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 using MongoDB.Driver;
 using Grafirio.Identity.Api.Features.Companies;
+using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 
 namespace Grafirio.Identity.Api.Repositories
@@ -10,6 +11,7 @@ namespace Grafirio.Identity.Api.Repositories
     {
         public DbSet<Company> Companies { get; set; }
         public DbSet<UserCompanyRole> UserCompanyRoles { get; set; }
+        public DbSet<Subscription> Subscriptions { get; set; }
 
         public static AppDbContext Create(IMongoDatabase database)
         {

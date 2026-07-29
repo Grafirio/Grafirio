@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api;
 using Grafirio.Identity.Api.Features.Companies;
+using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Options;
 using Grafirio.Identity.Api.Repositories;
@@ -25,6 +26,7 @@ app.AddSeedDataExt().ContinueWith(x =>
 });
 app.AddCompanyGroupEndpointExt(app.AddVersionSetExt());
 app.AddUserGroupEndpointExt(app.AddVersionSetExt());
+app.AddSubscriptionGroupEndpointExt(app.AddVersionSetExt());
 
 if (app.Environment.IsDevelopment())
 {
