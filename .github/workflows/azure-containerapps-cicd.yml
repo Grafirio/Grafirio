@@ -36,6 +36,9 @@ concurrency:
 permissions:
   id-token: write
   contents: read
+  # Grafirio.Shared.* paketleri GitHub Packages'ta; bu izinle Actions'in
+  # otomatik GITHUB_TOKEN'i onlari okuyabilir ve ayrica PAT gerekmez.
+  packages: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -190,9 +193,12 @@ jobs:
           full_image="$ACR_LOGIN_SERVER/${{ matrix.service.image }}:$TAG"
 
           echo "Building $full_image"
+          # Varsayilan olarak Actions'in kendi GITHUB_TOKEN'i kullanilir; paketler
+          # baska bir org/hesapta durdugu icin yetmezse GITHUB_PACKAGES_TOKEN
+          # secret'i tanimlanip devreye alinabilir.
           docker build -t "$full_image" \
-            --build-arg GITHUB_PACKAGES_USER="${{ secrets.GITHUB_PACKAGES_USER }}" \
-            --build-arg GITHUB_PACKAGES_TOKEN="${{ secrets.GITHUB_PACKAGES_TOKEN }}" \
+            --build-arg GITHUB_PACKAGES_USER="${{ secrets.GITHUB_PACKAGES_USER || github.actor }}" \
+            --build-arg GITHUB_PACKAGES_TOKEN="${{ secrets.GITHUB_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}" \
             -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
 
           echo "Pushing $full_image"
