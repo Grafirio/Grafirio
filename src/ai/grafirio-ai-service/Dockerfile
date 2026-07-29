@@ -15,8 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+RUN chmod +x /app/entrypoint.sh
+
 # Expose ports
 EXPOSE 8000
 
-# Run migrations and start server
-CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
+# Migrations + RabbitMQ tuketicisi + ASGI sunucusu (bkz. entrypoint.sh)
+CMD ["/app/entrypoint.sh"]
