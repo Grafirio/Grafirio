@@ -193,16 +193,10 @@ jobs:
           full_image="$ACR_LOGIN_SERVER/${{ matrix.service.image }}:$TAG"
 
           echo "Building $full_image"
-          # Varsayilan olarak Actions'in kendi GITHUB_TOKEN'i kullanilir. Paketler
-          # baska bir depoda yayinlandigi icin bu yetmezse GH_PACKAGES_TOKEN
-          # secret'i devreye girer.
-          #
-          # Secret adi GITHUB_ ile baslayamaz — GitHub bu oneki ayirmis durumda.
-          # Workflow'un onceki halinde GITHUB_PACKAGES_TOKEN besleniyordu, yani o
-          # secret hicbir zaman olusturulamazdi ve restore sessizce 403 aliyordu.
+          # .NET imajlari paylasilan paketleri artik kaynagindan derliyor
+          # (bkz. ilgili Dockerfile'lar), bu yuzden derlemenin hicbir pakete
+          # ozel kimlik bilgisine ihtiyaci yok.
           docker build -t "$full_image" \
-            --build-arg GITHUB_PACKAGES_USER="${{ secrets.GH_PACKAGES_USER || github.actor }}" \
-            --build-arg GITHUB_PACKAGES_TOKEN="${{ secrets.GH_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}" \
             -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
 
           echo "Pushing $full_image"
