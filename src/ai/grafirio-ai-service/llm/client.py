@@ -52,35 +52,77 @@ class LLMClient:
         raise LLMError(f"LLM cagrisi retry sonrasi da basarisiz: {last_err}")
 
     # ── Azure OpenAI ─────────────────────────────────────────────────────
-    def _generate_azure(self, system, messages, temperature, max_tokens) -> str:
-        endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', '').rstrip('/')
-        deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', '')
-        api_key = os.getenv('AZURE_OPENAI_API_KEY', '')
-        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-06-01')
-        if not (endpoint and deployment and api_key):
-            raise LLMError("AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_DEPLOYMENT / AZURE_OPENAI_API_KEY eksik")
+    # gpt-5 / o-serisi "reasoning" modelleri klasik parametreleri reddediyor:
+    # max_tokens yerine max_completion_tokens ister, temperature icin yalnizca
+    # varsayilan (1) degerini kabul eder. Deployment adindan model ailesini
+    # anlayamadigimiz icin once modern govde denenir; sunucu parametreyi
+    # reddederse klasik govdeye dusulur ve karar surec boyunca hatirlanir.
+    _use_legacy_params: bool | None = None
 
-        url = f"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
+    def _azure_payload(self, system, messages, temperature, max_tokens, legacy: bool) -> dict:
         payload = {
             'messages': [{'role': 'system', 'content': system}] + [
                 {'role': m['role'] if m['role'] in ('user', 'assistant') else 'user',
                  'content': m['content']}
                 for m in messages
             ],
-            'temperature': temperature,
-            'max_tokens': max_tokens,
         }
-        resp = requests.post(url, json=payload, headers={'api-key': api_key}, timeout=90)
-        if resp.status_code == 429 or resp.status_code >= 500:
-            raise _RetryableError(f"HTTP {resp.status_code}",
-                                  retry_after=_parse_retry_after(resp))
-        if resp.status_code >= 400:
-            raise LLMError(f"Azure OpenAI HTTP {resp.status_code}: {resp.text[:300]}")
+        if legacy:
+            payload['temperature'] = temperature
+            payload['max_tokens'] = max_tokens
+        else:
+            # Reasoning token'lari da bu butceden dusuluyor; tavan dar olursa
+            # model dusunmeyi bitirir ama gorunur cevaba yer kalmaz ve
+            # content bos doner. Bu yuzden belirgin bir pay birakiyoruz.
+            payload['max_completion_tokens'] = max(max_tokens, 2048) + 2048
+        return payload
+
+    def _generate_azure(self, system, messages, temperature, max_tokens) -> str:
+        endpoint = os.getenv('AZURE_OPENAI_ENDPOINT', '').rstrip('/')
+        deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT', '')
+        api_key = os.getenv('AZURE_OPENAI_API_KEY', '')
+        api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-12-01-preview')
+        if not (endpoint and deployment and api_key):
+            raise LLMError("AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_DEPLOYMENT / AZURE_OPENAI_API_KEY eksik")
+
+        url = f"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}"
+
+        # None ise once modern govde; 400 alirsak bir kez klasige dusup ogreniyoruz.
+        attempts = [False, True] if LLMClient._use_legacy_params is None \
+            else [LLMClient._use_legacy_params]
+
+        resp = None
+        for legacy in attempts:
+            payload = self._azure_payload(system, messages, temperature, max_tokens, legacy)
+            resp = requests.post(url, json=payload, headers={'api-key': api_key}, timeout=90)
+
+            if resp.status_code == 429 or resp.status_code >= 500:
+                raise _RetryableError(f"HTTP {resp.status_code}",
+                                      retry_after=_parse_retry_after(resp))
+
+            if resp.status_code == 400 and _is_unsupported_param(resp) and legacy is False:
+                logger.info("Azure OpenAI modern parametreleri reddetti, klasik govdeye dusuluyor")
+                continue
+
+            if resp.status_code >= 400:
+                raise LLMError(f"Azure OpenAI HTTP {resp.status_code}: {resp.text[:300]}")
+
+            LLMClient._use_legacy_params = legacy
+            break
+
         data = resp.json()
         try:
-            return data['choices'][0]['message']['content'] or ''
+            content = data['choices'][0]['message']['content'] or ''
         except (KeyError, IndexError) as e:
             raise LLMError(f"Azure OpenAI beklenmedik yanit sekli: {data}") from e
+
+        if not content.strip():
+            usage = data.get('usage', {})
+            raise LLMError(
+                "Azure OpenAI bos icerik dondurdu — token butcesi muhtemelen "
+                f"reasoning'e gitti (usage={usage})"
+            )
+        return content
 
     # ── Gemini ───────────────────────────────────────────────────────────
     def _generate_gemini(self, system, messages, temperature, max_tokens) -> str:
@@ -131,3 +173,16 @@ def _parse_retry_after(resp) -> int | None:
         return int(resp.headers.get('Retry-After', ''))
     except (TypeError, ValueError):
         return None
+
+
+def _is_unsupported_param(resp) -> bool:
+    """
+    Azure, klasik chat parametrelerini kabul etmeyen modellerde
+    unsupported_parameter / unsupported_value kodlariyla 400 doner
+    (ornek: gpt-5 ailesinde 'max_tokens' ve temperature=0).
+    """
+    try:
+        code = (resp.json().get('error') or {}).get('code', '')
+    except ValueError:
+        return False
+    return code in ('unsupported_parameter', 'unsupported_value')

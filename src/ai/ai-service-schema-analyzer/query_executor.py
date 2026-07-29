@@ -9,7 +9,8 @@ from datetime import datetime, date
 from decimal import Decimal
 import sqlalchemy
 from sqlalchemy import text
-import google.generativeai as genai
+
+from llm_client import LLMClient
 from urllib.parse import quote_plus
 
 load_dotenv()
@@ -22,14 +23,11 @@ class QueryExecutor:
     def __init__(self, connection_string: str):
         self.engine = sqlalchemy.create_engine(connection_string)
         
-        # Configure Gemini
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-flash')
-        else:
-            logger.warning("GEMINI_API_KEY not found")
-            self.model = None
+        # LLM saglayicisi LLM_PROVIDER ile secilir (azure_openai | gemini)
+        client = LLMClient()
+        self.model = client if client.available else None
+        if self.model is None:
+            logger.warning("LLM yapilandirilmamis")
     
     def natural_language_to_sql(self, question: str, schema_info: dict) -> str:
         """Convert natural language question to SQL using Gemini"""
@@ -60,15 +58,9 @@ SQL:
 """
         
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config={
-                    'temperature': 0.2,
-                    'max_output_tokens': 512,
-                }
-            )
-            
-            sql = response.text.strip()
+            sql = self.model.generate(
+                prompt, temperature=0.2, max_tokens=512
+            ).strip()
             
             # Clean up markdown if present
             if sql.startswith('```sql'):

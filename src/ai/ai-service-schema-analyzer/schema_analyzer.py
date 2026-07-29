@@ -1,10 +1,11 @@
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import inspect
-import google.generativeai as genai
 import json
 import logging
 import os
+
+from llm_client import LLMClient, LLMError
 
 logger = logging.getLogger(__name__)
 
@@ -13,14 +14,11 @@ class SchemaAnalyzer:
     def __init__(self, connection_string: str):
         self.engine = sqlalchemy.create_engine(connection_string)
         
-        # Configure Gemini API
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            logger.warning("GEMINI_API_KEY not found, using mock responses")
-            self.model = None
-        else:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # LLM saglayicisi LLM_PROVIDER ile secilir (azure_openai | gemini)
+        client = LLMClient()
+        self.model = client if client.available else None
+        if self.model is None:
+            logger.warning("LLM yapilandirilmamis, mock yanitlar kullanilacak")
     
     def analyze_database(self, company_name: str) -> dict:
         """
@@ -167,22 +165,13 @@ Sadece JSON formatında döndür (Türkçe açıklamalar), başka açıklama yaz
 """
             
             if not self.model:
-                # Mock response if no API key
-                logger.warning("Using mock Gemini response (no API key)")
+                # Mock response if no LLM configured
+                logger.warning("Using mock response (no LLM configured)")
                 return self._generate_mock_schema(schema_info)
-            
-            response = self.model.generate_content(
-                prompt,
-                generation_config={
-                    'temperature': 0.3,
-                    'top_p': 0.8,
-                    'top_k': 40,
-                    'max_output_tokens': 2048,
-                }
-            )
-            
-            # Parse JSON from response
-            response_text = response.text.strip()
+
+            response_text = self.model.generate(
+                prompt, temperature=0.3, max_tokens=2048
+            ).strip()
             
             # Remove markdown code blocks if present
             if response_text.startswith('```json'):
