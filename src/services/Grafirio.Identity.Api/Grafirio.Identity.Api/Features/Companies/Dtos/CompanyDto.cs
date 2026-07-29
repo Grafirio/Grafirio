@@ -13,7 +13,8 @@ public class CompanyDto
     public DateTime? UpdatedAt { get; set; }
 
     // "sa" gibi tam yetkili bir SQL hesabının kullanımına dair firma onayı.
-    public bool SaAccessConsentGiven { get; set; }
+    // null: henüz hiç sorulmamış.
+    public bool? SaAccessConsentGiven { get; set; }
     public DateTime? SaAccessConsentGivenAt { get; set; }
     public string? SaAccessConsentGivenBy { get; set; }
     public string? SaAccessConsentTextVersion { get; set; }

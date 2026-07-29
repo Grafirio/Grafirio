@@ -18,8 +18,13 @@ public class Company : BaseEntity
     /// riskleri kabul ettiğine dair açık onayı. Onay firma seviyesinde tutulur;
     /// <see cref="Users.UserCompanyRole"/> ile aynı denetim izi desenini izler,
     /// böylece onayı kimin ne zaman verdiği sonradan sorulabilir.
+    ///
+    /// Nullable olmasının nedeni yalnızca teknik değil: null "hiç sorulmadı"
+    /// demek ve bu, alan eklenmeden önce yazılmış kayıtların gerçek durumu.
+    /// Zorunlu bool olarak eklendiğinde mevcut belgelerin okunması
+    /// "Document element is missing" hatasıyla tamamen kırılmıştı.
     /// </summary>
-    public bool SaAccessConsentGiven { get; set; }
+    public bool? SaAccessConsentGiven { get; set; }
     public DateTime? SaAccessConsentGivenAt { get; set; }
     public string? SaAccessConsentGivenBy { get; set; }
 
