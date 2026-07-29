@@ -60,6 +60,28 @@ def _quote_ident(name: str) -> str:
 
 
 _schema_cache: dict = {}
+_table_list_cache: dict = {}
+
+
+def list_table_names() -> list:
+    """Baglanilan veritabanindaki temel tablolarin 'schema.tablo' adlari."""
+    cache_key = (os.getenv('MSSQL_HOST', ''), os.getenv('MSSQL_DB', ''))
+    if cache_key in _table_list_cache:
+        return _table_list_cache[cache_key]
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_SCHEMA, TABLE_NAME"
+        )
+        names = [f"{s}.{t}" for s, t in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    _table_list_cache[cache_key] = names
+    return names
 
 
 def build_db_schema(selected_tables=None) -> str:

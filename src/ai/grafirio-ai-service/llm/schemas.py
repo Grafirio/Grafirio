@@ -65,3 +65,8 @@ class SqlChartSpec(BaseModel):
         if not (upper.startswith('SELECT') or upper.startswith('WITH')):
             raise ValueError('Yalnizca SELECT/WITH sorgusu uretilmeli')
         return stripped
+
+
+class RelevantTables(BaseModel):
+    """Sema baglamasi: yuzlerce tablo arasindan soruyla ilgili olanlarin secimi."""
+    tables: list[str] = Field(default_factory=list, max_length=12)

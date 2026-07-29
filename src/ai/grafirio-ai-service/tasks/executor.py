@@ -95,6 +95,43 @@ def post_progress(request_id: str, progress: int, message: str):
         logger.warning("Progress POST hatasi (yutuldu) | %s", e)
 
 
+def _pick_relevant_tables(question: str) -> list:
+    """
+    Sema baglamasi: kullanici tablo secmediyse, soruyla ilgili tablolari modele
+    sectirir.
+
+    Yuzlerce tablonun kolonlarini prompt'a sigdirmak mumkun degil; yalnizca
+    adlari gondermek de yetmiyordu, cunku model bu kez kolon adlarini uyduruyor
+    ve sorgu "Invalid column name" ile dusuyordu. Once dar bir tablo kumesi
+    secilir, kolon detayi sadece onlar icin okunur.
+    """
+    from llm.schemas import RelevantTables
+    from tasks.ai_tasks import list_table_names
+
+    names = list_table_names()
+    if not names:
+        return []
+    if len(names) <= 12:
+        return names
+
+    llm = LLMClient()
+    picked = generate_structured(
+        llm,
+        "Verilen tablo adlari arasindan soruyu cevaplamak icin gerekli olanlari sec. "
+        "Yalnizca listede birebir gecen adlari dondur, en fazla 12 tane. "
+        'Cikti: {"tables": ["schema.tablo", ...]}',
+        [{'role': 'user', 'content': f"Soru: {question}\n\nTablolar:\n" + "\n".join(names)}],
+        RelevantTables,
+        max_tokens=600,
+    ).tables
+
+    # Model listede olmayan bir ad uydurabilir; sema okumasi bos donmesin diye ele.
+    valid = [t for t in picked if t in names]
+    logger.info("Sema baglamasi | %d tablodan %d secildi | %s",
+                len(names), len(valid), ", ".join(valid[:8]))
+    return valid
+
+
 # ── Gorev calistiricilar ─────────────────────────────────────────────────
 
 def _generate_sql_spec(llm: LLMClient, task: PlanTask, db_schema: str,
@@ -311,7 +348,8 @@ def process_question(message: dict):
     # veritabanini tarif ettigi icin musteri veritabaninda model olmayan
     # tablolari uyduruyordu. Okunamazsa eski davranisa dusulur.
     try:
-        BASE_SCHEMA = build_db_schema(message.get('tables'))
+        tables = message.get('tables') or _pick_relevant_tables(message.get('question', ''))
+        BASE_SCHEMA = build_db_schema(tables)
     except Exception as schema_err:
         logger.warning("Sema okunamadi, demo semaya dusuluyor | %s", schema_err)
         BASE_SCHEMA = DEMO_SCHEMA
