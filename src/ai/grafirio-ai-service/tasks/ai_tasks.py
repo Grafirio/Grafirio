@@ -54,6 +54,80 @@ def get_db_connection():
                            user=user, password=password, timeout=20)
 
 
+def _quote_ident(name: str) -> str:
+    """INFORMATION_SCHEMA sorgusuna gomulecek tablo adlarini guvenli hale getirir."""
+    return "'" + str(name).replace("'", "''") + "'"
+
+
+_schema_cache: dict = {}
+
+
+def build_db_schema(selected_tables=None) -> str:
+    """
+    Baglanilan veritabaninin gercek semasini prompt'a uygun metne cevirir.
+
+    Sabit bir sema metni yalnizca demo veritabanini tarif ediyordu; musteri
+    veritabanina baglanildiginda model olmayan tablolari uyduruyor ve sorgular
+    "Invalid object name" ile dusuyordu.
+
+    Kullanicinin sectigi tablolar varsa yalnizca onlarin kolonlari verilir —
+    bir semada yuzlerce tablo olabildigi icin hepsini gondermek hem token
+    israfi hem de modelin dikkatini dagitiyor. Secim yoksa tablo adlari
+    listelenir ki model en azindan var olan adlar arasindan secsin.
+    """
+    host = os.getenv('MSSQL_HOST', '')
+    db_name = os.getenv('MSSQL_DB', '')
+    names = tuple(sorted(str(t) for t in (selected_tables or [])))
+    cache_key = (host, db_name, names)
+    if cache_key in _schema_cache:
+        return _schema_cache[cache_key]
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if names:
+            # "dbo.Foo" ya da "Foo" olarak gelebilir — ikisini de kabul et.
+            bare = {n.split('.')[-1] for n in names}
+            in_list = ', '.join(_quote_ident(n) for n in sorted(bare))
+            cursor.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE "
+                "FROM INFORMATION_SCHEMA.COLUMNS "
+                f"WHERE TABLE_NAME IN ({in_list}) "
+                "ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION"
+            )
+            grouped: dict = {}
+            for schema, table, column, dtype, nullable in cursor.fetchall():
+                col = f"{column} {dtype}" + ("" if nullable == 'NO' else " NULL")
+                grouped.setdefault(f"{schema}.{table}", []).append(col)
+            lines = [f"  {t}({', '.join(cols)})" for t, cols in grouped.items()]
+            detail = "Tablolar ve kolonlari:"
+        else:
+            cursor.execute(
+                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_SCHEMA, TABLE_NAME"
+            )
+            all_tables = [f"{s}.{t}" for s, t in cursor.fetchall()]
+            capped = all_tables[:200]
+            lines = ["  " + ", ".join(capped)]
+            detail = f"Tablolar (toplam {len(all_tables)}, ilk {len(capped)} tanesi):"
+            if len(all_tables) > len(capped):
+                lines.append("  ... liste kirpildi; kolon detayi icin tablo secimi yapilmali.")
+    finally:
+        conn.close()
+
+    if not lines:
+        raise RuntimeError("Sema okunamadi: INFORMATION_SCHEMA bos dondu")
+
+    schema_text = (
+        f"\nVeritabani: {db_name} (SQL Server / T-SQL sozdizimi)\n"
+        f"{detail}\n" + "\n".join(lines) +
+        "\nYalnizca yukarida listelenen tablo ve kolonlari kullan; "
+        "listede olmayan bir ad uydurma.\n"
+    )
+    _schema_cache[cache_key] = schema_text
+    return schema_text
+
+
 def _assert_safe_select(sql: str) -> str:
     """Savunma katmani: pydantic SqlChartSpec dogrulamasinin arkasinda ikinci bir
     kontrol. Tek statement, SELECT/WITH disi anahtar kelime veya yorum yok."""

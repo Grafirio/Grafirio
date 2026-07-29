@@ -305,7 +305,16 @@ def _parse_history(context) -> list[dict]:
 
 def process_question(message: dict):
     from llm.metrics import metrics_prompt_block
-    from tasks.ai_tasks import DB_SCHEMA as BASE_SCHEMA
+    from tasks.ai_tasks import DB_SCHEMA as DEMO_SCHEMA, build_db_schema
+
+    # Sema baglanilan veritabanindan okunur; sabit metin yalnizca demo
+    # veritabanini tarif ettigi icin musteri veritabaninda model olmayan
+    # tablolari uyduruyordu. Okunamazsa eski davranisa dusulur.
+    try:
+        BASE_SCHEMA = build_db_schema(message.get('tables'))
+    except Exception as schema_err:
+        logger.warning("Sema okunamadi, demo semaya dusuluyor | %s", schema_err)
+        BASE_SCHEMA = DEMO_SCHEMA
 
     # Sema + metrik sozlugu birlikte tum LLM cagrilarina gider
     DB_SCHEMA = BASE_SCHEMA + metrics_prompt_block()
