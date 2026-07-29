@@ -1,7 +1,7 @@
 import React from 'react';
 
 const TREND_ICONS = { up: '↑', down: '↓', neutral: '→' };
-const TREND_COLORS = { up: '#10b981', down: '#ef4444', neutral: '#6b7280' };
+const TREND_COLORS = { up: 'var(--success)', down: 'var(--danger)', neutral: 'var(--text-muted)' };
 
 export default function BiMetricNode({ data }) {
   const trend = data?.trend || 'neutral';

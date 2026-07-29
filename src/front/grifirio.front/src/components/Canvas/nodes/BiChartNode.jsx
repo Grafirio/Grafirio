@@ -13,10 +13,20 @@ ChartJS.register(
   Title, Tooltip, Legend, Filler
 );
 
+// Chart.js paints to a canvas and cannot read CSS custom properties, so the
+// theme palette is mirrored here as literals. Desaturated to match Modern
+// Minimalist, but spread across hue *and* lightness so series stay tellable
+// apart — a pure greyscale ramp would not be.
 const PALETTE = [
-  'rgba(124,58,237,0.8)', 'rgba(16,185,129,0.8)', 'rgba(245,158,11,0.8)',
-  'rgba(239,68,68,0.8)', 'rgba(59,130,246,0.8)', 'rgba(236,72,153,0.8)',
-  'rgba(99,102,241,0.8)', 'rgba(6,182,212,0.8)', 'rgba(251,146,60,0.8)',
+  'rgba(54,69,79,0.8)',    // charcoal
+  'rgba(112,128,144,0.8)', // slate
+  'rgba(63,107,82,0.8)',   // muted green
+  'rgba(140,74,74,0.8)',   // muted clay
+  'rgba(138,109,59,0.8)',  // muted ochre
+  'rgba(74,107,112,0.8)',  // deep teal
+  'rgba(168,178,188,0.8)', // light slate
+  'rgba(125,115,104,0.8)', // warm grey
+  'rgba(90,104,124,0.8)',  // blue grey
 ];
 const PALETTE_BORDER = PALETTE.map(c => c.replace('0.8)', '1)'));
 
@@ -41,7 +51,7 @@ function buildDatasets(rawDatasets, chartType) {
       base.backgroundColor = ds.backgroundColor;
       base.borderColor     = ds.borderColor || PALETTE_BORDER[i % PALETTE_BORDER.length];
     } else if (isLine) {
-      base.backgroundColor = 'rgba(124,58,237,0.15)';
+      base.backgroundColor = 'rgba(54,69,79,0.12)';
       base.borderColor     = PALETTE_BORDER[i % PALETTE_BORDER.length];
       base.pointBackgroundColor = PALETTE_BORDER[i % PALETTE_BORDER.length];
     } else if (['pie', 'doughnut', 'donut'].includes(chartType)) {
@@ -96,7 +106,7 @@ export default function BiChartNode({ data }) {
           {timedOut ? (
             <>
               <span style={{ fontSize: 28 }}>⏱️</span>
-              <span className="bi-chart-loading-text" style={{ color: '#f59e0b' }}>
+              <span className="bi-chart-loading-text" style={{ color: 'var(--warning)' }}>
                 Yanıt gecikmeli. Tekrar soru sorabilirsiniz.
               </span>
             </>

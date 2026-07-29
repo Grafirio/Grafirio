@@ -40,11 +40,11 @@
 .canvas-node {
   position: absolute;
   cursor: default;
-  filter: drop-shadow(0 4px 16px rgba(124,58,237,0.10));
+  filter: drop-shadow(0 4px 16px rgba(34, 44, 51, 0.10));
   transition: filter 0.2s;
 }
 .canvas-node:hover {
-  filter: drop-shadow(0 6px 20px rgba(124,58,237,0.22));
+  filter: drop-shadow(0 6px 20px rgba(34, 44, 51, 0.10));
   z-index: 10;
 }
 
@@ -120,7 +120,7 @@
 }
 .canvas-empty-hints span {
   font-size: 12px;
-  background: rgba(124,58,237,0.08);
+  background: rgba(34, 44, 51, 0.10);
   color: var(--accent);
   padding: 4px 12px;
   border-radius: 20px;

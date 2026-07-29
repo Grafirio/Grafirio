@@ -112,7 +112,7 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
       const ty = tgt.position.y + tgtH / 2;
       const mx = (sx + tx) / 2;
 
-      const color = edge.style?.stroke || '#7c3aed';
+      const color = edge.style?.stroke || 'var(--accent)';
       const dashed = edge.animated;
 
       return (
@@ -209,11 +209,11 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
         <div className="canvas-empty">
           <div className="canvas-empty-icon">
             <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-              <rect x="8" y="16" width="20" height="32" rx="3" stroke="#7c3aed" strokeWidth="2" fill="#f5f3ff"/>
-              <rect x="36" y="8" width="20" height="20" rx="3" stroke="#7c3aed" strokeWidth="2" fill="#f5f3ff"/>
-              <rect x="36" y="36" width="20" height="20" rx="3" stroke="#7c3aed" strokeWidth="2" fill="#f5f3ff"/>
-              <path d="M28 32h8" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M28 32c0-8 8-8 8-16" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 3" fill="none"/>
+              <rect x="8" y="16" width="20" height="32" rx="3" stroke="var(--accent)" strokeWidth="2" fill="var(--accent-soft)"/>
+              <rect x="36" y="8" width="20" height="20" rx="3" stroke="var(--accent)" strokeWidth="2" fill="var(--accent-soft)"/>
+              <rect x="36" y="36" width="20" height="20" rx="3" stroke="var(--accent)" strokeWidth="2" fill="var(--accent-soft)"/>
+              <path d="M28 32h8" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M28 32c0-8 8-8 8-16" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 3" fill="none"/>
             </svg>
           </div>
           <h3>Sonsuz Tuval</h3>

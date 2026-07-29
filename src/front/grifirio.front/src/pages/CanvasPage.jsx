@@ -22,7 +22,7 @@ const buildCanvasNodes = (report, parentId, posRef) => {
 
   const edge = (tgtId) => {
     if (!parentId) return;
-    newEdges.push({ id: `e-${parentId}-${tgtId}-${Date.now()}`, source: parentId, target: tgtId, animated: true, style: { stroke: '#7c3aed' } });
+    newEdges.push({ id: `e-${parentId}-${tgtId}-${Date.now()}`, source: parentId, target: tgtId, animated: true, style: { stroke: 'var(--accent)' } });
   };
 
   if (report.answer) {
@@ -100,7 +100,7 @@ export default function CanvasPage() {
       const qPos = { ...nextPosRef.current };
       const qNode = { id: qId, type: 'biInsightNode', position: qPos, data: { type: 'question', title: '💬 Soru', description: questionText } };
       nextPosRef.current = { x: qPos.x + 450, y: qPos.y };
-      const qEdge = lastGroupIdRef.current ? { id: `e-${lastGroupIdRef.current}-${qId}`, source: lastGroupIdRef.current, target: qId, animated: true, style: { stroke: '#a78bfa' } } : null;
+      const qEdge = lastGroupIdRef.current ? { id: `e-${lastGroupIdRef.current}-${qId}`, source: lastGroupIdRef.current, target: qId, animated: true, style: { stroke: 'var(--slate-400)' } } : null;
       const { newNodes, newEdges } = buildCanvasNodes(report, qId, nextPosRef);
       setCanvasNodes(p => [...p, qNode, ...newNodes]);
       setCanvasEdges(p => [...p, ...(qEdge ? [qEdge] : []), ...newEdges]);
@@ -164,12 +164,12 @@ export default function CanvasPage() {
     const qEdge = lastGroupIdRef.current ? {
       id: `e-${lastGroupIdRef.current}-${qNodeId}`,
       source: lastGroupIdRef.current, target: qNodeId,
-      animated: true, style: { stroke: '#a78bfa' },
+      animated: true, style: { stroke: 'var(--slate-400)' },
     } : null;
     const loadEdge = {
       id: `e-${qNodeId}-${loadingNodeId}`,
       source: qNodeId, target: loadingNodeId,
-      animated: true, style: { stroke: '#7c3aed' },
+      animated: true, style: { stroke: 'var(--accent)' },
     };
 
     setCanvasNodes(p => [...p, qNode, loadingNode]);

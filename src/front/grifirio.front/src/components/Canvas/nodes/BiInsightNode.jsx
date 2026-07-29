@@ -1,11 +1,11 @@
 import React from 'react';
 
 const TYPE_CONFIG = {
-  success:  { icon: '✅', color: '#10b981', bg: '#ecfdf5', border: '#a7f3d0' },
-  warning:  { icon: '⚠️',  color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-  error:    { icon: '❌', color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
-  info:     { icon: 'ℹ️',  color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
-  question: { icon: '💬', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  success:  { icon: '✅', color: 'var(--success)', bg: 'var(--success-soft)', border: 'var(--success)' },
+  warning:  { icon: '⚠️',  color: 'var(--warning)', bg: 'var(--warning-soft)', border: 'var(--warning)' },
+  error:    { icon: '❌', color: 'var(--danger)',  bg: 'var(--danger-soft)',  border: 'var(--danger)' },
+  info:     { icon: 'ℹ️',  color: 'var(--text-muted)', bg: 'var(--accent-soft)', border: 'var(--border-strong)' },
+  question: { icon: '💬', color: 'var(--accent)', bg: 'var(--accent-soft)', border: 'var(--border-strong)' },
 };
 
 export default function BiInsightNode({ data }) {

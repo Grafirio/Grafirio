@@ -13,7 +13,7 @@ const AIAnalysis = ({ data }) => {
       id: 'schema-analyzer',
       name: 'Schema Analyzer',
       icon: 'ti-topology-star',
-      color: '#667eea',
+      color: 'var(--accent)',
       description: 'GPT-4o-mini ile veritabanı şeması analizi',
       port: 8001,
       action: analyzeSchema
@@ -22,7 +22,7 @@ const AIAnalysis = ({ data }) => {
       id: 'pycaret-engine',
       name: 'PyCaret AutoML',
       icon: 'ti-chart-line',
-      color: '#f59e0b',
+      color: 'var(--warning)',
       description: 'Otomatik makine öğrenimi modeli eğitimi',
       port: 8002,
       action: trainModel
@@ -31,7 +31,7 @@ const AIAnalysis = ({ data }) => {
       id: 'django-ai',
       name: 'Django AI Service',
       icon: 'ti-robot',
-      color: '#10b981',
+      color: 'var(--success)',
       description: 'WebSocket ve RabbitMQ ile gerçek zamanlı analiz',
       port: 8000,
       action: null // TODO: Implement
