@@ -2,10 +2,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# GitHub Packages credentials for the "grafirio" NuGet feed (Grafirio.Shared.* packages).
+ARG GITHUB_PACKAGES_USER
+ARG GITHUB_PACKAGES_TOKEN
+
 COPY ["Grafirio.sln", "./"]
-COPY ["src/shared/Grafirio.Shared/Grafirio.Shared.csproj", "src/shared/Grafirio.Shared/"]
+COPY ["nuget.config", "./"]
 COPY ["src/services/Grafirio.Commerce.Api/Grafirio.Commerce.Api.csproj", "src/services/Grafirio.Commerce.Api/"]
 
+RUN if [ -n "$GITHUB_PACKAGES_USER" ]; then \
+        dotnet nuget update source grafirio --username "$GITHUB_PACKAGES_USER" --password "$GITHUB_PACKAGES_TOKEN" --store-password-in-clear-text --configfile ./nuget.config; \
+    fi
 RUN dotnet restore "src/services/Grafirio.Commerce.Api/Grafirio.Commerce.Api.csproj"
 
 COPY . .

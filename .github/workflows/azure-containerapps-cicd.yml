@@ -190,7 +190,10 @@ jobs:
           full_image="$ACR_LOGIN_SERVER/${{ matrix.service.image }}:$TAG"
 
           echo "Building $full_image"
-          docker build -t "$full_image" -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
+          docker build -t "$full_image" \
+            --build-arg GITHUB_PACKAGES_USER="${{ secrets.GITHUB_PACKAGES_USER }}" \
+            --build-arg GITHUB_PACKAGES_TOKEN="${{ secrets.GITHUB_PACKAGES_TOKEN }}" \
+            -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
 
           echo "Pushing $full_image"
           docker push "$full_image"

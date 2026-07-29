@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Add Build Arguments for Vite Environment Variables
 ARG VITE_KEYCLOAK_URL=https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
-ARG VITE_KEYCLOAK_REALM=master
+ARG VITE_KEYCLOAK_REALM=grafirio
 ARG VITE_KEYCLOAK_CLIENT_ID=grafirio-client
 ARG VITE_API_GATEWAY_URL=https://gateway.proudcoast-6064711b.westeurope.azurecontainerapps.io
 

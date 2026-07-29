@@ -4,8 +4,15 @@ WORKDIR /src
 
 # Copy solution and project files
 COPY ["Grafirio.sln", "./"]
-COPY ["src/shared/Grafirio.Shared/Grafirio.Shared.csproj", "src/shared/Grafirio.Shared/"]
+COPY ["nuget.config", "./"]
 COPY ["src/services/Grafirio.Gateway/Grafirio.Gateway.csproj", "src/services/Grafirio.Gateway/"]
+
+# GitHub Packages credentials for the "grafirio" NuGet feed (Grafirio.Shared.* packages).
+ARG GITHUB_PACKAGES_USER
+ARG GITHUB_PACKAGES_TOKEN
+RUN if [ -n "$GITHUB_PACKAGES_USER" ]; then \
+        dotnet nuget update source grafirio --username "$GITHUB_PACKAGES_USER" --password "$GITHUB_PACKAGES_TOKEN" --store-password-in-clear-text --configfile ./nuget.config; \
+    fi
 
 # Restore dependencies
 RUN dotnet restore "src/services/Grafirio.Gateway/Grafirio.Gateway.csproj"
