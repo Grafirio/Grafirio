@@ -80,7 +80,12 @@ jobs:
               - 'src/front/grifirio.front/**'
             projectadmin:
               - 'src/front/admins/grifirio.projectadmin/**'
+            # UserAdmin, musterinin kullandigi urunun kendisi ve bu urun
+            # grifirio.front altinda yasiyor. Kod cogaltmamak icin ayni
+            # kaynaktan derleniyor; o klasordeki degisiklikler UserAdmin'i de
+            # yeniden yayinlamali.
             useradmin:
+              - 'src/front/grifirio.front/**'
               - 'src/front/admins/grifirio.useradmin/**'
 
       - name: Build deployment matrix
@@ -110,7 +115,7 @@ jobs:
             {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway","port":8080,"ingress":"external"},
             {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend","port":80,"ingress":"external"},
             {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin","port":80,"ingress":"external"},
-            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin","port":80,"ingress":"external"}
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"useradmin","port":80,"ingress":"external"}
           ]'
 
           include_all=false
