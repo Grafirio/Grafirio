@@ -60,12 +60,37 @@ public static class ConnectionEndpoints
         }
     }
 
+    /// <summary>
+    /// Host alanına "sunucu,1433" veya "sunucu:1433" biçiminde port yapıştırmak yaygın;
+    /// ayrı Port alanıyla birleşince "tcp:sunucu,1433,1433" gibi geçersiz bir adres çıkıyordu.
+    /// Host'a gömülü portu ayıklayıp, ayrı bir port verilmemişse onu kullan.
+    /// </summary>
+    internal static (string Host, int Port) NormalizeHostAndPort(string? host, int port)
+    {
+        var trimmed = (host ?? string.Empty).Trim();
+        var separator = trimmed.LastIndexOfAny(new[] { ',', ':' });
+
+        if (separator > 0 && int.TryParse(trimmed[(separator + 1)..].Trim(), out var embeddedPort))
+        {
+            var bareHost = trimmed[..separator].Trim();
+            // IPv6 adreslerinde ':' zaten adresin parçası — yalnızca tek ayraç varsa güvenli.
+            if (bareHost.Length > 0 && !bareHost.Contains(':'))
+            {
+                return (bareHost, port > 0 ? port : embeddedPort);
+            }
+        }
+
+        return (trimmed, port > 0 ? port : 1433);
+    }
+
     internal static string BuildConnectionString(SqlConnectionRequest request)
     {
+        var (host, port) = NormalizeHostAndPort(request.Host, request.Port);
+
         var builder = new SqlConnectionStringBuilder
         {
             // tcp: prefix ile Named Pipes yerine TCP zorla (Docker container'lar için gerekli)
-            DataSource = $"tcp:{request.Host},{request.Port}",
+            DataSource = $"tcp:{host},{port}",
             InitialCatalog = request.Database,
             UserID = request.Username,
             Password = request.Password,

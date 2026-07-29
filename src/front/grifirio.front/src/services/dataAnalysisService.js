@@ -4,10 +4,36 @@ const API_BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/data-analysis` 
   : 'http://localhost:5000/data-analysis';
 
+/**
+ * Host alanına "sunucu,1433" ya da "sunucu:1433" yazmak yaygın bir alışkanlık.
+ * Ayrı Port alanıyla birleşince sunucu adresi "sunucu,1433,1433" oluyor ve
+ * bağlantı hiçbir zaman kurulamıyordu. Gömülü portu ayıklayıp tek yerde topla.
+ */
+export const normalizeHostAndPort = (host, port) => {
+  const trimmed = String(host ?? '').trim();
+  const separator = Math.max(trimmed.lastIndexOf(','), trimmed.lastIndexOf(':'));
+
+  if (separator > 0) {
+    const tail = trimmed.slice(separator + 1).trim();
+    const bareHost = trimmed.slice(0, separator).trim();
+    // IPv6 adreslerinde ':' adresin parçası — yalnızca tek ayraç varsa güvenli.
+    if (/^\d+$/.test(tail) && bareHost && !bareHost.includes(':')) {
+      return { host: bareHost, port: Number(port) > 0 ? Number(port) : Number(tail) };
+    }
+  }
+
+  return { host: trimmed, port: Number(port) > 0 ? Number(port) : 1433 };
+};
+
 // Test SQL Server connection
 export const testConnection = async (connectionInfo) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/connection/test`, connectionInfo, {
+    const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
+    const response = await axios.post(`${API_BASE_URL}/api/connection/test`, {
+      ...connectionInfo,
+      host,
+      port
+    }, {
       timeout: 15000
     });
     return response.data;
@@ -20,12 +46,13 @@ export const testConnection = async (connectionInfo) => {
 // Save SQL Server connection
 export const saveConnection = async (userId, companyId, name, connectionInfo) => {
   try {
+    const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
     const payload = {
       userId,
       companyId,
       name,
-      host: connectionInfo.host,
-      port: connectionInfo.port,
+      host,
+      port,
       database: connectionInfo.database,
       username: connectionInfo.username,
       password: connectionInfo.password,
