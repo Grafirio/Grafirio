@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,11 @@ public class CreateCompanyCommandHandler(AppDbContext context, IIdentityService 
             }
         }
 
+        // Platform ekibi musteri firmalarini kurdugu icin kiracı kapsamının
+        // disindadir; kendi accessible_companies listesinde olmayan bir firmanin
+        // altina da sirket acabilmelidir.
+        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
+
         // Check if parent company exists and user has access
         int level = 0;
         if (request.ParentCompanyId.HasValue)
@@ -38,7 +44,7 @@ public class CreateCompanyCommandHandler(AppDbContext context, IIdentityService 
             }
 
             // Check if user has access to parent company
-            if (!identityService.HasCompanyAccess(request.ParentCompanyId.Value))
+            if (!isPlatformAdmin && !identityService.HasCompanyAccess(request.ParentCompanyId.Value))
             {
                 return ServiceResult<CreateCompanyResponse>.Error("Access denied to parent company",
                     HttpStatusCode.Forbidden);
@@ -49,7 +55,7 @@ public class CreateCompanyCommandHandler(AppDbContext context, IIdentityService 
         else
         {
             // Only company admins can create root companies
-            if (!identityService.HasBusinessRole("COMPANY_ADMIN"))
+            if (!isPlatformAdmin && !identityService.HasBusinessRole(CompanyRoles.COMPANY_ADMIN))
             {
                 return ServiceResult<CreateCompanyResponse>.Error("Only company admins can create root companies",
                     HttpStatusCode.Forbidden);
