@@ -68,7 +68,7 @@ services:
     restart: always
     container_name: keycloak
     image: quay.io/keycloak/keycloak:25.0
-    command: start
+    command: start --import-realm
     environment:
       KC_HOSTNAME_PORT: 8080
       KC_HOSTNAME_STRICT_BACKCHANNEL: false
@@ -87,6 +87,8 @@ services:
     volumes:
       # Grifirio custom theme mount
       - ./docker-keycloak-themes:/opt/keycloak/themes
+      # grafirio realm is re-imported on every start, so an empty DB self-heals
+      - ./keycloak:/opt/keycloak/data/import:ro
     depends_on:
       - postgres.db.keycloak
     networks:
