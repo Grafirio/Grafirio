@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "grifirio-front",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "src/front/grifirio.front", "--port", "59264", "--strictPort"],
+      "port": 59264
+    }
+  ]
+}

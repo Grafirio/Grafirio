@@ -49,7 +49,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       enableLogging: true,
       flow: 'standard',
       responseMode: 'fragment',
-      redirectUri: window.location.origin + '/',
+      // Deliberately not pinned to the origin: a hardcoded '/' sent every
+      // full page load back to the dashboard, so deep links and refreshes
+      // could never reach the page they asked for.
+      redirectUri: window.location.href,
       // CORS için önemli
       adapter: 'default',
     }}

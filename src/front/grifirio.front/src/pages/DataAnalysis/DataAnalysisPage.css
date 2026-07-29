@@ -1,6 +1,6 @@
 .data-analysis-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--accent);
   padding: 32px;
 }
 
@@ -41,7 +41,7 @@
 
 .btn-reset:hover {
   background: white;
-  color: #667eea;
+  color: var(--accent);
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(255, 255, 255, 0.3);
 }
@@ -71,7 +71,7 @@
 }
 
 .step.completed .step-number {
-  background: #10b981;
+  background: var(--success);
   color: white;
 }
 
@@ -92,7 +92,7 @@
 
 .step.active .step-number {
   background: white;
-  color: #667eea;
+  color: var(--accent);
   transform: scale(1.1);
   box-shadow: 0 8px 20px rgba(255, 255, 255, 0.4);
 }
@@ -117,8 +117,8 @@
 }
 
 .connection-info-banner {
-  background: rgba(16, 185, 129, 0.2);
-  border: 2px solid rgba(16, 185, 129, 0.5);
+  background: var(--success-soft);
+  border: 2px solid var(--success-soft);
   padding: 16px 24px;
   border-radius: 12px;
   display: flex;
@@ -133,7 +133,7 @@
 
 .connection-info-banner i {
   font-size: 24px;
-  color: #10b981;
+  color: var(--success);
 }
 
 @keyframes slideInDown {
@@ -184,8 +184,8 @@
 }
 
 .status-dot.online {
-  background: #10b981;
-  box-shadow: 0 0 12px #10b981;
+  background: var(--success);
+  box-shadow: 0 0 12px var(--success);
 }
 
 @keyframes pulse {

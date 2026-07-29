@@ -8,6 +8,8 @@ import '../styles/SqlConnectionSettings.css';
 const SqlConnectionSettings = () => {
   const navigate = useNavigate();
   const [connections, setConnections] = useState([]);
+  const [isLoadingConnections, setIsLoadingConnections] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState(null);
   const [savedConnectionId, setSavedConnectionId] = useState(null); // Database'e kaydedilen connection ID
@@ -50,22 +52,17 @@ const SqlConnectionSettings = () => {
 
   // Load connections from database
   const loadConnections = async () => {
+    setIsLoadingConnections(true);
+    setLoadError('');
     try {
       // TODO: Gerçek userId - şimdilik mock
       const userId = 'user-123';
-      
-      console.log('🔄 Loading connections from database for userId:', userId);
-      
+
       const result = await getSavedConnections(userId);
-      
-      console.log('📦 API Response:', result);
-      
+
       if (result.success && result.connections) {
-        console.log(`✅ Found ${result.connections.length} connections`);
-        
         // API'den gelen bağlantıları localStorage formatına çevir
         const formattedConnections = result.connections.map(conn => {
-          console.log('🔧 Formatting connection:', { id: conn.id, name: conn.name });
           return {
             id: conn.id,
             savedConnectionId: conn.id, // Database'deki ID'yi sakla
@@ -83,26 +80,32 @@ const SqlConnectionSettings = () => {
           };
         });
         
-        console.log('✅ Formatted connections:', formattedConnections);
         setConnections(formattedConnections);
-        
+
         // Backward compatibility için localStorage'a da kaydet
         localStorage.setItem('sqlConnections', JSON.stringify(formattedConnections));
       } else {
-        console.warn('⚠️ No connections returned or success=false:', result);
+        setConnections([]);
       }
     } catch (error) {
       console.error('Failed to load connections from database:', error);
-      
+
       // Database hatası varsa fallback olarak localStorage'dan yükle
       const saved = localStorage.getItem('sqlConnections');
+      let recovered = false;
       if (saved) {
         try {
           setConnections(JSON.parse(saved));
+          recovered = true;
         } catch (e) {
           console.error('Failed to load connections from localStorage', e);
         }
       }
+      if (!recovered) {
+        setLoadError('Bağlantılar yüklenemedi. Lütfen tekrar deneyin.');
+      }
+    } finally {
+      setIsLoadingConnections(false);
     }
   };
 
@@ -480,7 +483,7 @@ const SqlConnectionSettings = () => {
         setTimeout(() => {
           handleCloseAnalysisPanel();
           // Dashboard'a yönlendir
-          window.location.href = '/dashboard';
+          navigate('/dashboard');
         }, 2000);
       } else {
         setNotification({
@@ -587,22 +590,22 @@ const SqlConnectionSettings = () => {
 
   return (
     <div className="sql-connection-settings">
-      <div className="settings-header">
+      <div className="gf-page-header">
         <div>
-          <h1 className="page-title">
+          <h1 className="gf-page-title">
             <i className="ti ti-database-cog"></i>
             SQL Bağlantı Ayarları
           </h1>
-          <p className="text-muted">Müşteri veritabanı bağlantılarını yönetin</p>
+          <p className="gf-page-subtitle">Müşteri veritabanı bağlantılarını yönetin</p>
         </div>
-        <button className="btn btn-primary" onClick={handleNewConnection}>
+        <button className="gf-btn gf-btn--primary" onClick={handleNewConnection}>
           <i className="ti ti-plus"></i>
           Yeni Bağlantı
         </button>
       </div>
 
       {testStatus.message && (
-        <div className={`alert alert-${testStatus.type}`}>
+        <div className={`gf-alert gf-alert--${testStatus.type === 'error' ? 'danger' : testStatus.type}`}>
           {testStatus.message}
         </div>
       )}
@@ -725,21 +728,21 @@ const SqlConnectionSettings = () => {
           <div className="card-footer">
             <button 
               type="button" 
-              className="btn btn-secondary"
+              className="gf-btn gf-btn--ghost"
               onClick={handleCancel}
             >
               <i className="ti ti-x"></i> İptal
             </button>
             <div className="btn-group">
-              <button 
-                type="button" 
-                className="btn btn-outline-primary"
+              <button
+                type="button"
+                className="gf-btn"
                 onClick={handleTest}
                 disabled={isTesting}
               >
                 {isTesting ? (
                   <>
-                    <span className="spinner"></span> Test Ediliyor...
+                    <span className="gf-spinner"></span> Test Ediliyor...
                   </>
                 ) : (
                   <>
@@ -747,9 +750,9 @@ const SqlConnectionSettings = () => {
                   </>
                 )}
               </button>
-              <button 
-                type="button" 
-                className="btn btn-primary"
+              <button
+                type="button"
+                className="gf-btn gf-btn--primary"
                 onClick={handleSave}
               >
                 <i className="ti ti-device-floppy"></i> Kaydet
@@ -760,8 +763,37 @@ const SqlConnectionSettings = () => {
       )}
 
       <div className="connections-list">
-        {connections.length === 0 ? (
-          <div className="empty-state">
+        {isLoadingConnections ? (
+          <div className="connections-grid" aria-busy="true" aria-label="Bağlantılar yükleniyor">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="connection-card connection-card--skeleton">
+                <div className="connection-header">
+                  <div className="gf-skeleton connection-skeleton__icon"></div>
+                  <div className="connection-skeleton__heading">
+                    <div className="gf-skeleton gf-skeleton--title"></div>
+                    <div className="gf-skeleton gf-skeleton--text gf-skeleton--short"></div>
+                  </div>
+                </div>
+                <div className="connection-details">
+                  <div className="gf-skeleton gf-skeleton--line"></div>
+                  <div className="gf-skeleton gf-skeleton--line gf-skeleton--short"></div>
+                  <div className="gf-skeleton gf-skeleton--line gf-skeleton--short"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : loadError ? (
+          <div className="gf-alert gf-alert--danger">
+            <i className="ti ti-alert-circle"></i>
+            <div className="gf-stack" style={{ gap: 'var(--space-3)' }}>
+              <span>{loadError}</span>
+              <button className="gf-btn gf-btn--sm" onClick={loadConnections}>
+                <i className="ti ti-refresh"></i> Tekrar dene
+              </button>
+            </div>
+          </div>
+        ) : connections.length === 0 ? (
+          <div className="gf-empty">
             <i className="ti ti-database-off"></i>
             <h3>Henüz kayıtlı bağlantı yok</h3>
             <p>Yeni bir SQL bağlantısı eklemek için yukarıdaki butonu kullanın</p>
@@ -804,45 +836,45 @@ const SqlConnectionSettings = () => {
                 </div>
 
                 <div className="connection-actions">
-                  <button 
-                    className="btn btn-sm btn-success"
+                  <button
+                    className="gf-btn gf-btn--sm"
                     onClick={() => handleOpenModal(connection)}
                   >
                     <i className="ti ti-table"></i> Tablo Seç
                   </button>
-                  <button 
-                    className="btn btn-sm btn-info"
+                  <button
+                    className="gf-btn gf-btn--sm"
                     onClick={() => handleAnalyzeSchema(connection)}
                     disabled={connection._analyzing}
                   >
                     {connection._analyzing ? (
-                      <><span className="spinner"></span> Analiz Ediliyor...</>
+                      <><span className="gf-spinner"></span> Analiz Ediliyor...</>
                     ) : (
                       <><i className="ti ti-sparkles"></i> Analiz Et</>
                     )}
                   </button>
-                  <button 
-                    className="btn btn-sm btn-purple"
-                    onClick={() => window.location.href = `/ai-query?connectionId=${connection.savedConnectionId || connection.id}`}
+                  <button
+                    className="gf-btn gf-btn--sm"
+                    onClick={() => navigate(`/ai-query?connectionId=${connection.savedConnectionId || connection.id}`)}
                   >
                     <i className="ti ti-brain"></i> AI Sorgulama
                   </button>
                   {connection.selectedTables && connection.selectedTables.length > 0 && (
-                    <button 
-                      className="btn btn-sm btn-primary"
+                    <button
+                      className="gf-btn gf-btn--sm"
                       onClick={() => handleShowAnalysisPanel(connection)}
                     >
                       <i className="ti ti-chart-dots"></i> Ön Analiz
                     </button>
                   )}
-                  <button 
-                    className="btn btn-sm btn-outline-primary"
+                  <button
+                    className="gf-btn gf-btn--sm gf-btn--ghost"
                     onClick={() => handleEdit(connection)}
                   >
                     <i className="ti ti-edit"></i> Düzenle
                   </button>
-                  <button 
-                    className="btn btn-sm btn-outline-danger"
+                  <button
+                    className="gf-btn gf-btn--sm gf-btn--danger"
                     onClick={() => handleDelete(connection.id)}
                   >
                     <i className="ti ti-trash"></i> Sil
@@ -1126,17 +1158,17 @@ const SqlConnectionSettings = () => {
             </div>
 
             <div className="analysis-panel-footer">
-              <button className="btn btn-secondary" onClick={handleCloseAnalysisPanel} disabled={aiLoading}>
+              <button className="gf-btn gf-btn--ghost" onClick={handleCloseAnalysisPanel} disabled={aiLoading}>
                 <i className="ti ti-x"></i> İptal
               </button>
-              <button 
-                className="btn btn-ai-gradient" 
+              <button
+                className="gf-btn gf-btn--primary"
                 onClick={handleStartAIAnalysis}
                 disabled={aiLoading}
               >
                 {aiLoading ? (
                   <>
-                    <div className="spinner"></div>
+                    <div className="gf-spinner"></div>
                     AI'ya Gönderiliyor...
                   </>
                 ) : (
@@ -1189,11 +1221,11 @@ const SqlConnectionSettings = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={handleCloseModal}>
+              <button className="gf-btn gf-btn--ghost" onClick={handleCloseModal}>
                 <i className="ti ti-x"></i> Kapat
               </button>
-              <button 
-                className="btn btn-primary" 
+              <button
+                className="gf-btn gf-btn--primary"
                 onClick={handleSaveSelectedTables}
                 disabled={selectedTablesForSave.length === 0}
               >
@@ -1222,8 +1254,8 @@ const SqlConnectionSettings = () => {
               )}
             </div>
             <div className="notification-footer">
-              <button 
-                className={`btn btn-${notification.type === 'success' ? 'primary' : 'secondary'}`}
+              <button
+                className="gf-btn gf-btn--primary"
                 onClick={() => setNotification({ ...notification, show: false })}
               >
                 Tamam

@@ -1,6 +1,6 @@
 .ai-dashboard {
   padding: 24px;
-  background: #f8f9fa;
+  background: var(--surface-sunken);
   min-height: 100vh;
 }
 
@@ -12,13 +12,13 @@
   padding: 20px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(34, 44, 51, 0.08);
 }
 
 .dashboard-header h2 {
   margin: 0;
   font-size: 24px;
-  color: #333;
+  color: var(--text);
 }
 
 .health-indicators {
@@ -31,7 +31,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: #f8f9fa;
+  background: var(--surface-sunken);
   border-radius: 6px;
 }
 
@@ -43,19 +43,19 @@
 }
 
 .status-healthy .indicator-dot {
-  background: #28a745;
+  background: var(--success);
 }
 
 .status-unhealthy .indicator-dot {
-  background: #ffc107;
+  background: var(--warning);
 }
 
 .status-offline .indicator-dot {
-  background: #dc3545;
+  background: var(--danger);
 }
 
 .status-unknown .indicator-dot {
-  background: #6c757d;
+  background: var(--text-muted);
 }
 
 @keyframes pulse {
@@ -66,7 +66,7 @@
 .indicator-label {
   font-size: 14px;
   font-weight: 500;
-  color: #495057;
+  color: var(--text);
 }
 
 .dashboard-tabs {
@@ -82,17 +82,17 @@
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: #495057;
+  color: var(--text);
   cursor: pointer;
   transition: all 0.3s;
 }
 
 .dashboard-tabs button:hover {
-  background: #e9ecef;
+  background: var(--border);
 }
 
 .dashboard-tabs button.active {
-  background: #007bff;
+  background: var(--accent);
   color: white;
 }
 
@@ -100,7 +100,7 @@
   background: white;
   border-radius: 8px;
   padding: 24px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(34, 44, 51, 0.08);
 }
 
 /* Realtime Panel */
@@ -118,7 +118,7 @@
 .panel-header h3 {
   margin: 0;
   font-size: 20px;
-  color: #333;
+  color: var(--text);
 }
 
 .alert {
@@ -128,21 +128,21 @@
 }
 
 .alert-danger {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger-soft);
 }
 
 .alert-warning {
-  background: #fff3cd;
-  color: #856404;
-  border: 1px solid #ffeeba;
+  background: var(--warning-soft);
+  color: var(--warning);
+  border: 1px solid var(--warning-soft);
 }
 
 .alert-info {
-  background: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-soft);
 }
 
 .predictions-list {
@@ -156,43 +156,43 @@
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #6c757d;
+  color: var(--text-muted);
   font-size: 16px;
 }
 
 .prediction-card {
   padding: 16px;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #f8f9fa;
+  background: var(--surface-sunken);
   transition: transform 0.2s;
 }
 
 .prediction-card:hover {
   transform: translateX(4px);
-  border-color: #007bff;
+  border-color: var(--accent);
 }
 
 .prediction-time {
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 
 .prediction-value {
   font-size: 16px;
-  color: #333;
+  color: var(--text);
   margin-bottom: 4px;
 }
 
 .prediction-value strong {
-  color: #007bff;
+  color: var(--accent);
   font-size: 20px;
 }
 
 .prediction-confidence {
   font-size: 14px;
-  color: #28a745;
+  color: var(--success);
 }
 
 /* Connection Panel */
@@ -208,14 +208,14 @@
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #333;
+  color: var(--text);
 }
 
 .form-group input,
 .form-group select {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #ced4da;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.3s;
@@ -224,7 +224,7 @@
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #007bff;
+  border-color: var(--accent);
 }
 
 .form-row {
@@ -251,33 +251,33 @@
 }
 
 .btn-primary {
-  background: #007bff;
+  background: var(--accent);
   color: white;
 }
 
 .btn-primary:hover {
-  background: #0056b3;
+  background: var(--accent);
 }
 
 .btn-primary:disabled {
-  background: #6c757d;
+  background: var(--text-muted);
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #6c757d;
+  background: var(--text-muted);
   color: white;
 }
 
 .btn-secondary:hover {
-  background: #5a6268;
+  background: var(--text-muted);
 }
 
 /* Schema Panel */
 .schema-panel.empty {
   text-align: center;
   padding: 60px 20px;
-  color: #6c757d;
+  color: var(--text-muted);
 }
 
 .schema-summary {
@@ -289,7 +289,7 @@
 
 .summary-card {
   padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--accent);
   border-radius: 8px;
   color: white;
   text-align: center;
@@ -313,18 +313,18 @@
 
 .table-card {
   padding: 20px;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--surface-sunken);
 }
 
 .table-card h4 {
   margin: 0 0 8px 0;
-  color: #007bff;
+  color: var(--accent);
 }
 
 .table-description {
-  color: #6c757d;
+  color: var(--text-muted);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -339,28 +339,28 @@
   padding: 12px;
   background: white;
   border-radius: 6px;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border);
 }
 
 .column-item strong {
   display: block;
-  color: #333;
+  color: var(--text);
   margin-bottom: 4px;
 }
 
 .column-type {
   display: inline-block;
   padding: 2px 8px;
-  background: #e9ecef;
+  background: var(--border);
   border-radius: 4px;
   font-size: 12px;
-  color: #495057;
+  color: var(--text);
 }
 
 .column-description {
   margin: 8px 0 0 0;
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-muted);
 }
 
 /* Training Panel */
@@ -370,18 +370,18 @@
 
 .training-status {
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--surface-sunken);
   border-radius: 8px;
   margin-bottom: 24px;
 }
 
 .training-status h4 {
   margin: 0 0 12px 0;
-  color: #333;
+  color: var(--text);
 }
 
 .training-status p {
-  color: #6c757d;
+  color: var(--text-muted);
   margin-bottom: 16px;
 }
 
@@ -391,7 +391,7 @@
 
 .metrics h5 {
   margin: 0 0 8px 0;
-  color: #333;
+  color: var(--text);
 }
 
 .metrics pre {
@@ -400,5 +400,5 @@
   border-radius: 6px;
   overflow-x: auto;
   font-size: 12px;
-  border: 1px solid #dee2e6;
+  border: 1px solid var(--border);
 }

@@ -17,61 +17,61 @@
   align-items: center;
   gap: 14px;
   flex: 1;
-  color: #7c3aed;
+  color: var(--accent);
 }
-.db-home-title h1 { font-size: 22px; font-weight: 700; color: #1e1b4b; margin: 0; line-height: 1.2; }
-.db-home-title p  { font-size: 13px; color: #6b7280; margin: 2px 0 0; }
+.db-home-title h1 { font-size: 22px; font-weight: 700; color: var(--text); margin: 0; line-height: 1.2; }
+.db-home-title p  { font-size: 13px; color: var(--text-muted); margin: 2px 0 0; }
 .db-btn-new {
   display: flex; align-items: center; gap: 6px;
-  padding: 9px 18px; background: #7c3aed; color: white;
+  padding: 9px 18px; background: var(--accent); color: white;
   border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
   cursor: pointer; white-space: nowrap; flex-shrink: 0;
   transition: background .15s, transform .1s;
 }
-.db-btn-new:hover { background: #6d28d9; transform: translateY(-1px); }
+.db-btn-new:hover { background: var(--accent); transform: translateY(-1px); }
 .db-processing-bar { display: flex; gap: 12px; flex-wrap: wrap; flex-shrink: 0; }
 .db-processing-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 14px; background: #f5f3ff; border: 1px solid #ddd6fe;
-  border-radius: 20px; font-size: 12px; font-weight: 500; color: #7c3aed;
+  padding: 6px 14px; background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 20px; font-size: 12px; font-weight: 500; color: var(--accent);
 }
-.db-processing-pct { color: #9ca3af; }
+.db-processing-pct { color: var(--text-subtle); }
 .spin { animation: db-spin 1s linear infinite; }
 @keyframes db-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.db-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #9ca3af; text-align: center; }
-.db-empty h2 { font-size: 20px; font-weight: 700; color: #1e1b4b; margin: 0; }
+.db-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-subtle); text-align: center; }
+.db-empty h2 { font-size: 20px; font-weight: 700; color: var(--text); margin: 0; }
 .db-empty p  { font-size: 14px; margin: 0; }
 .db-grid { flex: 1; display: flex; flex-wrap: wrap; gap: 18px; align-content: flex-start; overflow: hidden; }
 .db-card {
   width: 200px; height: 170px; background: white;
-  border: 1.5px solid #e5e7eb; border-radius: 14px;
+  border: 1.5px solid var(--border); border-radius: 14px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; padding: 20px 16px; cursor: pointer; position: relative; overflow: hidden;
   transition: border-color .2s, box-shadow .2s, transform .15s; user-select: none;
 }
-.db-card:hover { border-color: #a78bfa; box-shadow: 0 6px 24px rgba(124,58,237,.12); transform: translateY(-3px); }
+.db-card:hover { border-color: var(--accent); box-shadow: 0 6px 24px rgba(124,58,237,.12); transform: translateY(-3px); }
 .db-card:active { transform: translateY(0); }
-.db-card--failed { border-color: #fca5a5; }
-.db-card--failed:hover { border-color: #f87171; }
-.db-card-icon-wrap { width: 56px; height: 56px; border-radius: 14px; background: #f5f3ff; color: #7c3aed; display: flex; align-items: center; justify-content: center; transition: background .2s; }
-.db-card:hover .db-card-icon-wrap { background: #ede9fe; }
+.db-card--failed { border-color: var(--danger-soft); }
+.db-card--failed:hover { border-color: var(--danger-soft); }
+.db-card-icon-wrap { width: 56px; height: 56px; border-radius: 14px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; transition: background .2s; }
+.db-card:hover .db-card-icon-wrap { background: var(--accent-soft); }
 .db-card-body { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
-.db-card-name { font-size: 13px; font-weight: 700; color: #1e1b4b; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.db-card-name { font-size: 13px; font-weight: 700; color: var(--text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .db-card-meta { display: flex; align-items: center; gap: 8px; }
-.db-card-tables { font-size: 11px; color: #6b7280; }
+.db-card-tables { font-size: 11px; color: var(--text-muted); }
 .db-card-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
-.badge--ok     { background: #d1fae5; color: #065f46; }
-.badge--failed { background: #fee2e2; color: #991b1b; }
-.db-card-date { font-size: 11px; color: #9ca3af; }
+.badge--ok     { background: var(--success-soft); color: var(--success); }
+.badge--failed { background: var(--danger-soft); color: var(--danger); }
+.db-card-date { font-size: 11px; color: var(--text-subtle); }
 .db-card-cta {
   position: absolute; bottom: 0; left: 0; right: 0;
-  background: linear-gradient(to top, rgba(124,58,237,.9), rgba(124,58,237,0));
+  background: var(--accent-soft);
   color: white; font-size: 12px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; gap: 4px;
   padding: 10px; opacity: 0; transition: opacity .2s;
 }
 .db-card:hover .db-card-cta { opacity: 1; }
-.db-card--add { border-style: dashed; border-color: #d1d5db; background: #fafafa; }
-.db-card--add:hover { border-color: #7c3aed; background: #f5f3ff; box-shadow: none; transform: translateY(-2px); }
-.db-card-add-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #9ca3af; font-size: 13px; font-weight: 500; }
-.db-card--add:hover .db-card-add-inner { color: #7c3aed; }
+.db-card--add { border-style: dashed; border-color: var(--border-strong); background: var(--surface-sunken); }
+.db-card--add:hover { border-color: var(--accent); background: var(--accent-soft); box-shadow: none; transform: translateY(-2px); }
+.db-card-add-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--text-subtle); font-size: 13px; font-weight: 500; }
+.db-card--add:hover .db-card-add-inner { color: var(--accent); }
