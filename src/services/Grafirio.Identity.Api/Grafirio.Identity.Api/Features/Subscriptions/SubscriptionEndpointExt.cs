@@ -3,6 +3,7 @@ using Grafirio.Identity.Api.Features.Subscriptions.Cancel;
 using Grafirio.Identity.Api.Features.Subscriptions.Create;
 using Grafirio.Identity.Api.Features.Subscriptions.Dtos;
 using Grafirio.Identity.Api.Features.Subscriptions.GetByCompany;
+using Grafirio.Identity.Api.Features.Subscriptions.MyAccess;
 
 namespace Grafirio.Identity.Api.Features.Subscriptions;
 
@@ -13,6 +14,20 @@ public static class SubscriptionEndpointExt
         var group = app.MapGroup("api/v{version:apiVersion}/subscriptions")
             .WithTags("Subscriptions")
             .WithApiVersionSet(apiVersionSet);
+
+        // UserAdmin giriste bunu sorar; kural tek yerde tanimli kalsin diye
+        // diger servisler de ayni ucu kullanabilir.
+        group.MapGet("/my-access", async (IMediator mediator) =>
+            {
+                var result = await mediator.Send(new GetMyAccessQuery());
+
+                return result.IsSuccess
+                    ? Results.Ok(result.Data)
+                    : Results.BadRequest(result.Fail);
+            })
+            .WithName("GetMyAccess")
+            .Produces<MyAccessResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization("Password");
 
         group.MapGet("/company/{companyId:guid}", async (Guid companyId, IMediator mediator) =>
             {
