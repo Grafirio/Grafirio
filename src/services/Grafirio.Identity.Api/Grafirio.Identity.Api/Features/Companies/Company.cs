@@ -12,4 +12,18 @@ public class Company : BaseEntity
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Müşteri, SQL bağlantısını "sa" gibi tam yetkili bir hesapla kaydettiğinde
+    /// riskleri kabul ettiğine dair açık onayı. Onay firma seviyesinde tutulur;
+    /// <see cref="Users.UserCompanyRole"/> ile aynı denetim izi desenini izler,
+    /// böylece onayı kimin ne zaman verdiği sonradan sorulabilir.
+    /// </summary>
+    public bool SaAccessConsentGiven { get; set; }
+    public DateTime? SaAccessConsentGivenAt { get; set; }
+    public string? SaAccessConsentGivenBy { get; set; }
+
+    /// Onay alınırken kullanıcıya gösterilen metnin sürümü — metin değişirse
+    /// eski onayların neyi kapsadığı belirsiz kalmasın.
+    public string? SaAccessConsentTextVersion { get; set; }
 }

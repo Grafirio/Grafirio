@@ -11,4 +11,10 @@ public class CompanyDto
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+
+    // "sa" gibi tam yetkili bir SQL hesabının kullanımına dair firma onayı.
+    public bool SaAccessConsentGiven { get; set; }
+    public DateTime? SaAccessConsentGivenAt { get; set; }
+    public string? SaAccessConsentGivenBy { get; set; }
+    public string? SaAccessConsentTextVersion { get; set; }
 }
