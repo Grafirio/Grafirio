@@ -32,6 +32,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Gemini LLM Service
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<GeminiService>();
 
 // Redis — QueryResultStore + diğer servisler

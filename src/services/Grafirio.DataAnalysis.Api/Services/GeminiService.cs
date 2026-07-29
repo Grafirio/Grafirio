@@ -1,31 +1,29 @@
 using System.Text.Json;
-using Mscc.GenerativeAI;
 
 namespace Grafirio.DataAnalysis.Api.Services;
 
 /// <summary>
-/// Gemini API ile LLM iletişimi — schema analizi ve sorgu çevirisi
+/// LLM iletişimi — schema analizi ve sorgu çevirisi.
+/// Sağlayıcı seçimi <see cref="ILlmClient"/> içinde (LLM_PROVIDER); bu sınıf
+/// yalnızca prompt kurar ve yanıtı ayrıştırır.
 /// </summary>
 public class GeminiService
 {
-    private readonly GenerativeModel? _model;
+    private readonly ILlmClient? _model;
     private readonly ILogger<GeminiService> _logger;
 
-    public GeminiService(IConfiguration configuration, ILogger<GeminiService> logger)
+    public GeminiService(ILlmClient llmClient, ILogger<GeminiService> logger)
     {
         _logger = logger;
-        var apiKey = configuration["Gemini:ApiKey"]
-            ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY");
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (!llmClient.IsConfigured)
         {
-            _logger.LogWarning("Gemini API key bulunamadı — mock mode aktif.");
+            _logger.LogWarning("LLM yapılandırılmamış — mock mode aktif.");
             _model = null;
             return;
         }
 
-        var googleAi = new GoogleAI(apiKey);
-        _model = googleAi.GenerativeModel(Model.Gemini20Flash);
+        _model = llmClient;
     }
 
     /// <summary>
@@ -53,10 +51,9 @@ public class GeminiService
 
         try
         {
-            var response = await _model.GenerateContent(prompt);
-            var text = response.Text ?? "";
+            var text = await _model.GenerateAsync(prompt);
 
-            _logger.LogInformation("Gemini'den cevap alındı. Uzunluk: {Len}", text.Length);
+            _logger.LogInformation("LLM'den cevap alındı. Uzunluk: {Len}", text.Length);
 
             // JSON bloğunu çıkar
             var json = ExtractJson(text);
@@ -91,8 +88,7 @@ public class GeminiService
 
         try
         {
-            var response = await _model.GenerateContent(prompt);
-            var text = response.Text ?? "";
+            var text = await _model.GenerateAsync(prompt);
             var json = ExtractJson(text);
 
             return new GeminiQueryResult
@@ -157,10 +153,13 @@ Asistan: ";
 
         try
         {
-            var response = await _model.GenerateContent(prompt);
-            var text = response.Text ?? "Merhaba! Size nasıl yardımcı olabilirim?";
+            var text = await _model.GenerateAsync(prompt);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                text = "Merhaba! Size nasıl yardımcı olabilirim?";
+            }
 
-            _logger.LogInformation("Gemini'den chat cevabı alındı. Uzunluk: {Len}", text.Length);
+            _logger.LogInformation("LLM'den chat cevabı alındı. Uzunluk: {Len}", text.Length);
 
             return new GeminiChatResult
             {
