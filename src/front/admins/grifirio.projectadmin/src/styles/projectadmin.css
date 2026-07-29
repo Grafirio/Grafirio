@@ -1,0 +1,138 @@
+/* ProjectAdmin — yerlesim.
+   Renk, tipografi ve bilesenler theme.css'ten (Modern Minimalist) gelir. */
+
+.pa-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--surface-sunken);
+}
+
+.pa-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-5);
+  background: var(--surface-sunken);
+}
+
+/* --- Header --------------------------------------------------------------- */
+.pa-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.pa-brand {
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+}
+
+.pa-nav {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.pa-nav__link {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-base);
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  transition: background var(--transition), color var(--transition);
+}
+
+.pa-nav__link:hover { background: var(--accent-soft); color: var(--text); }
+
+.pa-nav__link.is-active {
+  color: var(--text);
+  background: var(--accent-soft);
+  font-weight: var(--weight-medium);
+}
+
+.pa-user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.pa-main { flex: 1; }
+
+/* --- Firma agaci ---------------------------------------------------------- */
+.pa-tree { padding: var(--space-2) 0; }
+
+.pa-tree__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.pa-tree__row:last-child { border-bottom: none; }
+.pa-tree__row:hover { background: var(--surface-sunken); }
+
+.pa-tree__name {
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pa-tree__name:hover { text-decoration: underline; }
+
+.pa-tree__spacer { flex: 1; }
+
+/* --- Bolumler ve tablo ----------------------------------------------------- */
+.pa-section { margin-bottom: var(--space-5); }
+
+.pa-form { margin-bottom: var(--space-5); }
+
+.pa-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.pa-table th {
+  text-align: left;
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.pa-table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.pa-table tr:last-child td { border-bottom: none; }
+
+.pa-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .pa-header { flex-wrap: wrap; gap: var(--space-3); }
+  .pa-user { width: 100%; margin-left: 0; }
+  /* Kimlik sutunlari uzun; dar ekranda tabloyu kendi icinde kaydir. */
+  .pa-section .gf-card__body { overflow-x: auto; }
+}

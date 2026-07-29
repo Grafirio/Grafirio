@@ -2,6 +2,19 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Vite degiskenleri derleme aninda gomulur ve .env gitignore'da oldugu icin
+# CI'da o dosya hic bulunmaz. Varsayilanlar burada durmazsa bundle bos bir
+# gateway adresiyle derlenir ve panel hicbir API'ye ulasamaz.
+ARG VITE_GATEWAY_URL=https://gateway.proudcoast-6064711b.westeurope.azurecontainerapps.io
+ARG VITE_KEYCLOAK_URL=https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
+ARG VITE_KEYCLOAK_REALM=grafirio
+ARG VITE_KEYCLOAK_CLIENT_ID=grafirio-client
+
+ENV VITE_GATEWAY_URL=$VITE_GATEWAY_URL
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
+ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
+
 # Copy package files
 COPY package*.json ./
 

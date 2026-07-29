@@ -50,6 +50,7 @@
         "https://useradmin.proudcoast-6064711b.westeurope.azurecontainerapps.io/*",
         "http://localhost:5173/*",
         "http://localhost:59264/*",
+        "http://localhost:59265/*",
         "http://localhost:3000/*"
       ],
       "webOrigins": [
