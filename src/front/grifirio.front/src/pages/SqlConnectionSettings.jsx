@@ -283,16 +283,52 @@ const SqlConnectionSettings = () => {
     setTestStatus({ type: '', message: '' });
   };
 
+  // Listeleme uçları şifreyi taşımaz (loadConnections onu boş bırakır), ama tablo
+  // listesi ve ön analiz doğrudan SQL'e bağlandığı için gerçek şifreye ihtiyaç
+  // duyar. Boş şifreyle gidildiğinde sunucu "Login failed" döndürüyordu.
+  const resolveCredentials = async (connection) => {
+    if (connection.password) return connection;
+
+    const id = connection.savedConnectionId || connection.id;
+    if (!id) return connection;
+
+    try {
+      const result = await getConnectionById(id);
+      if (result?.success && result.connection?.password) {
+        return { ...connection, password: result.connection.password };
+      }
+    } catch (error) {
+      console.error('Failed to resolve connection password:', error);
+    }
+    return connection;
+  };
+
+  const warnMissingPassword = () => {
+    setNotification({
+      show: true,
+      type: 'error',
+      title: 'Bağlantı şifresi alınamadı',
+      message: 'Kayıtlı şifre çözülemedi. Bağlantıyı düzenleyip şifreyi yeniden kaydedin.',
+      details: ''
+    });
+  };
+
   // Modal handlers
-  const handleOpenModal = (connection) => {
+  const handleOpenModal = async (connection) => {
+    const resolved = await resolveCredentials(connection);
+    if (!resolved.password) {
+      warnMissingPassword();
+      return;
+    }
+
     setCurrentConnectionId(connection.id);
     setSelectedConnectionForModal({
-      host: connection.host,
-      port: connection.port,
-      database: connection.database,
-      username: connection.username,
-      password: connection.password,
-      trustServerCertificate: connection.trustServerCertificate
+      host: resolved.host,
+      port: resolved.port,
+      database: resolved.database,
+      username: resolved.username,
+      password: resolved.password,
+      trustServerCertificate: resolved.trustServerCertificate
     });
     setSelectedTable(null);
     setSelectedTablesForSave(connection.selectedTables || []);
@@ -333,16 +369,16 @@ const SqlConnectionSettings = () => {
     handleCloseModal();
   };
 
-  const handleShowAnalysisPanel = (connection) => {
-    console.log('📊 Opening Analysis Panel for connection:', {
-      name: connection.name,
-      id: connection.id,
-      savedConnectionId: connection.savedConnectionId,
-      hasSavedId: !!connection.savedConnectionId
-    });
-    
+  const handleShowAnalysisPanel = async (connection) => {
+    // Ön analiz uçları da doğrudan SQL'e bağlanır — şifreyi önce çöz.
+    const resolved = await resolveCredentials(connection);
+    if (!resolved.password) {
+      warnMissingPassword();
+      return;
+    }
+
     setSelectedConnectionForAnalysis({
-      ...connection,
+      ...resolved,
       savedConnectionId: connection.savedConnectionId || connection.id || savedConnectionId // Try multiple sources
     });
     setShowAnalysisPanel(true);
