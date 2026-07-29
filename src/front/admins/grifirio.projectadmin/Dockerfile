@@ -34,6 +34,9 @@ WORKDIR /app
 # Copy package files and node_modules from build stage
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
+# "vite preview" bu dosyayi calisma aninda okur; olmadan varsayilanlara doner
+# ve tanimadigi Host basliklarini 403 ile reddeder.
+COPY --from=build /app/vite.config.js ./
 
 # Copy built app from build stage
 COPY --from=build /app/dist ./dist
