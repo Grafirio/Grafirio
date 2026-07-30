@@ -26,24 +26,24 @@ Direct Access Grants Enabled: ON
 Service Accounts Enabled: OFF (public client ise)
 
 Root URL:
-  - Üretim: https://test.grafirio.com
+  - Üretim: https://admin.grafirio.com
   - Yerel: http://localhost:59264
 
 Valid Redirect URIs: 
-  - https://test.grafirio.com/*
+  - https://admin.grafirio.com/*
   - http://localhost:59264/*
   - http://localhost:59264/login/callback
 
 Base URL: 
-  - Üretim: https://test.grafirio.com
+  - Üretim: https://admin.grafirio.com
   - Yerel: http://localhost:59264
 
 Admin URL: 
-  - Üretim: https://test.grafirio.com
+  - Üretim: https://admin.grafirio.com
   - Yerel: http://localhost:59264
 
 Web Origins: 
-  - https://test.grafirio.com
+  - https://admin.grafirio.com
   - http://localhost:59264
   - +  (veya *)
 ```
@@ -69,12 +69,12 @@ Direct Grant Flow: direct grant
 
 1. **Client'ın "public" olarak ayarlandığından emin olun**
 2. **Valid Redirect URIs'nin doğru olduğunu kontrol edin**
-3. **Web Origins'e localhost veya https://test.grafirio.com eklendiğinden emin olun**
+3. **Web Origins'e localhost veya https://admin.grafirio.com eklendiğinden emin olun**
 
 ### CORS Hataları
 
 Web Origins bölümüne şunları ekleyin:
-- `https://test.grafirio.com`
+- `https://admin.grafirio.com`
 - `http://localhost:59264`
 - `*` (test için, production'da önerilmez)
 
