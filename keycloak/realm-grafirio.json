@@ -44,6 +44,9 @@
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
       "redirectUris": [
+        "https://grafirio.com/*",
+        "https://admin.grafirio.com/*",
+        "https://manager.grafirio.com/*",
         "https://test.grafirio.com/*",
         "https://frontend.proudcoast-6064711b.westeurope.azurecontainerapps.io/*",
         "https://projectadmin.proudcoast-6064711b.westeurope.azurecontainerapps.io/*",
@@ -54,6 +57,9 @@
         "http://localhost:3000/*"
       ],
       "webOrigins": [
+        "https://grafirio.com",
+        "https://admin.grafirio.com",
+        "https://manager.grafirio.com",
         "https://test.grafirio.com",
         "https://frontend.proudcoast-6064711b.westeurope.azurecontainerapps.io",
         "https://projectadmin.proudcoast-6064711b.westeurope.azurecontainerapps.io",
