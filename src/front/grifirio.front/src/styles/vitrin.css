@@ -1,0 +1,1461 @@
+/* ==========================================================================
+   Grafirio vitrini
+   Marka kilavuzu: lacivert arayuz, teal + sari vurgu, sicak notr zemin.
+   Poppins baslik, Manrope govde, IBM Plex Mono etiket ve sayi.
+   ========================================================================== */
+
+:root {
+  /* Arayuz */
+  --navy: #1c3f7c;
+  --navy-hover: #163364;
+  --navy-soft: #2f5fa8;
+  --on-navy: #b8cbe8;
+  --on-navy-dim: #8fb3e8;
+
+  --ink: #101828;
+  --muted: #5a6474;
+  --faint: #8a93a2;
+  --fainter: #b4bac4;
+
+  --bg: #fbfaf8;
+  --paper: #fff;
+  --paper-warm: #fcfbf9;
+  --chip: #f1eee9;
+  --line: #e6e3de;
+  --line-soft: #efede8;
+
+  /* Vurgu */
+  --teal: #0e8f8c;
+  --teal-tint: #e7f2f1;
+  --sun: #f8c630;
+
+  /* Grafik paleti — sirayla tuketilir */
+  --c01: #0e8f8c;
+  --c02: #1a7a9c;
+  --c03: #2f5fa8;
+  --c04: #4b4a9f;
+  --c05: #6b3a97;
+  --c06: #8a2e8e;
+  --c07: #a82a7c;
+  --c08: #c42e6e;
+  --c09: #d64550;
+  --c10: #e4633c;
+  --c11: #f0902b;
+  --c12: #f8c630;
+
+  --wrap: 1180px;
+  --pad: 28px;
+
+  --font-head: Poppins, system-ui, sans-serif;
+  --font-body: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 90px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  text-wrap: pretty;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+ul,
+ol,
+dl {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--navy);
+  text-decoration: none;
+}
+
+svg {
+  display: block;
+}
+
+::selection {
+  background: var(--sun);
+  color: var(--ink);
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding-inline: var(--pad);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.gmark {
+  width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Butonlar
+   -------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease,
+    box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.btn-lg {
+  padding: 15px 26px;
+  font-size: 16px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-arrow {
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.btn:hover .btn-arrow {
+  transform: translateX(3px);
+}
+
+.btn-primary {
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 8px 22px -10px rgba(28, 63, 124, 0.7);
+}
+
+.btn-primary:hover {
+  background: var(--navy-hover);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.btn-secondary:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.btn-quiet:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+
+.btn-sun {
+  background: var(--sun);
+  color: var(--ink);
+}
+
+.btn-sun:hover {
+  background: #fff;
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------------------
+   Kelime markasi
+   -------------------------------------------------------------------------- */
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.wordmark-mark {
+  flex: none;
+  display: block;
+}
+
+.wordmark-name {
+  display: block;
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--navy);
+}
+
+.wordmark-tagline {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--font-head);
+  font-weight: 500;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  color: var(--navy-soft);
+}
+
+.wordmark.is-light .wordmark-name {
+  color: #fff;
+}
+
+.wordmark.is-light .wordmark-tagline {
+  color: var(--on-navy);
+}
+
+/* --------------------------------------------------------------------------
+   Ust menu
+   -------------------------------------------------------------------------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(251, 250, 248, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding-block: 14px;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.nav-links > a {
+  padding: 8px 13px;
+  border-radius: 999px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--muted);
+  transition: color 0.16s ease, background 0.16s ease;
+}
+
+.nav-links > a:hover {
+  color: var(--ink);
+  background: var(--chip);
+}
+
+.nav-links-cta {
+  display: none;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 42px;
+  height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.nav-burger span {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--navy);
+}
+
+/* --------------------------------------------------------------------------
+   Hero
+   -------------------------------------------------------------------------- */
+
+/* Dekoratif parilti kabinin disina tasiyor ve dar ekranda sayfayi yatay
+   kaydiriyordu; bolum kendi icinde kirpiyor. */
+.hero {
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-inner {
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  gap: 56px;
+  align-items: center;
+  padding-block: 76px 64px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--teal);
+}
+
+.hero-title {
+  margin: 26px 0 22px;
+  font-size: clamp(38px, 5vw, 60px);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.navy {
+  color: var(--navy);
+}
+
+.hero-lead {
+  max-width: 30em;
+  margin-bottom: 34px;
+  font-size: 19px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin-top: 38px;
+}
+
+.hero-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hero-stat-rule {
+  position: absolute;
+  left: -13px;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--line);
+}
+
+.hero-stat dt {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.hero-stat dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.hero-visual {
+  position: relative;
+}
+
+.hero-glow {
+  position: absolute;
+  inset: -14% -8% -18%;
+  background:
+    radial-gradient(58% 52% at 62% 38%, rgba(14, 143, 140, 0.16), transparent 70%),
+    radial-gradient(52% 48% at 22% 84%, rgba(248, 198, 48, 0.22), transparent 70%);
+  filter: blur(6px);
+}
+
+/* --------------------------------------------------------------------------
+   Kanvas temsili
+   -------------------------------------------------------------------------- */
+
+.mock {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+  box-shadow: 0 30px 60px -34px rgba(16, 24, 40, 0.34);
+  overflow: hidden;
+}
+
+.mock-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--paper-warm);
+}
+
+.mock-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+}
+
+.mock-file {
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.mock-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 18px;
+  background: var(--bg);
+}
+
+.mock-note {
+  grid-column: span 2;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--navy);
+}
+
+.mock-note-mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin-top: 1px;
+}
+
+.mock-note-label {
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-navy-dim);
+}
+
+.mock-note p {
+  font-size: 14.5px;
+  line-height: 1.55;
+  font-weight: 500;
+  color: #fff;
+}
+
+.mock-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.mock-card-wide {
+  grid-column: span 2;
+}
+
+.mock-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mock-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.mock-auto {
+  font-size: 10.5px;
+  color: var(--fainter);
+}
+
+.mock-figure {
+  margin: 2px 0 14px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 26px;
+  white-space: nowrap;
+}
+
+.mock-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  height: 76px;
+}
+
+.mock-bar {
+  flex: 1;
+  height: var(--h);
+  border-radius: 4px 4px 2px 2px;
+  background: #dde3ec;
+  transform-origin: bottom;
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--d);
+}
+
+.mock-bar.is-navy {
+  background: var(--navy-soft);
+}
+
+.mock-bar.is-teal {
+  background: var(--teal);
+}
+
+@keyframes rise {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.mock-donut-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.mock-donut {
+  width: 74px;
+  height: 74px;
+  flex: none;
+  border-radius: 99px;
+  mask: radial-gradient(circle, transparent 54%, #000 55%);
+  -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%);
+}
+
+.mock-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mock-legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mock-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.mock-regions {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.mock-regions li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mock-region-name {
+  width: 68px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mock-track {
+  flex: 1;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--chip);
+  overflow: hidden;
+}
+
+.mock-fill {
+  display: block;
+  width: var(--w);
+  height: 100%;
+  border-radius: 99px;
+  animation: widen 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes widen {
+  from {
+    width: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Kullananlar seridi
+   -------------------------------------------------------------------------- */
+
+.logo-strip {
+  border-block: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.logo-strip-inner {
+  display: flex;
+  align-items: center;
+  gap: 34px;
+  flex-wrap: wrap;
+  padding-block: 22px;
+}
+
+.logo-strip-label {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fainter);
+}
+
+.logo-strip-names {
+  display: flex;
+  gap: 34px;
+  flex-wrap: wrap;
+  align-items: center;
+  opacity: 0.5;
+}
+
+.logo-strip-names span {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Bolum iskeleti
+   -------------------------------------------------------------------------- */
+
+.section {
+  padding-block: 82px;
+}
+
+.band {
+  padding-block: 82px;
+  border-block: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.section-head {
+  max-width: 24em;
+  margin-bottom: 44px;
+}
+
+.section-head.is-center {
+  max-width: 36em;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.eyebrow {
+  margin-bottom: 14px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.section-title {
+  font-size: clamp(28px, 3.4vw, 40px);
+}
+
+.section-lead {
+  margin-top: 18px;
+  max-width: 32em;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.section-head.is-center .section-lead {
+  margin-inline: auto;
+}
+
+.check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 2px;
+  border-radius: 6px;
+  background: var(--teal-tint);
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.check-list li {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  font-size: 15.5px;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   Uc adim
+   -------------------------------------------------------------------------- */
+
+.step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.step-card {
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--accent);
+  border-radius: 16px;
+  background: var(--paper);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.step-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 44px -30px rgba(16, 24, 40, 0.45);
+}
+
+.step-n {
+  display: block;
+  margin-bottom: 18px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.step-card h3 {
+  margin-bottom: 10px;
+  font-weight: 600;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+}
+
+.step-card p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Sohbet ederek analiz
+   -------------------------------------------------------------------------- */
+
+.chat-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: center;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg);
+}
+
+.chat-user {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: 13px 16px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.chat-reply {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+}
+
+.chat-mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.chat-bubble {
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px 14px 14px 4px;
+  background: var(--paper);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.chat-bubble strong {
+  font-weight: 700;
+}
+
+.chat-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.chat-bars li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.chat-bar-name {
+  width: 72px;
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.chat-track {
+  flex: 1;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--chip);
+  overflow: hidden;
+}
+
+.chat-fill {
+  display: block;
+  width: var(--w);
+  height: 100%;
+  border-radius: 99px;
+}
+
+.chat-bar-value {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.chat-input > span:first-child {
+  flex: 1;
+  font-size: 14px;
+  color: var(--fainter);
+}
+
+.chat-send {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--teal);
+  color: #fff;
+  font-size: 14px;
+}
+
+/* --------------------------------------------------------------------------
+   Ozellik izgarasi — kil payi cizgiyle bolunmus tek blok
+   -------------------------------------------------------------------------- */
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.feature-cell {
+  padding: 26px;
+  background: var(--bg);
+}
+
+.feature-rule {
+  display: block;
+  width: 30px;
+  height: 6px;
+  margin-bottom: 18px;
+  border-radius: 99px;
+}
+
+.feature-cell h3 {
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.feature-cell p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Paketler
+   -------------------------------------------------------------------------- */
+
+.toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 26px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.toggle button.is-active {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 2px 8px -2px rgba(16, 24, 40, 0.18);
+}
+
+.toggle-save {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--sun);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 26px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+}
+
+.plan.is-featured {
+  padding-top: 40px;
+  border-color: var(--navy);
+  box-shadow: 0 20px 44px -30px rgba(28, 63, 124, 0.5);
+}
+
+.plan-rule {
+  display: block;
+  width: 30px;
+  height: 6px;
+  margin-bottom: 18px;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+.plan-badge {
+  position: absolute;
+  top: 14px;
+  left: 26px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.plan-name {
+  font-weight: 700;
+  font-size: 24px;
+}
+
+.plan-tagline {
+  margin-top: 8px;
+  min-height: 3em;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 20px;
+}
+
+.plan-price strong {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 38px;
+  letter-spacing: -0.03em;
+}
+
+.plan-price span {
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
+.plan-note {
+  min-height: 1.4em;
+  margin: 6px 0 20px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.plan-features {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+}
+
+.plan-features li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* --------------------------------------------------------------------------
+   S.S.S.
+   -------------------------------------------------------------------------- */
+
+.faq-list {
+  max-width: 48em;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.faq-item {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.faq-item.is-open {
+  border-color: var(--navy);
+}
+
+.faq-q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  padding: 19px 22px;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.faq-sign {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--chip);
+  transition: background 0.2s ease;
+}
+
+.faq-sign::before,
+.faq-sign::after {
+  content: '';
+  position: absolute;
+  inset: 50% 6px auto;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--navy);
+  transform: translateY(-50%);
+  transition: transform 0.25s ease;
+}
+
+.faq-sign::after {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.faq-item.is-open .faq-sign {
+  background: var(--teal-tint);
+}
+
+.faq-item.is-open .faq-sign::after {
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.faq-a {
+  padding: 0 22px 22px;
+}
+
+.faq-a p {
+  max-width: 44em;
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Kapanis cagrisi
+   -------------------------------------------------------------------------- */
+
+.cta-section {
+  padding-top: 0;
+  padding-bottom: 92px;
+}
+
+.cta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  flex-wrap: wrap;
+  padding: 66px 56px;
+  border-radius: 22px;
+  background: var(--navy);
+  overflow: hidden;
+}
+
+.cta-mark {
+  position: absolute;
+  right: -70px;
+  top: -70px;
+  width: 340px;
+  height: 340px;
+  opacity: 0.2;
+  animation: float 7s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.cta-copy {
+  position: relative;
+  max-width: 26em;
+}
+
+.cta-copy h2 {
+  margin-bottom: 14px;
+  font-size: clamp(26px, 3.2vw, 38px);
+  line-height: 1.12;
+  color: #fff;
+}
+
+.cta-copy p {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--on-navy);
+}
+
+.cta-btn {
+  position: relative;
+  margin-left: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Alt bilgi
+   -------------------------------------------------------------------------- */
+
+.footer {
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding-block: 38px;
+}
+
+.footer .wordmark-name {
+  font-size: 16px;
+}
+
+.footer-tagline {
+  font-size: 13.5px;
+  color: var(--faint);
+}
+
+.footer-links {
+  display: flex;
+  gap: 22px;
+  margin-left: auto;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.footer-links a:hover {
+  color: var(--teal);
+}
+
+/* --------------------------------------------------------------------------
+   Duyarlilik
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1040px) {
+  .hero-inner,
+  .chat-inner {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+
+  .feature-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .plan-grid {
+    grid-template-columns: 1fr;
+    max-width: 30em;
+    margin-inline: auto;
+  }
+
+  .plan-tagline {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .nav-links,
+  .nav-actions {
+    display: none;
+  }
+
+  .nav-burger {
+    display: flex;
+    margin-left: auto;
+  }
+
+  .nav-links.is-open {
+    position: fixed;
+    inset: 78px 20px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--bg);
+    box-shadow: 0 30px 60px -30px rgba(16, 24, 40, 0.4);
+  }
+
+  .nav-links.is-open > a {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  .nav-links.is-open .nav-links-cta {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cta {
+    padding: 48px 32px;
+    gap: 26px;
+  }
+
+  .cta-btn {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 620px) {
+  :root {
+    --pad: 20px;
+  }
+
+  .section,
+  .band {
+    padding-block: 60px;
+  }
+
+  .hero-inner {
+    padding-block: 48px 40px;
+  }
+
+  .hero-lead {
+    font-size: 17px;
+  }
+
+  .mock-body {
+    grid-template-columns: 1fr;
+  }
+
+  .mock-note,
+  .mock-card-wide {
+    grid-column: span 1;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-links {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+}
+
+/* Hareket azaltma tercihi */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .mock-bar {
+    height: var(--h);
+  }
+
+  .mock-fill,
+  .chat-fill {
+    width: var(--w);
+  }
+}
