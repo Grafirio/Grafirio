@@ -2,9 +2,21 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "grifirio-front",
+      "name": "grifirio-vitrin",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "src/front/grifirio.front", "--port", "59264", "--strictPort"],
+      "runtimeArgs": ["vite", "src/front/grifirio.front", "--port", "5173", "--strictPort"],
+      "port": 5173
+    },
+    {
+      "name": "grifirio-useradmin",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "src/front/admins/grifirio.useradmin",
+        "--port",
+        "59264",
+        "--strictPort"
+      ],
       "port": 59264
     }
   ]
