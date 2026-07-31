@@ -6,7 +6,7 @@ WORKDIR /app
 # CI'da o dosya hic bulunmaz. Varsayilanlar burada durmazsa bundle bos bir
 # gateway adresiyle derlenir ve panel hicbir API'ye ulasamaz.
 ARG VITE_GATEWAY_URL=https://gateway.proudcoast-6064711b.westeurope.azurecontainerapps.io
-ARG VITE_KEYCLOAK_URL=https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
+ARG VITE_KEYCLOAK_URL=https://login.grafirio.com
 ARG VITE_KEYCLOAK_REALM=grafirio
 ARG VITE_KEYCLOAK_CLIENT_ID=grafirio-client
 

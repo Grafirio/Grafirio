@@ -5,7 +5,7 @@
 ### 1. Client Oluşturma/Düzenleme
 
 1. Keycloak Admin Console'a gidin: 
-   - **Üretim (Azure):** `https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io`
+   - **Üretim (Azure):** `https://login.grafirio.com`
    - **Yerel (Local):** `http://localhost:8080`
 2. **Master** realm'ini seçin (veya kendi realm'inizi, örn: `master`)
 3. **Clients** menüsüne gidin
@@ -101,9 +101,9 @@ React Console'da şu bilgileri kontrol edin:
 ## 🔗 Kullanışlı Keycloak Admin URLs
 
 - **Yerel Admin Console:** http://localhost:8080
-- **Üretim Admin Console:** https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io
+- **Üretim Admin Console:** https://login.grafirio.com
 - **Yerel Master Realm:** http://localhost:8080/admin/master/console/
-- **Üretim Master Realm:** https://keycloak.proudcoast-6064711b.westeurope.azurecontainerapps.io/admin/master/console/
+- **Üretim Master Realm:** https://login.grafirio.com/admin/master/console/
 
 ---
 
