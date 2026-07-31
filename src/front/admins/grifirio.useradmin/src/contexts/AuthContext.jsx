@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useCallback, useContext } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
 
 const AuthContext = createContext(null);
@@ -14,21 +14,23 @@ export const AuthProvider = ({ children }) => {
     roles: keycloak.tokenParsed?.realm_access?.roles || [],
   } : null;
 
-  const login = () => {
+  // Sabitlenmeleri sart: bunlari bagimliliga alan bir effect, her render'da yeni
+  // bir fonksiyon gorup tekrar calisirdi.
+  const login = useCallback(() => {
     try {
       keycloak.login();
     } catch (error) {
       console.error('Login hatası:', error);
     }
-  };
+  }, [keycloak]);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     try {
       keycloak.logout();
     } catch (error) {
       console.error('Logout hatası:', error);
     }
-  };
+  }, [keycloak]);
 
   const isAuthenticated = keycloak.authenticated;
 

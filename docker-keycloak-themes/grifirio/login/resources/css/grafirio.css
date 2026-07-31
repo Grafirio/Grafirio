@@ -1,0 +1,768 @@
+/* ==========================================================================
+   Grafirio — Keycloak giris temasi
+   Renkler ve tipografi vitrinle ayni marka kilavuzundan.
+   ========================================================================== */
+
+:root {
+  --navy: #1c3f7c;
+  --navy-hover: #173464;
+  --navy-soft: #2f5fa8;
+  --on-navy: #b8cbe8;
+  --on-navy-dim: #8fb3e8;
+
+  --ink: #101828;
+  --label: #3c4657;
+  --muted: #5a6474;
+  --faint: #8a93a2;
+  --fainter: #a6aebb;
+
+  --bg: #fbfaf8;
+  --paper: #fff;
+  --paper-warm: #fcfbf9;
+  --chip: #f1eee9;
+  --line: #e6e3de;
+  --line-soft: #efede8;
+
+  --teal: #0e8f8c;
+  --sun: #f8c630;
+
+  --danger: #e4633c;
+  --danger-bg: #fdf0eb;
+  --danger-line: #f2cbbb;
+  --danger-ink: #8c3a1e;
+
+  --ok: #0e8f8c;
+  --ok-bg: #e7f2f1;
+  --ok-line: #b8ddda;
+  --ok-ink: #0b5f5d;
+
+  --font-head: Poppins, system-ui, sans-serif;
+  --font-body: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.gf-body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--navy);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--teal);
+}
+
+::selection {
+  background: var(--sun);
+  color: var(--ink);
+}
+
+@keyframes gfSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gfRise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Yerlesim
+   -------------------------------------------------------------------------- */
+
+.gf-split {
+  display: grid;
+  grid-template-columns: 1.02fr 0.98fr;
+  min-height: 100vh;
+}
+
+.gf-pane {
+  display: flex;
+  flex-direction: column;
+  padding: 34px 44px 26px;
+  min-width: 0;
+}
+
+.gf-pane-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 0;
+}
+
+.gf-form-wrap {
+  width: 100%;
+  max-width: 404px;
+  animation: gfRise 0.22s ease-out;
+}
+
+.gf-pane-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12.5px;
+  color: var(--fainter);
+}
+
+.gf-locales {
+  display: inline-flex;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.gf-locales a {
+  color: var(--faint);
+}
+
+.gf-locales a.is-active {
+  color: var(--navy);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Marka
+   -------------------------------------------------------------------------- */
+
+.gf-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  align-self: flex-start;
+}
+
+.gf-brand-mark {
+  display: block;
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+
+.gf-brand-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gf-brand-name {
+  font-family: var(--font-head);
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  color: var(--navy);
+}
+
+/* --------------------------------------------------------------------------
+   Baslik
+   -------------------------------------------------------------------------- */
+
+.gf-eyebrow {
+  margin: 0 0 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.gf-title {
+  margin: 0 0 10px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.gf-sub {
+  margin: 0 0 28px;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.gf-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.gf-back:hover {
+  color: var(--navy);
+}
+
+/* --------------------------------------------------------------------------
+   Uyarilar
+   -------------------------------------------------------------------------- */
+
+.gf-alert {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  animation: gfRise 0.18s ease-out;
+}
+
+.gf-alert-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin-top: 6px;
+  border-radius: 99px;
+}
+
+.gf-alert-text {
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.gf-alert--error,
+.gf-alert--warning {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+}
+
+.gf-alert--error .gf-alert-dot,
+.gf-alert--warning .gf-alert-dot {
+  background: var(--danger);
+}
+
+.gf-alert--error .gf-alert-text,
+.gf-alert--warning .gf-alert-text {
+  color: var(--danger-ink);
+}
+
+.gf-alert--success,
+.gf-alert--info {
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-line);
+}
+
+.gf-alert--success .gf-alert-dot,
+.gf-alert--info .gf-alert-dot {
+  background: var(--ok);
+}
+
+.gf-alert--success .gf-alert-text,
+.gf-alert--info .gf-alert-text {
+  color: var(--ok-ink);
+}
+
+.gf-field-error {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--danger-ink);
+}
+
+/* --------------------------------------------------------------------------
+   Form
+   -------------------------------------------------------------------------- */
+
+.gf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.gf-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.gf-label-hint {
+  font-weight: 500;
+  color: var(--fainter);
+}
+
+.gf-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.gf-input::placeholder {
+  color: var(--fainter);
+}
+
+.gf-input:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+}
+
+.gf-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.gf-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.gf-input-wrap .gf-input {
+  padding-right: 78px;
+}
+
+.gf-reveal {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: var(--chip);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.gf-reveal:hover {
+  background: var(--line);
+  color: var(--ink);
+}
+
+.gf-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gf-check input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--navy);
+  cursor: pointer;
+}
+
+.gf-check span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* OTP kutusu */
+.gf-otp {
+  width: 100%;
+  height: 62px;
+  padding: 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 26px;
+  letter-spacing: 0.36em;
+  text-align: center;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.gf-otp:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+}
+
+/* --------------------------------------------------------------------------
+   Butonlar
+   -------------------------------------------------------------------------- */
+
+.gf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: 50px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--navy);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.gf-btn:hover {
+  background: var(--navy-hover);
+}
+
+.gf-btn[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gf-btn--ghost {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.gf-btn--ghost:hover {
+  background: var(--paper-warm);
+  border-color: #c9c4bc;
+}
+
+.gf-link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.gf-another-way {
+  margin-top: 18px;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
+   Ayirici ve sosyal saglayicilar
+   -------------------------------------------------------------------------- */
+
+.gf-or {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 26px 0 20px;
+}
+
+.gf-or::before,
+.gf-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.gf-or span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fainter);
+}
+
+.gf-social {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.gf-social a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.gf-social a:hover {
+  border-color: #c9c4bc;
+  background: var(--paper-warm);
+  color: var(--ink);
+}
+
+.gf-foot-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 22px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.gf-legal {
+  margin-top: 18px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------------------------
+   Sag panel
+   -------------------------------------------------------------------------- */
+
+.gf-showcase {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 44px;
+  background:
+    radial-gradient(70% 55% at 75% 20%, rgba(14, 143, 140, 0.35), transparent 65%),
+    radial-gradient(60% 50% at 20% 85%, rgba(248, 198, 48, 0.22), transparent 65%),
+    linear-gradient(160deg, #234b8d, #12294f);
+  overflow: hidden;
+}
+
+.gf-showcase-inner {
+  width: 100%;
+  max-width: 420px;
+}
+
+.gf-showcase-eyebrow {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--on-navy-dim);
+}
+
+.gf-showcase-lead {
+  margin: 0 0 26px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+
+.gf-showcase-foot {
+  margin: 26px 0 0;
+  font-family: var(--font-head);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  color: var(--on-navy);
+}
+
+.gf-mock {
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.gf-mock-chrome {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--paper-warm);
+}
+
+.gf-mock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+
+.gf-mock-file {
+  margin-left: 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.gf-mock-body {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+  background: var(--bg);
+}
+
+.gf-mock-note {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--navy);
+}
+
+.gf-mock-note-mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.gf-mock-note-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.gf-mock-note-label {
+  margin: 0 0 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-navy-dim);
+}
+
+.gf-mock-note-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: #fff;
+}
+
+.gf-mock-card {
+  padding: 13px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.gf-mock-card-label {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.gf-mock-figure {
+  margin: 3px 0 12px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.gf-mock-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 58px;
+}
+
+.gf-mock-bars span {
+  flex: 1;
+  border-radius: 4px 4px 2px 2px;
+  background: #dde3ec;
+}
+
+.gf-mock-legend {
+  display: grid;
+  gap: 7px;
+  margin: 11px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gf-mock-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.gf-mock-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.gf-mock-legend b {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------------------------
+   Duyarlilik
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 960px) {
+  .gf-split {
+    grid-template-columns: 1fr;
+  }
+
+  /* Sag panel dekoratif; mobilde formu asagi itmekten baska ise yaramiyor. */
+  .gf-showcase {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .gf-pane {
+    padding: 24px 20px 20px;
+  }
+
+  .gf-title {
+    font-size: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

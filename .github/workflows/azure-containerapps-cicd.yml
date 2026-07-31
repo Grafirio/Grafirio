@@ -8,6 +8,8 @@ on:
     paths:
       - .github/workflows/azure-containerapps-cicd.yml
       - src/**
+      - keycloak/**
+      - docker-keycloak-themes/**
   workflow_dispatch:
     inputs:
       target:
@@ -28,6 +30,7 @@ on:
           - frontend
           - projectadmin
           - useradmin
+          - keycloak
 
 concurrency:
   group: azure-containerapps-cicd-${{ github.ref }}
@@ -82,6 +85,12 @@ jobs:
               - 'src/front/admins/grifirio.projectadmin/**'
             useradmin:
               - 'src/front/admins/grifirio.useradmin/**'
+            # Keycloak stok imaj + kendi temamiz. Tema ya da realm degisince
+            # imajin yeniden derlenmesi gerekiyor, yoksa musteri hala
+            # Keycloak'in varsayilan ekranini gorur.
+            keycloak:
+              - 'docker-keycloak-themes/**'
+              - 'keycloak/**'
 
       - name: Build deployment matrix
         id: generate-matrix
@@ -96,6 +105,7 @@ jobs:
           FILTER_FRONTEND: ${{ steps.filter.outputs.frontend }}
           FILTER_PROJECTADMIN: ${{ steps.filter.outputs.projectadmin }}
           FILTER_USERADMIN: ${{ steps.filter.outputs.useradmin }}
+          FILTER_KEYCLOAK: ${{ steps.filter.outputs.keycloak }}
           TARGET_INPUT: ${{ github.event.inputs.target || '' }}
         run: |
           set -euo pipefail
@@ -110,7 +120,8 @@ jobs:
             {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway","port":8080,"ingress":"external"},
             {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend","port":80,"ingress":"external"},
             {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin","port":80,"ingress":"external"},
-            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin","port":80,"ingress":"external"}
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin","port":80,"ingress":"external"},
+            {"key":"keycloak","image":"keycloak","dockerfile":"./keycloak/Dockerfile","context":".","app":"keycloak","port":8080,"ingress":"external"}
           ]'
 
           include_all=false
@@ -126,7 +137,7 @@ jobs:
           fi
 
           changed_keys=""
-          for key in django-ai schema-analyzer pycaret-engine identity-api commerce-api data-analysis-api gateway frontend projectadmin useradmin; do
+          for key in django-ai schema-analyzer pycaret-engine identity-api commerce-api data-analysis-api gateway frontend projectadmin useradmin keycloak; do
             env_key="FILTER_$(echo "$key" | tr '[:lower:]-' '[:upper:]_')"
             value="${!env_key:-false}"
             if [ "$value" = "true" ]; then
