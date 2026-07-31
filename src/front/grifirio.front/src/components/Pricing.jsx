@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SIGN_UP_URL, CONTACT_EMAIL } from '../config';
+import { planCheckoutUrl, CONTACT_EMAIL } from '../config';
 
 // Paket kodlari Identity'deki SubscriptionPlans ile birebir ayni (TRIAL,
 // STANDARD, ENTERPRISE). Vitrinde gorunen adlar degisebilir ama kodlar
@@ -13,7 +13,7 @@ const plans = [
     price: { monthly: '₺0', yearly: '₺0' },
     unit: '14 gün',
     cta: 'Ücretsiz başla',
-    href: SIGN_UP_URL,
+    href: null,
     features: [
       '1 veri kaynağı',
       '3 kullanıcı',
@@ -32,7 +32,7 @@ const plans = [
     featured: true,
     badge: 'En çok seçilen',
     cta: 'Takım’ı seç',
-    href: SIGN_UP_URL,
+    href: null,
     features: [
       '5 veri kaynağı',
       '25 kullanıcı',
@@ -121,7 +121,7 @@ export default function Pricing() {
 
               <a
                 className={`btn btn-block ${p.featured ? 'btn-primary' : 'btn-secondary'}`}
-                href={p.href}
+                href={p.href ?? planCheckoutUrl(p.code)}
               >
                 {p.cta}
               </a>
