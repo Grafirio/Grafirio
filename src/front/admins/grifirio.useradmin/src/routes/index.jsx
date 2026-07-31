@@ -4,6 +4,7 @@ import CanvasLayout from '../layouts/CanvasLayout';
 
 // Sayfalar
 import LoginPage from '../pages/LoginPage';
+import OnboardingPage from '../pages/OnboardingPage';
 import DashboardPage from '../pages/DashboardPage';
 import CanvasPage from '../pages/CanvasPage';
 import CompanyInfoPage from '../pages/CompanyInfoPage';
@@ -48,6 +49,14 @@ const routes = [
     children: [
       { path: '', element: <LoginPage /> },
     ],
+  },
+  // Karsilama sihirbazi bilerek ProtectedRoute'un disinda: oraya giden
+  // kullanicinin henuz firmasi ve abonelii yok, yani erisim kontrolu onu
+  // tam da ihtiyaci olan sayfadan geri cevirirdi. Giris zorunlulugunu
+  // Keycloak'in "login-required" ayari zaten sagliyor.
+  {
+    path: '/onboarding',
+    element: <OnboardingPage />,
   },
   // Public routes for development/testing (without Keycloak protection)
   {

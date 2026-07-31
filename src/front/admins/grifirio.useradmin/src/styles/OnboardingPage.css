@@ -1,0 +1,375 @@
+/* Karsilama sihirbazi — marka kilavuzuyla ayni degerler. */
+
+.ob {
+  --navy: #1c3f7c;
+  --navy-hover: #173464;
+  --ink: #101828;
+  --label: #3c4657;
+  --muted: #5a6474;
+  --faint: #8a93a2;
+  --fainter: #a6aebb;
+  --bg: #fbfaf8;
+  --paper: #fff;
+  --chip: #f1eee9;
+  --line: #e6e3de;
+  --teal: #0e8f8c;
+  --teal-tint: #e7f2f1;
+  --danger-bg: #fdf0eb;
+  --danger-line: #f2cbbb;
+  --danger-ink: #8c3a1e;
+
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background: var(--bg);
+  font-family: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+}
+
+.ob-card {
+  width: 100%;
+  max-width: 560px;
+  padding: 34px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+  box-shadow: 0 30px 60px -40px rgba(16, 24, 40, 0.3);
+}
+
+.ob-card h1 {
+  margin: 0 0 8px;
+  font-family: Poppins, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.ob-lead {
+  margin: 0 0 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* Adim gostergesi */
+.ob-steps {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fainter);
+}
+
+.ob-step-n {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 99px;
+  background: var(--chip);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.ob-steps li.is-current {
+  color: var(--navy);
+}
+
+.ob-steps li.is-current .ob-step-n {
+  background: var(--navy);
+  color: #fff;
+}
+
+.ob-steps li.is-done {
+  color: var(--teal);
+}
+
+.ob-steps li.is-done .ob-step-n {
+  background: var(--teal-tint);
+  color: var(--teal);
+}
+
+/* Form */
+.ob-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ob-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ob-field > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.ob-field i {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--fainter);
+}
+
+.ob-field input {
+  height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ob-field input::placeholder {
+  color: var(--fainter);
+}
+
+.ob-field input:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+}
+
+.ob-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ob-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ob-chips button {
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.ob-chips button.is-active {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
+}
+
+/* Paketler */
+.ob-plans {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ob-plan {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ob-plan.is-active {
+  border-color: var(--navy);
+  background: #f7f9fc;
+}
+
+.ob-plan input {
+  accent-color: var(--navy);
+  width: 17px;
+  height: 17px;
+}
+
+.ob-plan-name {
+  font-family: Poppins, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.ob-plan-price {
+  font-family: Poppins, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.ob-plan-desc {
+  grid-column: 2 / -1;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.ob-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--chip);
+  font-size: 15px;
+}
+
+.ob-summary strong {
+  font-family: Poppins, system-ui, sans-serif;
+  font-size: 18px;
+}
+
+/* Butonlar */
+.ob-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 22px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--navy);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15.5px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.16s;
+}
+
+.ob-btn:hover {
+  background: var(--navy-hover);
+  color: #fff;
+}
+
+.ob-btn[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ob-btn--ghost {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ob-btn--ghost:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.ob-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.ob-actions .ob-btn:last-child {
+  margin-left: auto;
+}
+
+/* Durumlar */
+.ob-error {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger-line);
+  border-radius: 12px;
+  background: var(--danger-bg);
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--danger-ink);
+}
+
+.ob-notice {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.ob-empty {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* Bitis */
+.ob-card--done {
+  text-align: center;
+}
+
+.ob-tick {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 18px;
+  border-radius: 99px;
+  background: var(--teal-tint);
+  color: var(--teal);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.ob-card--done p {
+  margin: 0 0 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .ob-card {
+    padding: 24px 20px;
+  }
+
+  .ob-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ob-steps li span:not(.ob-step-n) {
+    display: none;
+  }
+}

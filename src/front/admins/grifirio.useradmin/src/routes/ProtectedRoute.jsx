@@ -62,9 +62,20 @@ const ProtectedRoute = () => {
           <i className="ti ti-lock" />
           <h3>Ürüne erişiminiz bulunmuyor</h3>
           <p>{describeAccessReason(access.reason)}</p>
-          <p className="gf-text-sm gf-subtle">
-            Devam etmek için firmanızın yöneticisiyle veya bizimle iletişime geçin.
-          </p>
+          {/* Firmasi olmayan kullanici cikmaza dusmesin: eksik olan sey tam
+              da karsilama sihirbazinin kurdugu sey. */}
+          {access.reason === 'User is not assigned to a company' ? (
+            <>
+              <p className="gf-text-sm gf-subtle">
+                Çalışma alanınızı kurup paketinizi seçerek başlayabilirsiniz.
+              </p>
+              <a className="gf-btn" href="/onboarding">Çalışma alanı kur</a>
+            </>
+          ) : (
+            <p className="gf-text-sm gf-subtle">
+              Devam etmek için firmanızın yöneticisiyle veya bizimle iletişime geçin.
+            </p>
+          )}
           <button className="gf-btn" onClick={() => keycloak.logout()}>Çıkış yap</button>
         </div>
       </div>
