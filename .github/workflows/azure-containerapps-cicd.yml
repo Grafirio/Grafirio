@@ -79,12 +79,16 @@ jobs:
               - 'src/services/Grafirio.DataAnalysis.Api/**'
             gateway:
               - 'src/services/Grafirio.Gateway/**'
+            # Paylasilan tema bu iki uygulamanin icine derleniyor; degisince
+            # ikisi de yeniden yayinlanmali, yoksa renk canliya cikmaz.
             frontend:
               - 'src/front/grifirio.front/**'
+              - 'src/front/shared/**'
             projectadmin:
               - 'src/front/admins/grifirio.projectadmin/**'
             useradmin:
               - 'src/front/admins/grifirio.useradmin/**'
+              - 'src/front/shared/**'
             # Keycloak stok imaj + kendi temamiz. Tema ya da realm degisince
             # imajin yeniden derlenmesi gerekiyor, yoksa musteri hala
             # Keycloak'in varsayilan ekranini gorur.
@@ -118,9 +122,9 @@ jobs:
             {"key":"commerce-api","image":"commerce-api","dockerfile":"./src/services/Grafirio.Commerce.Api/Dockerfile","context":".","app":"commerce-api","port":8080,"ingress":"internal"},
             {"key":"data-analysis-api","image":"data-analysis-api","dockerfile":"./src/services/Grafirio.DataAnalysis.Api/Dockerfile","context":".","app":"data-analysis-api","port":8080,"ingress":"internal"},
             {"key":"gateway","image":"gateway","dockerfile":"./src/services/Grafirio.Gateway/Dockerfile","context":".","app":"gateway","port":8080,"ingress":"external"},
-            {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front/grifirio.front","app":"frontend","port":80,"ingress":"external"},
+            {"key":"frontend","image":"frontend","dockerfile":"./src/front/grifirio.front/Dockerfile","context":"./src/front","app":"frontend","port":80,"ingress":"external"},
             {"key":"projectadmin","image":"projectadmin","dockerfile":"./src/front/admins/grifirio.projectadmin/Dockerfile","context":"./src/front/admins/grifirio.projectadmin","app":"projectadmin","port":80,"ingress":"external"},
-            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front/admins/grifirio.useradmin","app":"useradmin","port":80,"ingress":"external"},
+            {"key":"useradmin","image":"useradmin","dockerfile":"./src/front/admins/grifirio.useradmin/Dockerfile","context":"./src/front","app":"useradmin","port":80,"ingress":"external"},
             {"key":"keycloak","image":"keycloak","dockerfile":"./keycloak/Dockerfile","context":".","app":"keycloak","port":8080,"ingress":"external"}
           ]'
 
