@@ -1,0 +1,14 @@
+# Build baglami src/front (grifirio.front ve useradmin ayni kokten
+# derleniyor, ikisi de shared/theme'i gorebilsin diye). Docker sadece
+# bu dosyayi BAGLAM KOKUNDEN okuyor; alt klasorlere konursa hic
+# calismaz.
+#
+# node_modules disarida birakilmazsa, host'ta calisirken kurulmus olan
+# (Windows veya farkli bir Node surumune ait) surum konteynerin icine
+# kopyalanip npm ci'nin az once kurdugu Linux ikili dosyalarinin
+# uzerine yaziyor. Sonuc: "sh: vite: Permission denied" — npm ci hicbir
+# hata vermeden gecmis gibi gorunuyor, patlama yalnizca "npm run build"
+# calisirken cikiyor.
+**/node_modules
+**/dist
+**/.env
