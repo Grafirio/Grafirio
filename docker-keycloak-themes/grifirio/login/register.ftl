@@ -1,5 +1,7 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=!messagesPerField.exists('firstName','lastName','email','username','password','password-confirm'); section>
+<#-- existsError, exists'in aksine birden fazla alan adi aliyor; exists tek
+     argumanlik ve altisini birden verince sayfa 500 ile dusuyordu. -->
+<@layout.registrationLayout displayMessage=!messagesPerField.existsError('firstName','lastName','email','username','password','password-confirm'); section>
 
   <#if section = "title">
     Kayıt
