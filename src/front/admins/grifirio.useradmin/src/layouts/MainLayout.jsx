@@ -1,10 +1,10 @@
 import React from 'react';
-import Header from '../components/organisms/Header';
+import Nav from '../components/organisms/Nav';
 
 const MainLayout = ({ children }) => {
   return (
     <div className="page">
-      <Header />
+      <Nav />
       <div className="page-wrapper">
         <div className="page-body">
           <div className="container-xl">

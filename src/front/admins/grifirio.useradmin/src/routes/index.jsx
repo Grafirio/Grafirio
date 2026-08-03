@@ -16,6 +16,7 @@ import AgentQueryPage from '../pages/AgentQueryPage';
 // Ayar Sayfaları
 import SettingsPage from '../pages/SettingsPage';
 import SqlConnectionSettings from '../pages/SqlConnectionSettings';
+import PlanPage from '../pages/PlanPage';
 
 const routes = [
   {
@@ -38,7 +39,7 @@ const routes = [
           { path: 'department', element: <SettingsPage title="Departman Ayarları" /> },
           { path: 'authorization', element: <SettingsPage title="Yetki Ayarları" /> },
           { path: 'user', element: <SettingsPage title="Kullanıcı Ayarları" /> },
-          { path: 'membership', element: <SettingsPage title="Üyelik Bilgileri" /> },
+          { path: 'membership', element: <PlanPage /> },
         ],
       },
     ],

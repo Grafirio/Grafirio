@@ -23,7 +23,11 @@ export default function CompanyAdminPage() {
   const token = keycloak.token;
   const companyId = keycloak.tokenParsed?.company_id;
 
-  const [tab, setTab] = useState('info');
+  // Ust menudeki "Yetkili kullanicilar" / "Alt sirketler" girisleri buraya
+  // dogrudan ilgili sekmeyle geliyor; ?tab olmadan hep "info" acilirdi.
+  const [tab, setTab] = useState(
+    () => new URLSearchParams(window.location.search).get('tab') || 'info'
+  );
   const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
