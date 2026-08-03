@@ -2,6 +2,7 @@ using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Grafirio.Shared.Identity.Services;
 
 namespace Grafirio.DataAnalysis.Api.Features.Connections;
 
@@ -9,7 +10,11 @@ public static class SavedConnectionEndpoints
 {
     public static void MapSavedConnectionEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/connections");
+        // Tum grup yetki istiyor. Onceden hicbiri istemiyordu ve kullanici
+        // kimligi sorgu dizesinden geliyordu; ?userId=<baskasi> yazan herkes
+        // o kisinin kayitli baglantilarini, /decrypt ile de veritabani
+        // parolasini okuyabiliyordu.
+        var group = app.MapGroup("/api/connections").RequireAuthorization();
 
         group.MapPost("/", SaveConnection)
             .WithName("SaveConnection")
@@ -38,30 +43,31 @@ public static class SavedConnectionEndpoints
 
     private static async Task<IResult> SaveConnection(
         [FromBody] SaveConnectionRequest request,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
-            logger.LogInformation("Saving connection for UserId: {UserId}, Name: {Name}, CompanyId: {CompanyId}", 
-                request.UserId, request.Name, request.CompanyId);
+            // Kimlik istekten degil token'dan. Istemcinin gonderdigi UserId ve
+            // CompanyId'ye guvenmek, baskasinin firmasina kayit yazmayi
+            // mumkun kiliyordu.
+            var callerId = identity.UserId.ToString();
+            var callerCompanyId = identity.CurrentCompanyId;
+
+            if (callerCompanyId is null)
+            {
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
+            }
+
+            logger.LogInformation("Saving connection for UserId: {UserId}, Name: {Name}, CompanyId: {CompanyId}",
+                callerId, request.Name, callerCompanyId);
             
             logger.LogInformation("Connection details - Host: {Host}, Port: {Port}, Database: {Database}, Username: {Username}, TrustServerCertificate: {Trust}",
                 request.Host, request.Port, request.Database, request.Username, request.TrustServerCertificate);
 
-            // Validate required fields
-            if (string.IsNullOrWhiteSpace(request.UserId))
-            {
-                logger.LogWarning("SaveConnection failed: UserId is null or empty");
-                return Results.BadRequest(new { error = "UserId is required" });
-            }
-            
-            if (string.IsNullOrWhiteSpace(request.CompanyId))
-            {
-                logger.LogWarning("SaveConnection failed: CompanyId is null or empty");
-                return Results.BadRequest(new { error = "CompanyId is required" });
-            }
-            
+            // UserId ve CompanyId artik istekten okunmuyor, dogrulanmasi da
+            // gerekmiyor; ikisi de token'dan geliyor.
             if (string.IsNullOrWhiteSpace(request.Name))
             {
                 logger.LogWarning("SaveConnection failed: Name is null or empty");
@@ -70,7 +76,7 @@ public static class SavedConnectionEndpoints
 
             // Check if connection name already exists for user
             var existingConnection = await db.SavedConnections
-                .FirstOrDefaultAsync(c => c.UserId == request.UserId && c.Name == request.Name && c.IsActive);
+                .FirstOrDefaultAsync(c => c.CompanyId == callerCompanyId.Value.ToString() && c.Name == request.Name && c.IsActive);
 
             if (existingConnection != null)
             {
@@ -101,8 +107,8 @@ public static class SavedConnectionEndpoints
             var connection = new SavedConnection
             {
                 Id = Guid.NewGuid(),
-                UserId = request.UserId,
-                CompanyId = request.CompanyId,
+                UserId = callerId,
+                CompanyId = callerCompanyId.Value.ToString(),
                 Name = request.Name,
                 Host = request.Host,
                 Port = request.Port,
@@ -134,19 +140,25 @@ public static class SavedConnectionEndpoints
     }
 
     private static async Task<IResult> GetConnections(
-        [FromQuery] string userId,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
-            if (string.IsNullOrEmpty(userId))
+            var companyId = identity.CurrentCompanyId;
+
+            if (companyId is null)
             {
-                return Results.BadRequest(new { error = "UserId gerekli" });
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
             }
 
+            // Baglanti firmanin ortak varligi: ayni firmadaki herkes gorur.
+            // Onceden yalnizca UserId ile suzuluyordu, bu yuzden kayit kisiyle
+            // birlikte firmadan firmaya tasiniyor ve firma degistiginde eski
+            // baglanti yeni calisma alaninda gorunuyordu.
             var connections = await db.SavedConnections
-                .Where(c => c.UserId == userId && c.IsActive)
+                .Where(c => c.CompanyId == companyId.Value.ToString() && c.IsActive)
                 .OrderByDescending(c => c.CreatedAt)
                 .Select(c => new
                 {
@@ -167,20 +179,31 @@ public static class SavedConnectionEndpoints
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error getting connections for UserId: {UserId}", userId);
+            logger.LogError(ex, "Error getting connections");
             return Results.Problem("Bağlantılar getirilemedi: " + ex.Message);
         }
     }
 
     private static async Task<IResult> GetConnectionById(
         Guid id,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
+            // Kayit id ile isteniyor ama id tahmin edilebilir bir sey degilse
+            // bile baska firmanin kaydina denk gelebilir; firma kontrolu
+            // sorgunun kendisinde.
+            var scopedCompany = identity.CurrentCompanyId;
+            if (scopedCompany is null)
+            {
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
+            }
+            var scopedCompanyId = scopedCompany.Value.ToString();
+
             var connection = await db.SavedConnections
-                .Where(c => c.Id == id && c.IsActive)
+                .Where(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive)
                 .Select(c => new
                 {
                     id = c.Id,
@@ -213,13 +236,24 @@ public static class SavedConnectionEndpoints
     
     private static async Task<IResult> GetDecryptedConnection(
         Guid id,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
+            // Kayit id ile isteniyor ama id tahmin edilebilir bir sey degilse
+            // bile baska firmanin kaydina denk gelebilir; firma kontrolu
+            // sorgunun kendisinde.
+            var scopedCompany = identity.CurrentCompanyId;
+            if (scopedCompany is null)
+            {
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
+            }
+            var scopedCompanyId = scopedCompany.Value.ToString();
+
             var connection = await db.SavedConnections
-                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
+                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive);
 
             if (connection == null)
             {
@@ -261,13 +295,24 @@ public static class SavedConnectionEndpoints
     private static async Task<IResult> UpdateConnection(
         Guid id,
         [FromBody] UpdateConnectionRequest request,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
+            // Kayit id ile isteniyor ama id tahmin edilebilir bir sey degilse
+            // bile baska firmanin kaydina denk gelebilir; firma kontrolu
+            // sorgunun kendisinde.
+            var scopedCompany = identity.CurrentCompanyId;
+            if (scopedCompany is null)
+            {
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
+            }
+            var scopedCompanyId = scopedCompany.Value.ToString();
+
             var connection = await db.SavedConnections
-                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
+                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive);
 
             if (connection == null)
             {
@@ -304,13 +349,24 @@ public static class SavedConnectionEndpoints
 
     private static async Task<IResult> DeleteConnection(
         Guid id,
+        [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
         {
+            // Kayit id ile isteniyor ama id tahmin edilebilir bir sey degilse
+            // bile baska firmanin kaydina denk gelebilir; firma kontrolu
+            // sorgunun kendisinde.
+            var scopedCompany = identity.CurrentCompanyId;
+            if (scopedCompany is null)
+            {
+                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
+            }
+            var scopedCompanyId = scopedCompany.Value.ToString();
+
             var connection = await db.SavedConnections
-                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive);
+                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive);
 
             if (connection == null)
             {

@@ -10,6 +10,7 @@ using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
 using Grafirio.Contracts.AI;
 using Grafirio.Shared.Infrastructure.Extensions;
+using Grafirio.Shared.Identity.Extensions;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
 
@@ -84,6 +85,11 @@ builder.Services.AddGrafirioMassTransit(
         cfg.Publish<IQuestionRequest>(p => p.ExchangeType = RabbitMQ.Client.ExchangeType.Fanout);
     });
 
+// Kimlik dogrulama. Bu servis daha once hic kurmamisti: uclar acikta duruyor
+// ve kullanici kimligini sorgu dizesinden aliyordu, yani isteyen istedigi
+// userId ile baskasinin kayitli baglantilarini okuyabiliyordu.
+builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
+
 var app = builder.Build();
 
 // Auto-migrate database on startup
@@ -116,6 +122,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowAll");
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Map endpoints
 app.MapConnectionEndpoints(); // Test connection
