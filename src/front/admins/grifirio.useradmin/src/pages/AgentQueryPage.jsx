@@ -52,7 +52,7 @@ const AgentQueryPage = () => {
     const loadConnections = async () => {
       try {
         const userId = 'user-123'; // TODO: Gerçek userId
-        const result = await getSavedConnections(userId);
+        const result = await getSavedConnections();
         if (result.success && result.connections) {
           setConnections(result.connections);
         }

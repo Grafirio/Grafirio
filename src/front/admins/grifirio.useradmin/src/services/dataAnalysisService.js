@@ -1,8 +1,24 @@
 import axios from 'axios';
+import keycloak from '../keycloak';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL}/data-analysis` 
+const API_BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/data-analysis`
   : 'http://localhost:5000/data-analysis';
+
+/**
+ * DataAnalysis.Api artik kimlik dogrulamasi istiyor ve kullanici/firma
+ * bilgisini token'dan okuyor; onceden hicbir cagri Authorization gondermiyordu
+ * cunku uclar aciktaydi ve kimlik sorgu dizesinden geliyordu. Tek tek 24 cagriya
+ * baslik eklemek yerine interceptor: yeni bir cagri yazan kisinin bunu
+ * hatirlamasi gerekmiyor.
+ */
+axios.interceptors.request.use((config) => {
+  if (config.url?.startsWith(API_BASE_URL) && keycloak.token) {
+    config.headers = config.headers ?? {};
+    config.headers.Authorization = `Bearer ${keycloak.token}`;
+  }
+  return config;
+});
 
 /**
  * Host alanına "sunucu,1433" ya da "sunucu:1433" yazmak yaygın bir alışkanlık.
@@ -72,12 +88,14 @@ export const saveConnection = async (userId, companyId, name, connectionInfo) =>
   }
 };
 
-// Get saved connections for user
-export const getSavedConnections = async (userId) => {
+/**
+ * Firmanin kayitli baglantilari. Eskiden userId sorgu dizesinde gidiyordu;
+ * sunucu artik onu yok sayip token'daki firmayi kullaniyor, cunku istemcinin
+ * gonderdigi kimlige guvenmek baskasinin baglantilarini okumaya aciktir.
+ */
+export const getSavedConnections = async () => {
   try {
-    console.log('🌐 API Call: GET /api/connections?userId=' + userId);
     const response = await axios.get(`${API_BASE_URL}/api/connections`, {
-      params: { userId },
       timeout: 10000
     });
     console.log('📡 API Response:', response.data);

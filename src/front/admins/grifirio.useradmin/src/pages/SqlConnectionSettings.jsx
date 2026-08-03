@@ -58,7 +58,7 @@ const SqlConnectionSettings = () => {
       // TODO: Gerçek userId - şimdilik mock
       const userId = 'user-123';
 
-      const result = await getSavedConnections(userId);
+      const result = await getSavedConnections();
 
       if (result.success && result.connections) {
         // API'den gelen bağlantıları localStorage formatına çevir
