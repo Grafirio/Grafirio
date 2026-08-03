@@ -1,0 +1,86 @@
+/* ==========================================================================
+   Grafirio — marka değişkenleri (tek kaynak)
+   ==========================================================================
+
+   Renkler, tipografi ve ölçüler yalnızca burada tanımlı. Vitrin, useradmin,
+   projectadmin ve Keycloak teması bu dosyayı okur.
+
+   Daha önce aynı değerler beş ayrı dosyada kopyalanıyordu; bir rengi
+   değiştirmek beş yeri güncellemek demekti ve kaçınılmaz olarak ayrışıyorlardı.
+
+   Değer eklerken: yalnızca birden fazla yerde kullanılacak şeyler buraya.
+   Tek bir sayfaya ait ölçü, o sayfanın kendi dosyasında kalmalı.
+   ========================================================================== */
+
+:root {
+  /* ---- Arayüz renkleri ------------------------------------------------- */
+  --gf-navy: #1c3f7c;
+  --gf-navy-hover: #163364;
+  --gf-navy-soft: #2f5fa8;
+  --gf-on-navy: #b8cbe8;
+  --gf-on-navy-dim: #8fb3e8;
+
+  /* ---- Metin ----------------------------------------------------------- */
+  --gf-ink: #101828;
+  --gf-label: #3c4657;
+  --gf-muted: #5a6474;
+  --gf-faint: #8a93a2;
+  --gf-fainter: #a6aebb;
+
+  /* ---- Zemin ve çizgi -------------------------------------------------- */
+  --gf-bg: #fbfaf8;
+  --gf-paper: #fff;
+  --gf-paper-warm: #fcfbf9;
+  --gf-chip: #f1eee9;
+  --gf-line: #e6e3de;
+  --gf-line-soft: #efede8;
+
+  /* ---- Vurgu ----------------------------------------------------------- */
+  --gf-teal: #0e8f8c;
+  --gf-teal-tint: #e7f2f1;
+  --gf-teal-ink: #0b5f5d;
+  --gf-sun: #f8c630;
+
+  /* ---- Durum ----------------------------------------------------------- */
+  --gf-danger: #d64550;
+  --gf-danger-bg: #fdf0eb;
+  --gf-danger-line: #f2cbbb;
+  --gf-danger-ink: #8c3a1e;
+
+  /* ---- Grafik paleti ---------------------------------------------------
+     Sırayla tüketilir. Sıra marka kılavuzundan geliyor ve değiştirilmez;
+     aynı veri iki ekranda farklı renkte görünmesin diye. */
+  --gf-c01: #0e8f8c;
+  --gf-c02: #1a7a9c;
+  --gf-c03: #2f5fa8;
+  --gf-c04: #4b4a9f;
+  --gf-c05: #6b3a97;
+  --gf-c06: #8a2e8e;
+  --gf-c07: #a82a7c;
+  --gf-c08: #c42e6e;
+  --gf-c09: #d64550;
+  --gf-c10: #e4633c;
+  --gf-c11: #f0902b;
+  --gf-c12: #f8c630;
+
+  /* ---- Tipografi --------------------------------------------------------
+     Poppins başlık ve kelime markası, Manrope gövde, IBM Plex Mono etiket
+     ve sayı. */
+  --gf-font-head: Poppins, system-ui, sans-serif;
+  --gf-font-body: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --gf-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* ---- Ölçü ------------------------------------------------------------ */
+  --gf-radius-sm: 8px;
+  --gf-radius: 12px;
+  --gf-radius-lg: 16px;
+  --gf-radius-xl: 18px;
+  --gf-radius-pill: 999px;
+
+  --gf-shadow-sm: 0 2px 8px -2px rgba(16, 24, 40, 0.18);
+  --gf-shadow: 0 20px 44px -30px rgba(16, 24, 40, 0.45);
+  --gf-shadow-lg: 0 30px 60px -34px rgba(16, 24, 40, 0.34);
+
+  --gf-wrap: 1180px;
+  --gf-pad: 28px;
+}

@@ -4,51 +4,54 @@
    Poppins baslik, Manrope govde, IBM Plex Mono etiket ve sayi.
    ========================================================================== */
 
+/* Marka degerleri artik paylasilan tek kaynaktan geliyor. Asagidaki kisa adlar
+   yalnizca takma ad: bu dosyadaki yuzlerce kural --navy, --ink gibi isimlerle
+   yazilmisti ve hepsini yeniden adlandirmak, degeri tek yere tasima isini
+   gereksizce buyutur. Deger degistirmek isteyen tokens.css'e bakar. */
+@import '../../../shared/theme/tokens.css';
+
 :root {
-  /* Arayuz */
-  --navy: #1c3f7c;
-  --navy-hover: #163364;
-  --navy-soft: #2f5fa8;
-  --on-navy: #b8cbe8;
-  --on-navy-dim: #8fb3e8;
+  --navy: var(--gf-navy);
+  --navy-hover: var(--gf-navy-hover);
+  --navy-soft: var(--gf-navy-soft);
+  --on-navy: var(--gf-on-navy);
+  --on-navy-dim: var(--gf-on-navy-dim);
 
-  --ink: #101828;
-  --muted: #5a6474;
-  --faint: #8a93a2;
-  --fainter: #b4bac4;
+  --ink: var(--gf-ink);
+  --muted: var(--gf-muted);
+  --faint: var(--gf-faint);
+  --fainter: var(--gf-fainter);
 
-  --bg: #fbfaf8;
-  --paper: #fff;
-  --paper-warm: #fcfbf9;
-  --chip: #f1eee9;
-  --line: #e6e3de;
-  --line-soft: #efede8;
+  --bg: var(--gf-bg);
+  --paper: var(--gf-paper);
+  --paper-warm: var(--gf-paper-warm);
+  --chip: var(--gf-chip);
+  --line: var(--gf-line);
+  --line-soft: var(--gf-line-soft);
 
-  /* Vurgu */
-  --teal: #0e8f8c;
-  --teal-tint: #e7f2f1;
-  --sun: #f8c630;
+  --teal: var(--gf-teal);
+  --teal-tint: var(--gf-teal-tint);
+  --sun: var(--gf-sun);
 
-  /* Grafik paleti — sirayla tuketilir */
-  --c01: #0e8f8c;
-  --c02: #1a7a9c;
-  --c03: #2f5fa8;
-  --c04: #4b4a9f;
-  --c05: #6b3a97;
-  --c06: #8a2e8e;
-  --c07: #a82a7c;
-  --c08: #c42e6e;
-  --c09: #d64550;
-  --c10: #e4633c;
-  --c11: #f0902b;
-  --c12: #f8c630;
+  --c01: var(--gf-c01);
+  --c02: var(--gf-c02);
+  --c03: var(--gf-c03);
+  --c04: var(--gf-c04);
+  --c05: var(--gf-c05);
+  --c06: var(--gf-c06);
+  --c07: var(--gf-c07);
+  --c08: var(--gf-c08);
+  --c09: var(--gf-c09);
+  --c10: var(--gf-c10);
+  --c11: var(--gf-c11);
+  --c12: var(--gf-c12);
 
-  --wrap: 1180px;
-  --pad: 28px;
+  --wrap: var(--gf-wrap);
+  --pad: var(--gf-pad);
 
-  --font-head: Poppins, system-ui, sans-serif;
-  --font-body: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-head: var(--gf-font-head);
+  --font-body: var(--gf-font-body);
+  --font-mono: var(--gf-font-mono);
 }
 
 * {
