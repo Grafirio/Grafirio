@@ -4,6 +4,7 @@ using Grafirio.Identity.Api.Features.Subscriptions.Create;
 using Grafirio.Identity.Api.Features.Subscriptions.Dtos;
 using Grafirio.Identity.Api.Features.Subscriptions.GetByCompany;
 using Grafirio.Identity.Api.Features.Subscriptions.MyAccess;
+using Grafirio.Identity.Api.Features.Subscriptions.Start;
 
 namespace Grafirio.Identity.Api.Features.Subscriptions;
 
@@ -54,6 +55,24 @@ public static class SubscriptionEndpointExt
             .Produces<CreateSubscriptionResponse>(StatusCodes.Status201Created)
             .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
+            .RequireAuthorization("Password");
+
+        // Kayit akisinin kullandigi uc: kisi kendi yonettigi firma icin,
+        // satilabilir bir paketle abonelik baslatir. Genis yetkili
+        // "CreateSubscription" ucu platform ekibine ayri kaliyor.
+        group.MapPost("/start", async (StartSubscriptionCommand command, IMediator mediator) =>
+            {
+                var result = await mediator.Send(command);
+
+                return result.IsSuccess
+                    ? Results.Created(result.UrlAsCreated, result.Data)
+                    : Results.BadRequest(result.Fail);
+            })
+            .WithName("StartSubscription")
+            .Produces<StartSubscriptionResponse>(StatusCodes.Status201Created)
+            .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
+            .Produces<ProblemDetails>(StatusCodes.Status409Conflict)
             .RequireAuthorization("Password");
 
         group.MapDelete("/{id:guid}", async (Guid id, IMediator mediator) =>
