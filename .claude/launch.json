@@ -4,8 +4,9 @@
     {
       "name": "grifirio-vitrin",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "src/front/grifirio.front", "--port", "5173", "--strictPort"],
-      "port": 5173
+      "runtimeArgs": ["vite", "src/front/grifirio.front"],
+      "port": 5173,
+      "autoPort": true
     },
     {
       "name": "grifirio-useradmin",
@@ -17,7 +18,8 @@
         "59264",
         "--strictPort"
       ],
-      "port": 59264
+      "port": 59264,
+      "autoPort": false
     }
   ]
 }

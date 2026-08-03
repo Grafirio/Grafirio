@@ -6,10 +6,12 @@ export default defineConfig({
     plugins: [plugin()],
     base: '/',
     server: {
-        // Vitrin hicbir servise proxy'lemiyor; urun uygulamasi 59264'u kullandigi
-        // icin burasi Vite'in varsayilaninda birakildi ve ikisi ayni anda
-        // calisabiliyor.
-        port: 5173,
+        // Vitrin hicbir servise proxy'lemiyor ve hicbir OAuth donusu almiyor
+        // (kayit donusu urun uygulamasina gidiyor), yani belirli bir porta
+        // bagli degil. PORT verilmisse ona uyuyor; boylece 5173 baskasinin
+        // elindeyken de calisiyor. Urun uygulamasi 59264'u kullandigi icin
+        // varsayilan onunla catismiyor.
+        port: Number(process.env.PORT) || 5173,
         host: '0.0.0.0',
     },
     preview: {

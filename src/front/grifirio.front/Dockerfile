@@ -8,6 +8,16 @@ WORKDIR /app
 ARG VITE_APP_URL=https://admin.grafirio.com
 ENV VITE_APP_URL=$VITE_APP_URL
 
+# "Ucretsiz basla" Keycloak'in kayit ekranina dogrudan gidiyor; uygulamaya
+# ugramak kullaniciyi giris ekranina dusuruyordu (bkz. src/config.js).
+ARG VITE_KEYCLOAK_URL=https://login.grafirio.com
+ARG VITE_KEYCLOAK_REALM=grafirio
+ARG VITE_KEYCLOAK_CLIENT_ID=grafirio-client
+
+ENV VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL
+ENV VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
+ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
+
 # Copy package files
 COPY package*.json ./
 
