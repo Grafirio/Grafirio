@@ -7,7 +7,7 @@ import LoginPage from '../pages/LoginPage';
 import OnboardingPage from '../pages/OnboardingPage';
 import DashboardPage from '../pages/DashboardPage';
 import CanvasPage from '../pages/CanvasPage';
-import CompanyInfoPage from '../pages/CompanyInfoPage';
+import CompanyAdminPage from '../pages/CompanyAdminPage';
 import DepartmentsPage from '../pages/DepartmentsPage';
 import AIPage from '../pages/AIPage';
 import DataAnalysisPage from '../pages/DataAnalysis/DataAnalysisPage';
@@ -24,7 +24,7 @@ const routes = [
     children: [
       { path: '/', element: <DashboardPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
-      { path: 'company-info', element: <CompanyInfoPage /> },
+      { path: 'company-info', element: <CompanyAdminPage /> },
       { path: 'departments', element: <DepartmentsPage /> },
       { path: 'ai-dashboard', element: <AIPage /> },
       { path: 'data-analysis', element: <DataAnalysisPage /> },
