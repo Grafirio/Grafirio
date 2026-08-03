@@ -75,7 +75,9 @@ public class StartSubscriptionCommandHandler(AppDbContext context, IIdentityServ
             StartsAt = now,
             EndsAt = null,
             TrialEndsAt = trialEndsAt,
-            CreditBalance = 0m,
+            // Aylik pakette bakiye kavrami yok; null birakiyoruz ki panelde
+            // "0 kredi" gibi anlamsiz bir sey gorunmesin.
+            CreditBalance = request.Plan == SubscriptionPlans.Credit ? 0m : null,
             CreatedAt = now,
             CreatedBy = identityService.UserName
         };

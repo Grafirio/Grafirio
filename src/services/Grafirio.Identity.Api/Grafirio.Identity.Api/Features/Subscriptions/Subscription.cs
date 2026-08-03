@@ -47,8 +47,14 @@ public class Subscription : BaseEntity
     /// Bakiyeyi neyin azaltacağı henüz tanımlı değil; tüketim kuralı
     /// belirlendiğinde düşme mantığı eklenecek. O güne kadar alan yalnızca
     /// yüklenen tutarı taşır ve panelde gösterilir.
+    ///
+    /// Nullable olması şart. Depo MongoDB ve alan zorunlu bir değer tipi
+    /// olarak eklendiğinde, bu alanı taşımayan mevcut belgelerin okunması
+    /// "Document element is missing" ile tamamen kırılıyor —
+    /// <see cref="Companies.Company.SaAccessConsentGiven"/> aynı sebeple
+    /// nullable. null burada "hiç yükleme yapılmadı" demek.
     /// </summary>
-    public decimal CreditBalance { get; set; }
+    public decimal? CreditBalance { get; set; }
 
     // UserCompanyRole ile ayni denetim izi: kim ne zaman actı/kapattı.
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
