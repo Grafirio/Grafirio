@@ -79,9 +79,29 @@ public class OnboardCompanyCommandHandler(
             AssignedBy = identityService.UserName
         };
 
+        // Iki varlik tek SaveChanges ile yazilamiyor: MongoDB EF saglayicisi
+        // cok varlikli kaydetmeyi transaction'a sariyor, calisan MongoDB ise
+        // tek dugum ve transaction desteklemiyor ("Standalone servers do not
+        // support transactions"). Diger handler'lar tek varlik yazdigi icin bu
+        // sinira hic degmiyor.
         await context.Companies.AddAsync(company, cancellationToken);
-        await context.UserCompanyRoles.AddAsync(role, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await context.UserCompanyRoles.AddAsync(role, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            // Yoneticisi olmayan firma kimsenin erisemedigi bir kayit olur ve
+            // kullanici da tekrar deneyemez: /onboard yalnizca hic uyeligi
+            // olmayan kisi icin calisiyor, ama firma coktan olusmus oluyor.
+            // Transaction olmadigi icin geri alma elle yapiliyor.
+            context.Companies.Remove(company);
+            await context.SaveChangesAsync(CancellationToken.None);
+            throw;
+        }
 
         // Yetki karari burada saklaniyor ama uygulanmasi token'daki claim'lere
         // bagli; Keycloak tarafindaki company_id / business_roles guncellenmezse
