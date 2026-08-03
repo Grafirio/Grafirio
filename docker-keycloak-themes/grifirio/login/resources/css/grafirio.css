@@ -1,44 +1,43 @@
+/* Marka degerleri paylasilan tek kaynaktan. Bu dosya Vite'tan gecmiyor,
+   Keycloak imajina kopyalaniyor; tokens.css de ayni klasore kopyalandigi
+   icin tarayici bu import'u tema kaynaklarindan cozuyor. */
+@import 'tokens.css';
+
 /* ==========================================================================
    Grafirio — Keycloak giris temasi
    Renkler ve tipografi vitrinle ayni marka kilavuzundan.
    ========================================================================== */
 
 :root {
-  --navy: #1c3f7c;
-  --navy-hover: #173464;
-  --navy-soft: #2f5fa8;
-  --on-navy: #b8cbe8;
-  --on-navy-dim: #8fb3e8;
-
-  --ink: #101828;
-  --label: #3c4657;
-  --muted: #5a6474;
-  --faint: #8a93a2;
-  --fainter: #a6aebb;
-
-  --bg: #fbfaf8;
-  --paper: #fff;
-  --paper-warm: #fcfbf9;
-  --chip: #f1eee9;
-  --line: #e6e3de;
-  --line-soft: #efede8;
-
-  --teal: #0e8f8c;
-  --sun: #f8c630;
-
-  --danger: #e4633c;
-  --danger-bg: #fdf0eb;
-  --danger-line: #f2cbbb;
-  --danger-ink: #8c3a1e;
-
-  --ok: #0e8f8c;
-  --ok-bg: #e7f2f1;
+  --navy: var(--gf-navy);
+  --navy-hover: var(--gf-navy-hover);
+  --navy-soft: var(--gf-navy-soft);
+  --on-navy: var(--gf-on-navy);
+  --on-navy-dim: var(--gf-on-navy-dim);
+  --ink: var(--gf-ink);
+  --label: var(--gf-label);
+  --muted: var(--gf-muted);
+  --faint: var(--gf-faint);
+  --fainter: var(--gf-fainter);
+  --bg: var(--gf-bg);
+  --paper: var(--gf-paper);
+  --paper-warm: var(--gf-paper-warm);
+  --chip: var(--gf-chip);
+  --line: var(--gf-line);
+  --line-soft: var(--gf-line-soft);
+  --teal: var(--gf-teal);
+  --sun: var(--gf-sun);
+  --danger: var(--gf-danger);
+  --danger-bg: var(--gf-danger-bg);
+  --danger-line: var(--gf-danger-line);
+  --danger-ink: var(--gf-danger-ink);
+  --ok: var(--gf-teal);
+  --ok-bg: var(--gf-teal-tint);
   --ok-line: #b8ddda;
-  --ok-ink: #0b5f5d;
-
-  --font-head: Poppins, system-ui, sans-serif;
-  --font-body: Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --ok-ink: var(--gf-teal-ink);
+  --font-head: var(--gf-font-head);
+  --font-body: var(--gf-font-body);
+  --font-mono: var(--gf-font-mono);
 }
 
 * {

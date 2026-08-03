@@ -1,23 +1,24 @@
+@import '../../../../shared/theme/tokens.css';
+
 /* Karsilama sihirbazi — marka kilavuzuyla ayni degerler. */
 
 .ob {
-  --navy: #1c3f7c;
-  --navy-hover: #173464;
-  --ink: #101828;
-  --label: #3c4657;
-  --muted: #5a6474;
-  --faint: #8a93a2;
-  --fainter: #a6aebb;
-  --bg: #fbfaf8;
-  --paper: #fff;
-  --chip: #f1eee9;
-  --line: #e6e3de;
-  --teal: #0e8f8c;
-  --teal-tint: #e7f2f1;
-  --danger-bg: #fdf0eb;
-  --danger-line: #f2cbbb;
-  --danger-ink: #8c3a1e;
-
+  --navy: var(--gf-navy);
+  --navy-hover: var(--gf-navy-hover);
+  --ink: var(--gf-ink);
+  --label: var(--gf-label);
+  --muted: var(--gf-muted);
+  --faint: var(--gf-faint);
+  --fainter: var(--gf-fainter);
+  --bg: var(--gf-bg);
+  --paper: var(--gf-paper);
+  --chip: var(--gf-chip);
+  --line: var(--gf-line);
+  --teal: var(--gf-teal);
+  --teal-tint: var(--gf-teal-tint);
+  --danger-bg: var(--gf-danger-bg);
+  --danger-line: var(--gf-danger-line);
+  --danger-ink: var(--gf-danger-ink);
   min-height: 100vh;
   display: flex;
   align-items: center;

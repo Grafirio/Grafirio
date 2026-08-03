@@ -1,22 +1,23 @@
+@import '../../../../shared/theme/tokens.css';
+
 /* Sirket yonetimi — marka kilavuzuyla ayni degerler. */
 
 .ca {
-  --navy: #1c3f7c;
-  --navy-hover: #173464;
-  --ink: #101828;
-  --muted: #5a6474;
-  --faint: #8a93a2;
-  --bg: #fbfaf8;
-  --paper: #fff;
-  --chip: #f1eee9;
-  --line: #e6e3de;
-  --teal: #0e8f8c;
-  --teal-tint: #e7f2f1;
-  --danger: #d64550;
-  --danger-bg: #fdf0eb;
-  --danger-line: #f2cbbb;
-  --danger-ink: #8c3a1e;
-
+  --navy: var(--gf-navy);
+  --navy-hover: var(--gf-navy-hover);
+  --ink: var(--gf-ink);
+  --muted: var(--gf-muted);
+  --faint: var(--gf-faint);
+  --bg: var(--gf-bg);
+  --paper: var(--gf-paper);
+  --chip: var(--gf-chip);
+  --line: var(--gf-line);
+  --teal: var(--gf-teal);
+  --teal-tint: var(--gf-teal-tint);
+  --danger: var(--gf-danger);
+  --danger-bg: var(--gf-danger-bg);
+  --danger-line: var(--gf-danger-line);
+  --danger-ink: var(--gf-danger-ink);
   max-width: 1000px;
   margin: 0 auto;
   padding: 32px 24px 64px;
@@ -112,9 +113,9 @@
 }
 
 .ca-alert--ok {
-  border: 1px solid #b8ddda;
+  border: 1px solid #b8ddda; /* teal-tint kenari; tokens'a tasinacak kadar cok kullanilmiyor */
   background: var(--teal-tint);
-  color: #0b5f5d;
+  color: var(--gf-teal-ink);
 }
 
 /* Bilgi satirlari */
@@ -296,7 +297,7 @@
 .ca-form label span {
   font-size: 13.5px;
   font-weight: 600;
-  color: #3c4657;
+  color: var(--gf-label);
 }
 
 .ca-form input {
