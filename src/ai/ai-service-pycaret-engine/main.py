@@ -10,12 +10,34 @@ from auto_trainer import AutoTrainer
 from predictor import RealtimePredictor
 from agent_analyzer import AgentAnalyzer
 import json
+import re
+import urllib.parse
 
 load_dotenv()
 
 # Logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+
+# Baglanti dizesi tasiyan hata metinlerinde sifreyi gizler. SQLAlchemy ve
+# pyodbc, hata mesajina baglanti dizesinin tamamini koyuyor; log satiri
+# oldugu gibi yazilirsa musteri veritabani sifresi Log Analytics'e dusuyor.
+_SECRET_PATTERNS = [
+    re.compile(r"(PWD=)([^;'\"]*)", re.IGNORECASE),
+    re.compile(r"(password=)([^;'\"&]*)", re.IGNORECASE),
+    re.compile(r"(://[^:/@]+:)([^@]*)(@)"),
+]
+
+
+def _redact_secrets(text: str) -> str:
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(
+            lambda m: m.group(1) + "***" + (m.group(3) if m.lastindex and m.lastindex >= 3 else ""),
+            text,
+        )
+    return text
+
 
 app = FastAPI(
     title="Grafirio PyCaret Engine",
@@ -358,13 +380,23 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
     try:
         logger.info(f"Running agent analysis for query: {query_id}")
 
-        conn_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        # SQLAlchemy ham ODBC DSN'ini anlamiyor; "Could not parse SQLAlchemy
+        # URL from string 'DRIVER={...};SERVER=...'" ile duserdi. DSN,
+        # pyodbc surucusunun odbc_connect parametresine URL-kodlanarak
+        # gecirilmeli — SQLAlchemy'nin ODBC icin ongordugu bicim bu.
+        # Surucu 18, Dockerfile'da yuklenen surumle ayni olmali.
+        # 18'de Encrypt varsayilani "yes" ve sertifika dogrulamasi zorunlu;
+        # musteri sunuculari genellikle self-signed sertifika kullandigi icin
+        # TrustServerCertificate aciliyor — C# tarafinin varsayilani da bu.
+        odbc_dsn = (
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={request.db_host},{request.db_port};"
             f"DATABASE={request.db_name};"
             f"UID={request.db_user};"
-            f"PWD={request.db_password}"
+            f"PWD={request.db_password};"
+            f"Encrypt=yes;TrustServerCertificate=yes"
         )
+        conn_string = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc_dsn)
 
         config = json.loads(request.config_json)
         params = json.loads(request.analysis_params_json)
@@ -404,11 +436,14 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
         logger.info(f"Agent analysis completed for query: {query_id}")
 
     except Exception as e:
-        logger.error(f"Error in agent analysis: {str(e)}")
+        # SQLAlchemy hata metnine bagIanti dizesini oldugu gibi koyuyor;
+        # maskelenmezse musteri veritabani sifresi duz metin olarak loglara
+        # (ve oradan Log Analytics'e) yaziliyor.
+        logger.error(f"Error in agent analysis: {_redact_secrets(str(e))}")
         agent_analysis_status[query_id] = {
             "status": "failed",
             "progress": 0,
-            "message": f"Analysis failed: {str(e)}",
+            "message": f"Analysis failed: {_redact_secrets(str(e))}",
             "query_id": query_id
         }
 
