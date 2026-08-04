@@ -4,17 +4,36 @@
    alt serit. Icerik alani buyuyerek alt seridi her zaman en alta itiyor,
    kisa sayfalarda serit ekranin ortasinda asili kalmasin diye. */
 
+/* Kabuk artik gercek bir uygulama cercevesi: yuksekligi ekran kadar KESIN.
+   Onceden `min-height: 100vh` idi — bu bir alt sinir oldugu icin kabuk
+   icerik kadar uzuyor, dolayisiyla icindeki hicbir flex cocugu sinirlanmiyor
+   ve "kalan alani doldur" diyen sayfalar calismiyordu. Kesin yukseklik
+   olmadan ic scroll kurulamaz; tum sayfa kayar. */
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--gf-bg);
   color: var(--gf-ink);
   font-family: var(--gf-font-body);
 }
 
+/* Icerik alani kalan yuksekligi kaplar ve kendisi de bir flex sutunudur:
+   boylece tam ekran calismak isteyen sayfalar (ornegin AI Asistan) sabit
+   bir piksel degeri tahmin etmeden `flex: 1` ile bosluu doldurabiliyor.
+   min-height:0 olmadan flex cocuklari kucuIemez ve ic scroll yerine tum
+   sayfa kayar. */
+/* Sayfa kaydirmasi artik burada oluyor, gövdede degil. Boylece normal
+   sayfalar eskisi gibi kayar; "kalan alani doldur" diyen sayfalar (AI
+   Asistan) ise flex: 1 ile tam olarak kalan alani alir ve kendi ic
+   bolumlerini kaydirir. */
 .shell-main {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .shell-foot {

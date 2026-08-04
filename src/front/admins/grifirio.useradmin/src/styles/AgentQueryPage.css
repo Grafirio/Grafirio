@@ -1,7 +1,14 @@
+/* Sayfa, kabuktaki (.shell-main) bos alanin tamamini kaplar.
+   Onceden `height: 100vh` yaziyordu; ustteki yapiskan menu de yer
+   kapladigi icin sayfa ekrandan tasiyor, govde kayiyor ve sol paneldeki
+   yazma alani gorunur alanin altina iniyordu. Sabit bir yukseklik yerine
+   kalan alani doldurmak hem menu yuksekligi degisse de dogru kalir hem de
+   sayfa govdesinin hic kaymamasini garanti eder. */
 .agent-query-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--surface-sunken);
 }
 
@@ -9,17 +16,18 @@
 .agent-header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 16px 24px;
+  padding: 10px 20px;
   flex-shrink: 0;
 }
 
+/* Baslik blogu kalkinca satir tek basina saga yaslanmali; genislik siniri
+   da kaldirildi, sayfa artik ekranin tamamini kullaniyor. */
 .agent-header-content {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 20px;
-  max-width: 1600px;
-  margin: 0 auto;
+  width: 100%;
 }
 
 .agent-title {
@@ -96,10 +104,7 @@
 
 /* Config Status Bar */
 .config-status-bar {
-  margin-top: 12px;
-  max-width: 1600px;
-  margin-left: auto;
-  margin-right: auto;
+  margin-top: 8px;
 }
 
 .status-msg {
@@ -165,26 +170,30 @@
 /* ========== WORKSPACE (Dual Panel) ========== */
 .agent-workspace {
   display: grid;
-  grid-template-columns: 450px 1fr;
+  grid-template-columns: 450px minmax(0, 1fr);
   gap: 0;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
-  max-width: 1600px;
-  margin: 0 auto;
   width: 100%;
 }
 
 /* ========== CHAT PANEL (Left) ========== */
+/* Sol panel: yalnizca mesaj listesi kayar. Yazma alani (.chat-input-form)
+   flex-shrink:0 ile en altta sabit kalir — panelin kendisi asla kaymaz. */
 .chat-panel {
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border-right: 1px solid var(--border);
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-messages {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
   display: flex;
@@ -593,7 +602,10 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  height: calc(100vh - 120px);
+  /* Sabit vh hesabi degil: kapsayicinin bosluu kadar. Menu ya da baslik
+     yuksekligi degistiginde bu kutu da kendiliginden dogru kaliyor. */
+  flex: 1;
+  min-height: 0;
   color: var(--text-subtle);
   padding: 40px 20px;
 }

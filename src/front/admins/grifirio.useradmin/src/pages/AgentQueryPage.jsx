@@ -342,17 +342,11 @@ const AgentQueryPage = () => {
 
   return (
     <div className="agent-query-page">
-      {/* Header */}
+      {/* Header — baslik blogu kaldirildi: sayfanin ne oldugunu zaten menu
+          soyluyor, o alan da dikey yerin dortte birini yiyordu. Geriye
+          yalnizca islevi olan iki sey kaldi: baglanti secimi ve durum. */}
       <div className="agent-header">
         <div className="agent-header-content">
-          <div className="agent-title">
-            <IconBrain size={32} />
-            <div>
-              <h1>AI Asistan</h1>
-              <p>Doğal dil ile verilerinizi sorgulayın</p>
-            </div>
-          </div>
-
           {/* Connection Selector */}
           <div className="header-connection-selector">
             <select

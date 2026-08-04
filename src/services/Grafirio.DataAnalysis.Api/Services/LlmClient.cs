@@ -205,9 +205,26 @@ public sealed class LlmClient : ILlmClient
         return response.Text ?? "";
     }
 
+    /// <summary>
+    /// Ayari once ortam degiskeninden, yoksa yapilandirmadan okur. Bos deger
+    /// "tanimsiz" sayilir.
+    ///
+    /// Onceki surum once _configuration'a bakip `??` ile ortam degiskenine
+    /// dusuyordu. appsettings.json'da anahtarlar `"ApiKey": ""` seklinde
+    /// yer tutucu olarak durdugu icin bos string donuyor, bos string null
+    /// olmadigindan `??` hic devreye girmiyor ve ortam degiskeni okunmuyordu.
+    /// Sonuc: Azure'da anahtar tanimliyken servis "LLM yapilandirilmamis"
+    /// diyordu. Ortam degiskeni oncelikli olmali; dagitim anindaki deger,
+    /// imaja gomulu varsayilani ezer.
+    /// </summary>
     private string? Read(string environmentKey, string configurationKey)
-        => _configuration[configurationKey]
-           ?? Environment.GetEnvironmentVariable(environmentKey);
+    {
+        var fromEnvironment = Environment.GetEnvironmentVariable(environmentKey);
+        if (!string.IsNullOrWhiteSpace(fromEnvironment)) return fromEnvironment;
+
+        var fromConfiguration = _configuration[configurationKey];
+        return string.IsNullOrWhiteSpace(fromConfiguration) ? null : fromConfiguration;
+    }
 
     private static string Truncate(string value, int max)
         => value.Length <= max ? value : value[..max];
