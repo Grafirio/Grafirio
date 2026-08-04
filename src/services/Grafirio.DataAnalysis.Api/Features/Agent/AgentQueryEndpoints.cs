@@ -60,8 +60,20 @@ public static class AgentQueryEndpoints
         var geminiResult = await gemini.TranslateQueryForPyCaret(
             request.Question, config.ConfigJson, config.SchemaSummary);
 
+        // Eksik yapilandirma bir cokme degil; 500 yerine 503 donuluyor ki
+        // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
         if (!geminiResult.Success)
-            return Results.Problem($"Soru analizi başarısız: {geminiResult.Error}");
+        {
+            return geminiResult.IsConfigurationError
+                ? Results.Problem(
+                    detail: geminiResult.Error,
+                    title: "Yapay zekâ servisi yapılandırılmamış",
+                    statusCode: StatusCodes.Status503ServiceUnavailable)
+                : Results.Problem(
+                    detail: geminiResult.Error,
+                    title: "Soru analizi başarısız",
+                    statusCode: StatusCodes.Status502BadGateway);
+        }
 
         // 4. QueryHistory kaydet
         var queryHistory = new QueryHistory

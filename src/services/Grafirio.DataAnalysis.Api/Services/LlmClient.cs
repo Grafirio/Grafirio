@@ -35,7 +35,26 @@ public sealed class LlmClient : ILlmClient
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
         _logger = logger;
-        _provider = (Read("LLM_PROVIDER", "Llm:Provider") ?? "azure_openai").Trim().ToLowerInvariant();
+
+        var configured = Read("LLM_PROVIDER", "Llm:Provider");
+        _provider = (configured ?? "azure_openai").Trim().ToLowerInvariant();
+
+        // Sessiz varsayilan pahaliya mal oldu: ortamda GEMINI_API_KEY tanimliyken
+        // LLM_PROVIDER tanimli olmadigi icin istemci azure_openai'a dusuyor, onun
+        // anahtari da bulunmadigindan mock mode'a giriyordu. Disaridan gorunen tek
+        // sey sebebi yazmayan bir hataydi. Artik hangi saglayicinin secildigi ve
+        // yapilandirilmis olup olmadigi acilista yaziliyor.
+        if (configured is null)
+        {
+            _logger.LogWarning(
+                "LLM_PROVIDER tanımlı değil, varsayılan '{Provider}' kullanılıyor. Yapılandırılmış: {IsConfigured}",
+                _provider, IsConfigured);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "LLM sağlayıcı: {Provider} | yapılandırılmış: {IsConfigured}", _provider, IsConfigured);
+        }
     }
 
     public bool IsConfigured => _provider switch

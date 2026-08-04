@@ -14,8 +14,8 @@
   "accessTokenLifespan": 1800,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
-  "rememberMeSessionIdleTimeout": 2592000,
-  "rememberMeSessionMaxLifespan": 2592000,
+  "ssoSessionIdleTimeoutRememberMe": 2592000,
+  "ssoSessionMaxLifespanRememberMe": 2592000,
   "roles": {
     "realm": [
       { "name": "COMPANY_ADMIN", "description": "Company administrator" },

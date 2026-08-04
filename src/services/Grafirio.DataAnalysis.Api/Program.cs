@@ -140,11 +140,71 @@ app.MapAgentQueryEndpoints(); // AI Agent — sorgu ve PyCaret
 app.MapTestDjangoEndpoints(); // 🧪 Test endpoint
 
 // Health check
-app.MapGet("/health", () => Results.Ok(new { 
-    Status = "Healthy", 
-    Service = "Data Analysis API",
-    Timestamp = DateTime.UtcNow 
-}))
+// Onceki surum kosulsuz "Healthy" donuyordu — hicbir bagimliligi yoklamadigi
+// icin Redis de LLM de dusmusken bile yesil gorunuyordu. Bir arizada bakilacak
+// ilk yer burasi oldugu halde hicbir sey soylemiyordu; LLM yapilandirmasi
+// hatasinin teshisi bu yuzden loglari tek tek okumaya kaldi.
+app.MapGet("/health", async (
+    DataAnalysisDbContext db,
+    ILlmClient llm,
+    IServiceProvider services,
+    IConfiguration configuration) =>
+{
+    var checks = new Dictionary<string, object>();
+    var healthy = true;
+
+    async Task Probe(string name, Func<Task> action)
+    {
+        try
+        {
+            await action();
+            checks[name] = new { status = "ok" };
+        }
+        catch (Exception ex)
+        {
+            healthy = false;
+            checks[name] = new { status = "fail", error = ex.Message };
+        }
+    }
+
+    await Probe("postgres", async () =>
+    {
+        if (!await db.Database.CanConnectAsync())
+            throw new InvalidOperationException("Bağlantı kurulamadı");
+    });
+
+    await Probe("redis", async () =>
+    {
+        // Redis acilista baglanamadiysa kayit hata firlatan bir fabrikaya
+        // baglanmis oluyor; cozumleme burada patlar ve sebebi gorunur.
+        var mux = services.GetRequiredService<IConnectionMultiplexer>();
+        await mux.GetDatabase().PingAsync();
+    });
+
+    // LLM icin gercek bir cagri yapilmiyor: her saglik yoklamasinda token
+    // harcamak istemiyoruz. Yalnizca saglayicinin secili ve anahtarinin
+    // tanimli olup olmadigi bildiriliyor — asil kacirilan sey buydu.
+    var provider = configuration["LLM_PROVIDER"] ?? configuration["Llm:Provider"] ?? "(tanımsız → azure_openai)";
+    if (!llm.IsConfigured) healthy = false;
+    checks["llm"] = new
+    {
+        status = llm.IsConfigured ? "ok" : "fail",
+        provider,
+        error = llm.IsConfigured ? null : "API anahtarı tanımlı değil — sorgu çevirisi çalışmaz"
+    };
+
+    var payload = new
+    {
+        status = healthy ? "Healthy" : "Degraded",
+        service = "Data Analysis API",
+        checks,
+        timestamp = DateTime.UtcNow
+    };
+
+    // Bagimliligi dusmus bir servis "ayakta" sayilmamali; ACA ve izleme
+    // araclari 200'u saglikli kabul ediyor.
+    return healthy ? Results.Ok(payload) : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
+})
 .WithName("HealthCheck")
 .WithOpenApi();
 

@@ -75,14 +75,25 @@ export default function CanvasPage() {
   const nextPosRef = useRef({ x: 80, y: 80 });
   const lastGroupIdRef = useRef(null);
 
-  /* Load analysis from localStorage */
+  /* Load analysis from localStorage.
+     Kayit yalnizca tarayicida duruyor; baska bir makineden ya da gecmis
+     temizlendikten sonra girildiginde bulunamiyor. Onceki surumde bu durum
+     sessizdi: sohbet kutusu kilitli aciliyor, sebebi hicbir yerde yazmiyordu
+     ve tuval bozulmus gibi gorunuyordu. Artik ayrica isaretleniyor. */
+  const [analysisMissing, setAnalysisMissing] = useState(false);
+
   useEffect(() => {
     const stored = localStorage.getItem('activeAnalyses');
+    let found = null;
     if (stored) {
-      const all = JSON.parse(stored);
-      const found = all.find(a => a.requestId === analysisId);
-      if (found) setAnalysis(found);
+      try {
+        found = JSON.parse(stored).find(a => a.requestId === analysisId) || null;
+      } catch {
+        // Bozuk bir kayit tum sayfayi goturmesin.
+      }
     }
+    setAnalysis(found);
+    setAnalysisMissing(!found);
   }, [analysisId]);
 
   /* Auto-scroll chat */
@@ -305,16 +316,31 @@ export default function CanvasPage() {
         {/* ── Sol Panel: LLM Chat ── */}
         <aside className={`cp-sidebar ${sidebarOpen ? 'cp-sidebar--open' : 'cp-sidebar--closed'}`}>
 
-          {/* Preset raporlar */}
+          {/* Preset raporlar — sunucu tarafi henuz gercek rapor uretmiyor.
+              AIReportEndpoints.GenerateReport icinde "TODO: RabbitMQ uzerinden
+              Django AI'ya rapor talebi gonder" duruyor ve her cagri "Rapor
+              Olusturuluyor" basligli sahte bir grafik donduruyor. Butonlar bu
+              yuzden kapali: tuvale anlamsiz dugum eklemek, dugmenin calismamasi
+              kadar zararsiz degil — kullanici onu gercek bir cikti saniyor. */}
           <div className="cp-section">
             <div className="cp-section-title">AI Önerilen Raporlar</div>
             <div className="cp-presets">
               {PRESETS.map(p => (
-                <button key={p.key} className="cp-preset-btn" onClick={() => handleReport(p.key)} disabled={loadingReport || !analysis}>
+                <button
+                  key={p.key}
+                  className="cp-preset-btn"
+                  onClick={() => handleReport(p.key)}
+                  disabled
+                  title="Hazır raporlar henüz sunucuya bağlı değil"
+                >
                   <span>{p.icon}</span> {p.label}
                 </button>
               ))}
             </div>
+            <p className="cp-preset-note">
+              Hazır raporlar henüz sunucuya bağlı değil. Şimdilik aşağıdaki sohbetten
+              soru sorarak grafik üretebilirsiniz.
+            </p>
           </div>
 
           <div className="cp-divider" />
@@ -324,6 +350,20 @@ export default function CanvasPage() {
             <div className="cp-section-title">
               <IconRobot size={14} /> AI Asistan
             </div>
+
+            {analysisMissing && (
+              <div className="cp-missing">
+                <strong>Bu analiz kaydı bu tarayıcıda bulunamadı.</strong>
+                <span>
+                  Analiz kayıtları şu an yalnızca tarayıcıda saklanıyor; başka bir cihazdan
+                  açtıysanız ya da tarayıcı verisi temizlendiyse görünmez. Dashboard’dan
+                  analizi yeniden başlatarak devam edebilirsiniz.
+                </span>
+                <button className="cp-back" onClick={() => navigate('/')}>
+                  Dashboard’a dön
+                </button>
+              </div>
+            )}
 
             <div className="cp-messages">
               {messages.length === 0 ? (

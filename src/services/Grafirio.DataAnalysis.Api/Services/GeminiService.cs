@@ -82,9 +82,24 @@ public class GeminiService
     /// </summary>
     public async Task<GeminiQueryResult> TranslateQueryForPyCaret(string question, string configJson, string schemaSummary)
     {
+        // Kardes metot AnalyzeSchemaForPyCaret bu kontrolu yapiyordu, bu metot
+        // yapmiyordu: LLM yapilandirilmamisken _model null kaliyor ve asagidaki
+        // cagri NullReferenceException firlatiyordu. Disaridan gorunen sey,
+        // sebebi hicbir yerde yazmayan bir HTTP 500 oluyordu.
+        if (_model == null)
+        {
+            _logger.LogWarning("Mock mode: LLM yapılandırılmamış, sorgu çevirisi yapılamıyor.");
+            return new GeminiQueryResult
+            {
+                Success = false,
+                IsConfigurationError = true,
+                Error = "LLM yapılandırılmamış. Sunucuda LLM_PROVIDER ve ilgili API anahtarı tanımlı olmalı."
+            };
+        }
+
         var prompt = BuildQueryTranslationPrompt(question, configJson, schemaSummary);
 
-        _logger.LogInformation("Gemini'ye sorgu çevirisi gönderiliyor: {Question}", question);
+        _logger.LogInformation("LLM'e sorgu çevirisi gönderiliyor: {Question}", question);
 
         try
         {
@@ -432,6 +447,14 @@ public class GeminiQueryResult
     public string Explanation { get; set; } = "";
     public string RawResponse { get; set; } = "";
     public string? Error { get; set; }
+
+    /// <summary>
+    /// Hata sunucu yapilandirmasindan mi kaynaklaniyor (LLM tanimli degil) —
+    /// yoksa cagrinin kendisi mi basarisiz oldu. Uc bunu ayirt edip 503 mu
+    /// yoksa 500 mu donecegine karar veriyor: ilki "sunucu eksik yapilandirilmis",
+    /// ikincisi "beklenmedik hata" demek ve mudahalesi farkli.
+    /// </summary>
+    public bool IsConfigurationError { get; set; }
 }
 
 public class GeminiChatResult
