@@ -1,0 +1,45 @@
+@import '../../../../shared/theme/tokens.css';
+
+/* Panel kabugu. Sayfa yuksekligi kadar uzayan bir sutun: menu, icerik,
+   alt serit. Icerik alani buyuyerek alt seridi her zaman en alta itiyor,
+   kisa sayfalarda serit ekranin ortasinda asili kalmasin diye. */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--gf-bg);
+  color: var(--gf-ink);
+  font-family: var(--gf-font-body);
+}
+
+.shell-main {
+  flex: 1;
+}
+
+.shell-foot {
+  border-top: 1px solid var(--gf-line);
+  background: var(--gf-paper);
+}
+
+.shell-foot-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 18px 28px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.shell-foot-mark {
+  font-family: var(--gf-font-mono);
+  font-size: 11px;
+  color: var(--gf-fainter);
+}
+
+@media (max-width: 720px) {
+  .shell-foot-inner {
+    padding: 16px;
+  }
+}

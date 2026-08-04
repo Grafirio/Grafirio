@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
+import GMark from '../components/organisms/GMark';
+import '../styles/Boot.css';
 
 const AuthContext = createContext(null);
 
@@ -34,23 +36,16 @@ export const AuthProvider = ({ children }) => {
 
   const isAuthenticated = keycloak.authenticated;
 
-  // Keycloak henüz initialize olmadıysa loading göster
+  // Keycloak henüz initialize olmadıysa loading göster.
+  // Bu iki ekran panelin ilk gorunen yuzu; onceden Tabler'in ornek logosunu
+  // (preview.tabler.io) gosteriyorlardi — yabanci bir markanin logosu ve
+  // ayrica dis bir sunucuya bagimlilik.
   if (!initialized) {
     return (
-      <div className="page page-center">
-        <div className="container container-tight py-4">
-          <div className="text-center">
-            <div className="mb-3">
-              <a href="." className="navbar-brand navbar-brand-autodark">
-                <img src="https://preview.tabler.io/static/logo.svg" height="36" alt="Grifirio" />
-              </a>
-            </div>
-            <div className="text-muted mb-3">Kimlik doğrulama sistemi yükleniyor...</div>
-            <div className="progress progress-sm">
-              <div className="progress-bar progress-bar-indeterminate"></div>
-            </div>
-          </div>
-        </div>
+      <div className="boot">
+        <GMark size={44} />
+        <p className="boot-text">Kimlik doğrulama sistemi yükleniyor…</p>
+        <span className="boot-bar" />
       </div>
     );
   }
@@ -58,27 +53,15 @@ export const AuthProvider = ({ children }) => {
   // Keycloak initialization hatası varsa göster
   if (keycloak.initError) {
     return (
-      <div className="page page-center">
-        <div className="container container-tight py-4">
-          <div className="text-center">
-            <div className="mb-3">
-              <a href="." className="navbar-brand navbar-brand-autodark">
-                <img src="https://preview.tabler.io/static/logo.svg" height="36" alt="Grifirio" />
-              </a>
-            </div>
-            <div className="alert alert-danger">
-              <h4 className="alert-title">Kimlik Doğrulama Hatası</h4>
-              <div className="text-muted">
-                Keycloak sunucusuna bağlanırken bir hata oluştu. Lütfen daha sonra tekrar deneyin.
-              </div>
-              <div className="btn-list mt-3">
-                <button className="btn btn-primary" onClick={() => window.location.reload()}>
-                  Sayfayı Yenile
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="boot">
+        <GMark size={44} />
+        <h1 className="boot-title">Kimlik doğrulama hatası</h1>
+        <p className="boot-text">
+          Kimlik sunucusuna bağlanılamadı. Bağlantınızı kontrol edip sayfayı yenileyin.
+        </p>
+        <button type="button" className="boot-btn" onClick={() => window.location.reload()}>
+          Sayfayı yenile
+        </button>
       </div>
     );
   }

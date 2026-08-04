@@ -136,11 +136,24 @@
   gap: 10px;
   padding-left: 12px;
   border-left: 1px solid var(--gf-line);
-  background: transparent;
-  border-top: 0;
-  border-right: 0;
-  border-bottom: 0;
+}
+
+.nv-logout {
+  padding: 8px 14px;
+  border: 1px solid var(--gf-line);
+  border-radius: 10px;
+  background: var(--gf-paper);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gf-muted);
   cursor: pointer;
+  transition: border-color 0.16s, color 0.16s;
+}
+
+.nv-logout:hover {
+  border-color: var(--gf-navy);
+  color: var(--gf-navy);
 }
 
 .nv-avatar {

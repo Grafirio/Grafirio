@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import {
   COMPANY_ROLES,
-  assignRole,
   createSubCompany,
   describeError,
   fetchCompanies,
   fetchCompanyUsers,
-  revokeRole,
   roleName,
 } from '../services/companyService';
 import '../styles/CompanyAdminPage.css';
@@ -19,6 +18,7 @@ const TABS = [
 ];
 
 export default function CompanyAdminPage() {
+  const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
   const companyId = keycloak.tokenParsed?.company_id;
@@ -61,34 +61,6 @@ export default function CompanyAdminPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  const changeRole = async (user, role) => {
-    setError('');
-    setNotice('');
-    try {
-      await assignRole(token, {
-        keycloakUserId: user.keycloakUserId,
-        companyId,
-        role,
-      });
-      setNotice(`Yetki güncellendi: ${roleName(role)}`);
-      await load();
-    } catch (err) {
-      setError(describeError(err, 'Yetki güncellenemedi.'));
-    }
-  };
-
-  const removeUser = async (user) => {
-    setError('');
-    setNotice('');
-    try {
-      await revokeRole(token, { keycloakUserId: user.keycloakUserId, companyId });
-      setNotice('Kullanıcının erişimi kaldırıldı.');
-      await load();
-    } catch (err) {
-      setError(describeError(err, 'Erişim kaldırılamadı.'));
-    }
-  };
 
   if (!companyId) {
     return (
@@ -137,8 +109,7 @@ export default function CompanyAdminPage() {
           users={users}
           loading={loading}
           currentUserId={keycloak.tokenParsed?.sub}
-          onChangeRole={changeRole}
-          onRemove={removeUser}
+          onManage={() => navigate('/settings/user')}
         />
       )}
 
@@ -186,11 +157,25 @@ function InfoTab({ company, childCount, users }) {
   );
 }
 
-function UsersTab({ users, loading, currentUserId, onChangeRole, onRemove }) {
+/**
+ * Sirketin kullanici listesi — yalnizca okuma.
+ *
+ * Rol degistirme ve erisim kaldirma Ayarlar › Kullanici Ayarlari'nda.
+ * Ikisi de duzenleyebilir olsaydi menude ayni isi yapan iki baslik olurdu;
+ * burasi "kimler var" sorusuna, oteki "kim ne yapabilir" sorusuna bakiyor.
+ */
+function UsersTab({ users, loading, currentUserId, onManage }) {
   if (loading) return <section className="ca-panel">Yükleniyor…</section>;
 
   return (
     <section className="ca-panel">
+      <div className="ca-panel-head">
+        <h2>Yetkili kullanıcılar</h2>
+        <button className="ca-btn ca-btn--ghost" onClick={onManage}>
+          Kullanıcı ayarları →
+        </button>
+      </div>
+
       {users.length === 0 ? (
         <p className="ca-note">Bu şirkette tanımlı kullanıcı yok.</p>
       ) : (
@@ -200,7 +185,6 @@ function UsersTab({ users, loading, currentUserId, onChangeRole, onRemove }) {
               <th>Kullanıcı</th>
               <th>Yetki</th>
               <th>Tanımlanma</th>
-              <th aria-label="işlemler" />
             </tr>
           </thead>
           <tbody>
@@ -212,32 +196,9 @@ function UsersTab({ users, loading, currentUserId, onChangeRole, onRemove }) {
                     <span className="ca-user">{u.email || u.userName || u.keycloakUserId}</span>
                     {isSelf && <span className="ca-self">siz</span>}
                   </td>
-                  <td>
-                    <select
-                      value={u.role}
-                      disabled={isSelf}
-                      onChange={(e) => onChangeRole(u, e.target.value)}
-                    >
-                      {COMPANY_ROLES.map((r) => (
-                        <option key={r.code} value={r.code}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                  <td>{roleName(u.role)}</td>
                   <td className="ca-dim">
                     {u.assignedAt ? new Date(u.assignedAt).toLocaleDateString('tr-TR') : '—'}
-                  </td>
-                  <td className="ca-right">
-                    {/* Kendi yetkisini kaldiran yonetici sirketi yonetilemez
-                        birakabilir; o yuzden kendi satiri kilitli. */}
-                    <button
-                      className="ca-btn ca-btn--danger"
-                      disabled={isSelf}
-                      onClick={() => onRemove(u)}
-                    >
-                      Erişimi kaldır
-                    </button>
                   </td>
                 </tr>
               );
@@ -254,12 +215,6 @@ function UsersTab({ users, loading, currentUserId, onChangeRole, onRemove }) {
           </div>
         ))}
       </div>
-
-      <p className="ca-note">
-        Yeni kullanıcı ekleme buraya bilerek konmadı: mevcut uç, yöneticinin başkası adına
-        parola belirlemesini istiyor. Doğrusu e-posta daveti gönderip kişinin kendi parolasını
-        kurması; o uç yazıldığında bu bölüm eklenecek.
-      </p>
     </section>
   );
 }

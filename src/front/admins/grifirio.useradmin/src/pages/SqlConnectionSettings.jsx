@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import TableSchema from '../components/DataAnalysis/TableSchema';
+import '../styles/SettingsPages.css';
 import '../styles/SqlConnectionSettings.css';
 
 const SqlConnectionSettings = () => {
@@ -626,18 +627,24 @@ const SqlConnectionSettings = () => {
 
   return (
     <div className="sql-connection-settings">
-      <div className="gf-page-header">
+      {/* Baslik, diger ayar sayfalariyla ayni kaliptan: eyebrow + buyuk
+          baslik + aciklama. Onceki hali Tabler'in kucuk sayfa basligiydi ve
+          menuden gecerken tek basina farkli bir uygulama gibi duruyordu. */}
+      <div className="st-head" style={{ marginBottom: 24 }}>
         <div>
-          <h1 className="gf-page-title">
-            <i className="ti ti-database-cog"></i>
+          <p className="st-eyebrow">Ayarlar · Bağlantı</p>
+          <h1 style={{ fontFamily: 'var(--gf-font-head)', fontSize: 34, letterSpacing: '-0.025em' }}>
             SQL Bağlantı Ayarları
           </h1>
-          <p className="gf-page-subtitle">Müşteri veritabanı bağlantılarını yönetin</p>
+          <p className="st-lead">
+            Veritabanı bağlantılarınızı yönetin, tablo seçin ve doğrudan analiz başlatın.
+          </p>
         </div>
-        <button className="gf-btn gf-btn--primary" onClick={handleNewConnection}>
-          <i className="ti ti-plus"></i>
-          Yeni Bağlantı
-        </button>
+        <div className="st-head-actions">
+          <button className="st-btn" onClick={handleNewConnection}>
+            + Yeni Bağlantı
+          </button>
+        </div>
       </div>
 
       {testStatus.message && (

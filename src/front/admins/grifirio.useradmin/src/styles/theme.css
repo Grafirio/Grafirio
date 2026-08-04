@@ -1,69 +1,70 @@
+@import '../../../../shared/theme/tokens.css';
+
 /* ==========================================================================
-   Grafirio — Modern Minimalist
-   Single source of truth for colour, type, spacing and shared UI primitives.
-   Page-level stylesheets must consume these tokens, never raw hex values.
+   Grafirio — panel taban katmanı
+   ==========================================================================
+
+   Burasi artik kendi paletini tanimlamiyor. Renk, tipografi ve olcunun tek
+   kaynagi shared/theme/tokens.css; asagidaki isimler yalnizca ona giden
+   birer takma ad.
+
+   Neden boyle: panel bir yanda marka degiskenlerini (--gf-navy, Poppins),
+   ote yanda bu dosyanin "Modern Minimalist" kurumu grisini kullaniyordu.
+   Ayni ekranda iki palet vardi ve sayfanin hangisine denk geldigi, hangi
+   css dosyasinin once yuklendigine bagliydi. Takma ad haline getirilince
+   --accent kullanan eski sayfalar da marka lacivertine geciyor; tek tek
+   yeniden yazilmalari gerekmiyor.
+
+   Yeni yazilan sayfalar dogrudan --gf-* kullanmali. Buradakiler yalnizca
+   mevcut kod icin duruyor.
    ========================================================================== */
 
 :root {
-  /* --- Palette -----------------------------------------------------------
-     Modern Minimalist: charcoal / slate / light gray / white.             */
-  --charcoal: #36454f;
-  --slate: #708090;
-  --light-gray: #d3d3d3;
-  --white: #ffffff;
+  /* --- Marka paletine takma adlar --------------------------------------- */
+  --white: var(--gf-paper);
 
-  /* Tints and shades derived from the four base colours, so the greyscale
-     has enough steps for real UI without drifting off-palette.            */
-  --charcoal-900: #222c33;
-  --charcoal-800: #2b373f;
-  --charcoal-700: #36454f;
-  --charcoal-600: #465864;
-  --slate-500: #708090;
-  --slate-400: #8b98a5;
-  --slate-300: #a8b2bc;
-  --gray-200: #d3d3d3;
-  --gray-150: #dfe2e5;
-  --gray-100: #eceef0;
-  --gray-50: #f5f6f7;
+  --slate-500: var(--gf-muted);
+  --slate-400: var(--gf-faint);
+  --slate-300: var(--gf-fainter);
+  --gray-200: var(--gf-line);
+  --gray-150: var(--gf-line);
+  --gray-100: var(--gf-chip);
+  --gray-50: var(--gf-paper-warm);
 
   /* --- Semantic surfaces ------------------------------------------------ */
-  --surface: var(--white);
-  --surface-sunken: var(--gray-50);
-  --surface-raised: var(--white);
-  --surface-inverse: var(--charcoal-800);
+  --surface: var(--gf-paper);
+  --surface-sunken: var(--gf-bg);
+  --surface-raised: var(--gf-paper);
+  --surface-inverse: var(--gf-navy);
 
-  --border: var(--gray-150);
-  --border-strong: var(--gray-200);
+  --border: var(--gf-line);
+  --border-strong: var(--gf-line);
 
-  --text: var(--charcoal-800);
-  --text-muted: var(--slate-500);
-  --text-subtle: var(--slate-400);
-  --text-inverse: var(--white);
+  --text: var(--gf-ink);
+  --text-muted: var(--gf-muted);
+  --text-subtle: var(--gf-faint);
+  --text-inverse: #fff;
 
   /* --- Interaction ------------------------------------------------------ */
-  --accent: var(--charcoal-700);
-  --accent-hover: var(--charcoal-800);
-  --accent-active: var(--charcoal-900);
-  --accent-soft: var(--gray-100);
-  --focus-ring: rgba(54, 69, 79, 0.28);
+  --accent: var(--gf-navy);
+  --accent-hover: var(--gf-navy-hover);
+  --accent-active: var(--gf-navy-hover);
+  --accent-soft: var(--gf-chip);
+  --focus-ring: rgba(28, 63, 124, 0.18);
 
-  /* --- Status ------------------------------------------------------------
-     Desaturated on purpose: they must read as status, not as decoration,
-     so they sit quietly next to the greyscale.                            */
-  --success: #3f6b52;
-  --success-soft: #e8efea;
-  --warning: #8a6d3b;
-  --warning-soft: #f4efe6;
-  --danger: #8c4a4a;
-  --danger-soft: #f3e9e9;
-  --info: var(--slate-500);
-  --info-soft: var(--gray-100);
+  /* --- Status ------------------------------------------------------------ */
+  --success: var(--gf-teal-ink);
+  --success-soft: var(--gf-teal-tint);
+  --warning: #8a6200;
+  --warning-soft: #fef7e0;
+  --danger: var(--gf-danger-ink);
+  --danger-soft: var(--gf-danger-bg);
+  --info: var(--gf-muted);
+  --info-soft: var(--gf-chip);
 
   /* --- Typography -------------------------------------------------------- */
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+  --font-sans: var(--gf-font-body);
+  --font-mono: var(--gf-font-mono);
 
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -91,65 +92,28 @@
   --space-6: 2rem;
   --space-7: 3rem;
 
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 10px;
-  --radius-full: 999px;
+  --radius-sm: var(--gf-radius-sm);
+  --radius: var(--gf-radius);
+  --radius-lg: var(--gf-radius-lg);
+  --radius-full: var(--gf-radius-pill);
 
-  /* Shadows stay shallow — depth comes from borders, not glow. */
-  --shadow-sm: 0 1px 2px rgba(34, 44, 51, 0.06);
-  --shadow: 0 1px 3px rgba(34, 44, 51, 0.08), 0 1px 2px rgba(34, 44, 51, 0.04);
-  --shadow-lg: 0 8px 24px rgba(34, 44, 51, 0.12);
-  --shadow-overlay: 0 24px 48px rgba(34, 44, 51, 0.18);
+  --shadow-sm: var(--gf-shadow-sm);
+  --shadow: var(--gf-shadow-sm);
+  --shadow-lg: var(--gf-shadow);
+  --shadow-overlay: 0 24px 48px -24px rgba(16, 24, 40, 0.4);
 
-  --transition: 140ms ease;
-}
-
-/* --------------------------------------------------------------------------
-   Dark theme. Tabler toggles data-bs-theme; the header switch drives it.
-   -------------------------------------------------------------------------- */
-:root[data-bs-theme='dark'] {
-  --surface: #1b2227;
-  --surface-sunken: #151b1f;
-  --surface-raised: #222c33;
-  --surface-inverse: var(--gray-100);
-
-  --border: #2f3b43;
-  --border-strong: #3d4b55;
-
-  --text: #e6e9eb;
-  --text-muted: var(--slate-300);
-  --text-subtle: var(--slate-400);
-  --text-inverse: var(--charcoal-900);
-
-  --accent: var(--slate-300);
-  --accent-hover: #bcc5cd;
-  --accent-active: var(--white);
-  --accent-soft: #2a353d;
-  --focus-ring: rgba(168, 178, 188, 0.32);
-
-  --success: #7ba98d;
-  --success-soft: #23302a;
-  --warning: #c2a678;
-  --warning-soft: #302a20;
-  --danger: #c08b8b;
-  --danger-soft: #302323;
-  --info: var(--slate-300);
-  --info-soft: #2a353d;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --shadow-overlay: 0 24px 48px rgba(0, 0, 0, 0.6);
+  --transition: 160ms ease;
 }
 
 /* --------------------------------------------------------------------------
    Tabler / Bootstrap variable bridge.
    Overriding these means every stock Tabler component inherits the theme
    without being restyled one by one.
+
+   Karanlik tema kaldirildi: onu acan bir dugme yoktu (eski Tabler basligiyla
+   birlikte gitmisti), marka temasi da tek isikli surumden ibaret.
    -------------------------------------------------------------------------- */
-:root,
-:root[data-bs-theme='dark'] {
+:root {
   --tblr-font-sans-serif: var(--font-sans);
   --tblr-body-font-family: var(--font-sans);
   --tblr-body-font-size: var(--text-base);
@@ -159,7 +123,7 @@
   --tblr-border-color: var(--border);
   --tblr-border-radius: var(--radius);
   --tblr-primary: var(--accent);
-  --tblr-primary-rgb: 54, 69, 79;
+  --tblr-primary-rgb: 28, 63, 124;
   --tblr-link-color: var(--accent);
   --tblr-link-hover-color: var(--accent-hover);
   --tblr-success: var(--success);
@@ -194,6 +158,7 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   margin: 0;
+  font-family: var(--gf-font-head);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
@@ -231,7 +196,7 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
 .gf-page {
   max-width: 1280px;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-5);
+  padding: 34px 28px 80px;
 }
 
 /* --- Page header --------------------------------------------------------- */
@@ -270,10 +235,10 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: 0.4375rem var(--space-4);
-  font-family: inherit;
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  padding: 0.5625rem var(--space-4);
+  font-family: var(--gf-font-body);
+  font-size: 13.5px;
+  font-weight: var(--weight-semibold);
   line-height: 1.4;
   color: var(--text);
   background: var(--surface);
@@ -302,6 +267,8 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
   color: var(--text-inverse);
   background: var(--accent);
   border-color: var(--accent);
+  font-weight: var(--weight-bold);
+  box-shadow: 0 10px 22px -14px rgba(28, 63, 124, 0.9);
 }
 
 .gf-btn--primary:hover:not(:disabled) {
@@ -439,12 +406,12 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 0.125rem var(--space-2);
+  padding: 0.25rem var(--space-3);
   font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-bold);
   color: var(--text-muted);
   background: var(--accent-soft);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
 }
 
 .gf-badge--success { color: var(--success); background: var(--success-soft); }
@@ -513,8 +480,6 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
   border-radius: var(--radius-sm);
   animation: gf-skeleton-pulse 1.4s ease-in-out infinite;
 }
-
-:root[data-bs-theme='dark'] .gf-skeleton { background: var(--accent-soft); }
 
 .gf-skeleton--text { height: 0.75rem; }
 .gf-skeleton--title { height: 1.125rem; width: 40%; }

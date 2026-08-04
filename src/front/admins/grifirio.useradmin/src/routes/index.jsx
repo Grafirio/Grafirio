@@ -8,13 +8,16 @@ import OnboardingPage from '../pages/OnboardingPage';
 import DashboardPage from '../pages/DashboardPage';
 import CanvasPage from '../pages/CanvasPage';
 import CompanyAdminPage from '../pages/CompanyAdminPage';
-import DepartmentsPage from '../pages/DepartmentsPage';
 import AIPage from '../pages/AIPage';
 import DataAnalysisPage from '../pages/DataAnalysis/DataAnalysisPage';
 import AgentQueryPage from '../pages/AgentQueryPage';
 
-// Ayar Sayfaları
-import SettingsPage from '../pages/SettingsPage';
+// Ayar Sayfaları — menudeki her giris kendi sayfasina gidiyor.
+import CompanySettingsPage from '../pages/settings/CompanySettingsPage';
+import DataEntryPage from '../pages/settings/DataEntryPage';
+import DepartmentsPage from '../pages/settings/DepartmentsPage';
+import RolesPage from '../pages/settings/RolesPage';
+import UsersPage from '../pages/settings/UsersPage';
 import SqlConnectionSettings from '../pages/SqlConnectionSettings';
 import PlanPage from '../pages/PlanPage';
 
@@ -26,19 +29,18 @@ const routes = [
       { path: '/', element: <DashboardPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'company-info', element: <CompanyAdminPage /> },
-      { path: 'departments', element: <DepartmentsPage /> },
       { path: 'ai-dashboard', element: <AIPage /> },
       { path: 'data-analysis', element: <DataAnalysisPage /> },
       { path: 'ai-query', element: <AgentQueryPage /> },
       {
         path: 'settings',
         children: [
-          { path: 'company', element: <SettingsPage title="Şirket Ayarları" /> },
-          { path: 'data-input', element: <SettingsPage title="Veri Girdisi" /> },
+          { path: 'company', element: <CompanySettingsPage /> },
+          { path: 'data-input', element: <DataEntryPage /> },
           { path: 'sql-connection', element: <SqlConnectionSettings /> },
-          { path: 'department', element: <SettingsPage title="Departman Ayarları" /> },
-          { path: 'authorization', element: <SettingsPage title="Yetki Ayarları" /> },
-          { path: 'user', element: <SettingsPage title="Kullanıcı Ayarları" /> },
+          { path: 'department', element: <DepartmentsPage /> },
+          { path: 'authorization', element: <RolesPage /> },
+          { path: 'user', element: <UsersPage /> },
           { path: 'membership', element: <PlanPage /> },
         ],
       },

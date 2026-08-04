@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
+import { roleName } from '../../services/companyService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
 
-// Menu hiyerarsisi tasarim taslagindaki ile birebir ayni. Iki istisna,
-// ikisi de comment ile isaretli: Departman/Yetki/Sirket-genel-ayarlar/Veri
-// Girdisi hala placeholder ("Burasi bir ayar sayfasidir"), cunku arkalarinda
-// gercek veri yok — sahte tablo doldurmak yerine oldugu gibi birakildi.
+// Menu hiyerarsisi tasarim taslagindaki ile birebir ayni ve her giris kendi
+// sayfasina gidiyor. Onceden "Kullanici Ayarlari" da "Yetkili kullanicilar"
+// gibi /company-info?tab=users'a cikiyordu; menude iki ayri baslik ayni
+// ekrani acinca kullanici hangisinin ne yaptigini anlayamiyordu.
 const COMPANY_MENU = [
   { to: '/company-info?tab=info', label: 'Şirket profili' },
   { to: '/company-info?tab=users', label: 'Yetkili kullanıcılar' },
@@ -21,11 +23,7 @@ const SETTINGS_MENU = [
   { divider: true },
   { to: '/settings/department', label: 'Departman Ayarları' },
   { to: '/settings/authorization', label: 'Yetki Ayarları' },
-  // Tasarimda ayri bir "Kullanici Ayarlari" sayfasi var (davet + oturum
-  // guvenligi). Davet ucu SMTP karari bekledigi icin henuz yok; bu baglanti
-  // simdilik gercekten var olan tek kullanici yonetimine, company-info'nun
-  // "users" sekmesine gidiyor.
-  { to: '/company-info?tab=users', label: 'Kullanıcı Ayarları' },
+  { to: '/settings/user', label: 'Kullanıcı Ayarları' },
   { to: '/settings/membership', label: 'Üyelik Bilgileri' },
 ];
 
@@ -85,6 +83,7 @@ function NavDropdown({ label, items, active }) {
 
 export default function Nav() {
   const { user, logout } = useAuth();
+  const { keycloak } = useKeycloak();
   const location = useLocation();
 
   const atDashboard = location.pathname === '/' || location.pathname === '/dashboard';
@@ -97,6 +96,12 @@ export default function Nav() {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+
+  // Tasarimdaki kunye ad + rol gosteriyor. Rol, Identity'nin yetki
+  // atadiginda Keycloak'a yazdigi business_roles niteliginden geliyor;
+  // yoksa satir bos birakiliyor, uydurulmuyor.
+  const businessRoles = keycloak.tokenParsed?.business_roles;
+  const role = Array.isArray(businessRoles) ? businessRoles[0] : businessRoles;
 
   return (
     <header className="nv">
@@ -119,12 +124,15 @@ export default function Nav() {
         </nav>
 
         <div className="nv-right">
-          <button className="nv-user" onClick={logout} title="Çıkış yap">
+          <div className="nv-user">
             <span className="nv-avatar">{initials}</span>
             <span className="nv-user-text">
               <span className="nv-user-name">{user?.name || user?.email}</span>
-              <span className="nv-user-role">çıkış yap</span>
+              {role && <span className="nv-user-role">{roleName(role).toLocaleLowerCase('tr')}</span>}
             </span>
+          </div>
+          <button type="button" className="nv-logout" onClick={logout}>
+            Çıkış
           </button>
         </div>
       </div>

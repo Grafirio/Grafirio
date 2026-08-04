@@ -14,19 +14,22 @@ ChartJS.register(
 );
 
 // Chart.js paints to a canvas and cannot read CSS custom properties, so the
-// theme palette is mirrored here as literals. Desaturated to match Modern
-// Minimalist, but spread across hue *and* lightness so series stay tellable
-// apart — a pure greyscale ramp would not be.
+// brand chart palette (tokens.css --gf-c01…c12) is mirrored here as literals.
+// The order is fixed by the brand guide and must not be reshuffled: the same
+// series has to keep the same colour wherever it is drawn.
 const PALETTE = [
-  'rgba(54,69,79,0.8)',    // charcoal
-  'rgba(112,128,144,0.8)', // slate
-  'rgba(63,107,82,0.8)',   // muted green
-  'rgba(140,74,74,0.8)',   // muted clay
-  'rgba(138,109,59,0.8)',  // muted ochre
-  'rgba(74,107,112,0.8)',  // deep teal
-  'rgba(168,178,188,0.8)', // light slate
-  'rgba(125,115,104,0.8)', // warm grey
-  'rgba(90,104,124,0.8)',  // blue grey
+  'rgba(14,143,140,0.8)',  // --gf-c01 teal
+  'rgba(26,122,156,0.8)',  // --gf-c02
+  'rgba(47,95,168,0.8)',   // --gf-c03
+  'rgba(75,74,159,0.8)',   // --gf-c04
+  'rgba(107,58,151,0.8)',  // --gf-c05
+  'rgba(138,46,142,0.8)',  // --gf-c06
+  'rgba(168,42,124,0.8)',  // --gf-c07
+  'rgba(196,46,110,0.8)',  // --gf-c08
+  'rgba(214,69,80,0.8)',   // --gf-c09
+  'rgba(228,99,60,0.8)',   // --gf-c10
+  'rgba(240,144,43,0.8)',  // --gf-c11
+  'rgba(248,198,48,0.8)',  // --gf-c12 sun
 ];
 const PALETTE_BORDER = PALETTE.map(c => c.replace('0.8)', '1)'));
 

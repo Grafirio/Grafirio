@@ -1,0 +1,773 @@
+@import '../../../../shared/theme/tokens.css';
+
+/* ==========================================================================
+   Ayar sayfalari — ortak yerlesim
+   ==========================================================================
+
+   Tasarim taslagindaki bes ayar ekrani (Sirket, Veri Girdisi, Departman,
+   Yetki, Kullanici) ayni iskeleti paylasiyor: baslik + eyebrow, beyaz
+   kartlar, ayni tablo ve rozet dili. Her sayfaya ayri stil dosyasi yazmak
+   bu ortakligi bes kopyaya bolerdi; degisen bir olcu bes yerde guncellenmek
+   zorunda kalirdi.
+
+   Sayfaya ozgu olan sey (ornegin izin matrisi, agac gorunumu) yine burada
+   ama kendi bolumunde duruyor — hepsi ayni tasarim dilinden geldigi icin
+   ayirmanin faydasi yok.
+   ========================================================================== */
+
+.st {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 34px 28px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-family: var(--gf-font-body);
+  color: var(--gf-ink);
+}
+
+/* --------------------------------------------------------------------------
+   Baslik
+   -------------------------------------------------------------------------- */
+
+.st-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.st-eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--gf-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gf-teal);
+}
+
+.st-head h1 {
+  margin: 0;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.st-lead {
+  margin: 9px 0 0;
+  max-width: 46em;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--gf-muted);
+}
+
+.st-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.st-head-meta {
+  margin-left: auto;
+  font-family: var(--gf-font-mono);
+  font-size: 11.5px;
+  color: var(--gf-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Buton
+   -------------------------------------------------------------------------- */
+
+.st-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--gf-navy);
+  color: #fff;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 22px -14px rgba(28, 63, 124, 0.9);
+  transition: background 0.16s, border-color 0.16s, color 0.16s;
+}
+
+.st-btn:hover:not(:disabled) {
+  background: var(--gf-navy-hover);
+}
+
+.st-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.st-btn--ghost {
+  background: var(--gf-paper);
+  border-color: var(--gf-line);
+  color: var(--gf-ink);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.st-btn--ghost:hover:not(:disabled) {
+  background: var(--gf-paper);
+  border-color: var(--gf-navy);
+  color: var(--gf-navy);
+}
+
+.st-btn--sm {
+  padding: 9px 15px;
+  font-size: 13.5px;
+}
+
+.st-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--gf-navy);
+  cursor: pointer;
+}
+
+.st-link:hover {
+  color: var(--gf-teal);
+}
+
+/* --------------------------------------------------------------------------
+   Kart ve izgara
+   -------------------------------------------------------------------------- */
+
+.st-card {
+  background: var(--gf-paper);
+  border: 1px solid var(--gf-line);
+  border-radius: 18px;
+  padding: 24px;
+}
+
+.st-card h2 {
+  margin: 0;
+  font-family: var(--gf-font-head);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+
+.st-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.st-card-sub {
+  margin: 5px 0 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--gf-muted);
+}
+
+.st-caps {
+  margin-bottom: 18px;
+  font-family: var(--gf-font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gf-fainter);
+}
+
+.st-grid-2,
+.st-grid-3,
+.st-grid-4 {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+
+.st-grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.st-grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.st-grid-4 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+
+.st-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.st-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* --------------------------------------------------------------------------
+   Sayac ve kucuk kutu
+   -------------------------------------------------------------------------- */
+
+.st-kpi {
+  background: var(--gf-paper);
+  border: 1px solid var(--gf-line);
+  border-top: 4px solid var(--accent-line, var(--gf-navy));
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.st-kpi-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gf-faint);
+}
+
+.st-kpi strong {
+  display: block;
+  margin: 6px 0 4px;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+
+.st-kpi-note {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gf-muted);
+}
+
+.st-box {
+  background: var(--gf-paper-warm);
+  border: 1px solid var(--gf-line-soft);
+  border-radius: 13px;
+  padding: 15px;
+}
+
+.st-box-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gf-faint);
+}
+
+.st-box strong {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 26px;
+}
+
+/* --------------------------------------------------------------------------
+   Etiket–deger satirlari
+   -------------------------------------------------------------------------- */
+
+.st-rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.st-rows > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gf-line-soft);
+}
+
+.st-rows > div:last-child {
+  border-bottom: 0;
+}
+
+.st-rows dt {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gf-muted);
+}
+
+.st-rows dd {
+  margin: 0;
+  max-width: 22em;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.st-mono {
+  font-family: var(--gf-font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   Tablo
+   -------------------------------------------------------------------------- */
+
+.st-table-wrap {
+  overflow-x: auto;
+}
+
+.st-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.st-table th {
+  padding: 12px 14px 12px 0;
+  text-align: left;
+  font-family: var(--gf-font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gf-fainter);
+  white-space: nowrap;
+}
+
+.st-table td {
+  padding: 13px 14px 13px 0;
+  border-top: 1px solid var(--gf-line-soft);
+  vertical-align: middle;
+}
+
+.st-table th:last-child,
+.st-table td:last-child {
+  padding-right: 0;
+}
+
+.st-table .st-right {
+  text-align: right;
+}
+
+.st-strong {
+  font-weight: 700;
+}
+
+.st-dim {
+  color: var(--gf-muted);
+}
+
+.st-person {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.st-avatar {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--gf-chip);
+  color: var(--gf-navy);
+  display: grid;
+  place-items: center;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.st-person-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.st-person-text strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.st-person-text span {
+  font-family: var(--gf-font-mono);
+  font-size: 11.5px;
+  color: var(--gf-faint);
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   Rozet
+   -------------------------------------------------------------------------- */
+
+.st-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--gf-chip);
+  color: var(--gf-muted);
+}
+
+.st-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: currentColor;
+}
+
+.st-badge--ok {
+  background: var(--gf-teal-tint);
+  color: var(--gf-teal-ink);
+}
+
+.st-badge--warn {
+  background: #fef7e0;
+  color: #8a6200;
+}
+
+.st-badge--err {
+  background: var(--gf-danger-bg);
+  color: var(--gf-danger-ink);
+}
+
+.st-chip {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: var(--gf-chip);
+  font-family: var(--gf-font-mono);
+  font-size: 11.5px;
+  color: var(--gf-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Form
+   -------------------------------------------------------------------------- */
+
+.st-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.st-field > span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gf-muted);
+}
+
+.st-field input,
+.st-field select,
+.st-field textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--gf-line);
+  border-radius: 10px;
+  background: var(--gf-paper-warm);
+  font-family: inherit;
+  font-size: 14.5px;
+  color: var(--gf-ink);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.st-field textarea {
+  resize: vertical;
+}
+
+.st-field input:focus,
+.st-field select:focus,
+.st-field textarea:focus {
+  border-color: var(--gf-navy);
+  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+}
+
+.st-field input:disabled,
+.st-field select:disabled,
+.st-field textarea:disabled {
+  color: var(--gf-muted);
+  cursor: not-allowed;
+}
+
+.st-field--mono input {
+  font-family: var(--gf-font-mono);
+  font-size: 14px;
+}
+
+/* Anahtar. Sunucu tarafinda karsiligi olmayan tercihler icin salt okunur
+   gosteriliyor; tiklanabilir gorunup hicbir sey kaydetmemesindense. */
+.st-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--gf-line-soft);
+}
+
+.st-switch:last-child {
+  border-bottom: 0;
+}
+
+.st-switch-text strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.st-switch-text span {
+  font-size: 12.5px;
+  color: var(--gf-faint);
+}
+
+.st-switch-knob {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: none;
+  border-radius: 99px;
+  background: var(--gf-line);
+}
+
+.st-switch-knob::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 99px;
+  background: #fff;
+}
+
+.st-switch-knob.is-on {
+  background: var(--gf-navy);
+}
+
+.st-switch-knob.is-on::after {
+  left: auto;
+  right: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   Kaydetme seridi, uyari, bos durum
+   -------------------------------------------------------------------------- */
+
+.st-savebar {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border: 1px solid var(--gf-line);
+  border-radius: 14px;
+  background: var(--gf-paper);
+  box-shadow: var(--gf-shadow);
+}
+
+.st-savebar-note {
+  font-family: var(--gf-font-mono);
+  font-size: 11.5px;
+  color: var(--gf-faint);
+}
+
+.st-savebar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+
+.st-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 1px solid #c8e6e4;
+  border-radius: 14px;
+  background: var(--gf-teal-tint);
+  font-size: 14px;
+  line-height: 1.55;
+  color: #0b5250;
+}
+
+.st-note i {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 99px;
+  background: var(--gf-teal);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.st-alert {
+  padding: 12px 14px;
+  border: 1px solid var(--gf-danger-line);
+  border-radius: 12px;
+  background: var(--gf-danger-bg);
+  color: var(--gf-danger-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.st-ok {
+  padding: 12px 14px;
+  border: 1px solid #b8ddda;
+  border-radius: 12px;
+  background: var(--gf-teal-tint);
+  color: var(--gf-teal-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.st-empty {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--gf-muted);
+}
+
+.st-dropzone {
+  padding: 46px 26px;
+  text-align: center;
+  border: 1px dashed #b9c3d4;
+  border-radius: 18px;
+  background: var(--gf-paper);
+  background-image: radial-gradient(60% 60% at 50% 0%, rgba(28, 63, 124, 0.06), transparent 70%);
+}
+
+.st-dropzone-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  border-radius: 14px;
+  background: var(--gf-navy);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+}
+
+.st-dropzone h2 {
+  margin: 0 0 8px;
+  font-family: var(--gf-font-head);
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.st-dropzone p {
+  margin: 0 0 20px;
+  font-size: 14.5px;
+  color: var(--gf-muted);
+}
+
+.st-dropzone-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.st-dropzone-formats {
+  margin-top: 18px;
+  font-family: var(--gf-font-mono);
+  font-size: 11px;
+  color: var(--gf-fainter);
+}
+
+/* --------------------------------------------------------------------------
+   Agac ve izin matrisi
+   -------------------------------------------------------------------------- */
+
+.st-tree {
+  font-size: 13.5px;
+  line-height: 2;
+}
+
+.st-tree-root {
+  font-weight: 700;
+}
+
+.st-tree-child {
+  padding-left: 12px;
+  color: var(--gf-muted);
+}
+
+.st-tree-leaf {
+  padding-left: 28px;
+  color: var(--gf-faint);
+}
+
+.st-matrix th:not(:first-child),
+.st-matrix td:not(:first-child) {
+  text-align: center;
+  padding-right: 0;
+}
+
+.st-matrix td:not(:first-child) {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gf-teal);
+}
+
+.st-matrix td:first-child {
+  font-weight: 600;
+}
+
+.st-legend {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  font-family: var(--gf-font-mono);
+  font-size: 11px;
+  color: var(--gf-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Dar ekran
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .st-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .st {
+    padding: 24px 16px 60px;
+  }
+
+  .st-head h1 {
+    font-size: 28px;
+  }
+
+  .st-head-actions,
+  .st-head-meta {
+    margin-left: 0;
+  }
+
+  .st-card {
+    padding: 18px;
+  }
+}
