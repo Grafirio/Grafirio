@@ -12,6 +12,10 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <!-- Sema profili ve tablo secimi Mongo'da tutuluyor: Postgres semasi
+         EnsureCreated ile kuruldugu icin yeni kolon eklemek mevcut veritabanina
+         yansimiyor, ayrica profil dokuman yapisinda ve semasiz. -->
+    <PackageReference Include="MongoDB.Driver" Version="3.1.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

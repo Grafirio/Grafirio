@@ -1,11 +1,14 @@
 using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
+using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Connection;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
 using Grafirio.DataAnalysis.Api.Features.AI;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
 using Grafirio.Contracts.AI;
@@ -36,6 +39,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<GeminiService>();
+builder.Services.AddSingleton<SchemaProfiler>();
 
 // Redis — QueryResultStore + diğer servisler
 var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString")
@@ -52,6 +56,32 @@ catch (Exception redisEx)
     // Redis bağlanamıyorsa uygulama yine çalışsın, QueryResultStore devre dışı kalır
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => throw new InvalidOperationException("Redis bağlanamadı: " + redisEx.Message));
     builder.Services.AddSingleton<QueryResultStore>(); // hata fırlatacak ama diğer endpointler çalışır
+}
+
+// MongoDB — tablo secimi ve sema profili (kalici)
+// Postgres semasi EnsureCreated ile kuruluyor ve migration yok; profil de
+// dokuman yapisinda oldugu icin burada tutuluyor.
+var mongoConnectionString = builder.Configuration.GetValue<string>("Mongo:ConnectionString")
+    ?? Environment.GetEnvironmentVariable("MONGO__CONNECTIONSTRING");
+var mongoDatabaseName = builder.Configuration.GetValue<string>("Mongo:DatabaseName")
+    ?? Environment.GetEnvironmentVariable("MONGO__DATABASENAME")
+    ?? "GrafirioDataAnalysisDb";
+
+if (!string.IsNullOrWhiteSpace(mongoConnectionString))
+{
+    builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient(mongoConnectionString));
+    builder.Services.AddSingleton(sp =>
+        sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDatabaseName));
+    builder.Services.AddSingleton<ConnectionProfileStore>();
+}
+else
+{
+    // Baglanti dizesi yoksa servis yine ayaga kalksin; yalnizca profil
+    // ucları calismasin. Cozumleme aninda sebebi yazan acik bir hata veriyor —
+    // sessizce bos donen bir depo, teshis edilemeyen hatalara yol aciyordu.
+    builder.Services.AddSingleton<IMongoDatabase>(_ => throw new InvalidOperationException(
+        "Mongo__ConnectionString tanımlı değil; tablo seçimi ve şema profili kullanılamaz."));
+    builder.Services.AddSingleton<ConnectionProfileStore>();
 }
 
 // HttpClientFactory — PyCaret Engine çağrıları için
@@ -93,6 +123,12 @@ builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 var app = builder.Build();
 
 // Auto-migrate database on startup
+// Sifreleme anahtari acilista dogrulanir. Eksikse servis hic ayaga kalkmasin:
+// anahtarsiz calismak, musteri veritabani sifrelerini herkesin bildigi bir
+// varsayilanla sifrelemek demekti ve bu sessizce oluyordu.
+EncryptionHelper.EnsureConfigured();
+app.Logger.LogInformation("✅ Şifreleme anahtarı yapılandırılmış");
+
 using (var scope = app.Services.CreateScope())
 {
     try
@@ -127,6 +163,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // Map endpoints
+app.MapTableSelectionEndpoints(); // Secili tablolar (kural: yalnizca bunlar islenir)
+app.MapPreAnalysisEndpoints();    // On analiz: profil + semantik sozluk + bekletici kapi
 app.MapConnectionEndpoints(); // Test connection
 app.MapSavedConnectionEndpoints(); // Saved connections CRUD
 app.MapSchemaEndpoints();

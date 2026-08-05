@@ -126,6 +126,125 @@ public class GeminiService
     }
 
     /// <summary>
+    /// Secili tablolarin profilinden semantik sozluk uretir.
+    ///
+    /// Bu, sistemin "gidilen ulke" ifadesini `ReceiverCompanyCountryName`
+    /// kolonuna baglamasini saglayan katman. Onceki tasarimda soru aninda
+    /// modele yalnizca duzyazi bir ozet gidiyordu; model gercek kolon
+    /// adlarini hic gormedigi icin uydurma adlar uretiyordu.
+    ///
+    /// Cikti bilerek yapisal: duzyazi ozet insan icin, sozluk makine icin.
+    /// Model emin olamadigi kolonlari `questions` altinda bildiriyor; bunlar
+    /// kullaniciya bir kez sorulup yanitlari sozluge isleniyor.
+    /// </summary>
+    public async Task<GeminiQueryResult> BuildSemanticDictionary(string profileJson, CancellationToken ct = default)
+    {
+        if (_model == null)
+        {
+            _logger.LogWarning("Mock mode: LLM yapılandırılmamış, semantik sözlük üretilemiyor.");
+            return new GeminiQueryResult
+            {
+                Success = false,
+                IsConfigurationError = true,
+                Error = "LLM yapılandırılmamış. Sunucuda LLM_PROVIDER ve ilgili API anahtarı tanımlı olmalı."
+            };
+        }
+
+        var prompt = BuildSemanticDictionaryPrompt(profileJson);
+        _logger.LogInformation("LLM'e semantik sözlük isteği gönderiliyor. Profil uzunluğu: {Len}", profileJson.Length);
+
+        try
+        {
+            // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun
+            // sozlugu artı sorular tek cevaba sigmali, ustelik reasoning
+            // token'lari da ayni butceden dusuyor.
+            var text = await _model.GenerateAsync(prompt, temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+            return new GeminiQueryResult
+            {
+                Success = true,
+                PyCaretParamsJson = ExtractJson(text),
+                Explanation = ExtractExplanation(text),
+                RawResponse = text
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Semantik sözlük üretimi başarısız");
+            return new GeminiQueryResult { Success = false, Error = ex.Message };
+        }
+    }
+
+    private static string BuildSemanticDictionaryPrompt(string profileJson)
+    {
+        return $$"""
+        Sen bir veri modeli uzmanısın. Aşağıda bir müşterinin veritabanından
+        çıkarılmış tablo profili var: kolon adları, tipler, istatistikler ve —
+        gizlilik politikasının izin verdiği kolonlarda — örnek değerler.
+
+        Görevin, iş kullanıcısının günlük dilini bu kolonlara bağlayan bir
+        sözlük üretmek. Kullanıcı kolon adı bilmiyor; "en çok gidilen ülkeler"
+        diyecek ve senin bunu doğru kolona bağlaman gerekiyor.
+
+        ## Profil
+        ```json
+        {{profileJson}}
+        ```
+
+        ## Kurallar
+        1. YALNIZCA profilde geçen tablo ve kolon adlarını kullan. Ad uydurma.
+        2. Örnek değerlere bak — kolonun adı yanıltıcı olabilir, içeriği olmaz.
+           `sampleValues` boşsa (gizlilik nedeniyle alınmamış olabilir) ada ve
+           tipe göre karar ver ve emin değilsen soru sor.
+        3. Her kolon için Türkçe eş anlamlılar üret: kullanıcının kullanabileceği
+           ifadeler ("gidilen ülke", "varış ülkesi", "hedef ülke").
+        4. Emin olamadığın her şeyi `questions` altına koy. Soru, kolon adı
+           bilmeyen birinin cevaplayabileceği kadar somut olmalı ve örnek
+           değerlere dayanmalı.
+        5. Sektörü profilin bütününden çıkar.
+
+        JSON bloğunu ```json ve ``` arasında ver:
+
+        ```json
+        {
+          "sector": "lojistik|perakende|üretim|finans|sağlık|diğer",
+          "sectorConfidence": "high|medium|low",
+          "tables": [
+            {
+              "name": "dbo.Shipments",
+              "purpose": "Sevkiyat kayıtları — her satır bir gönderi",
+              "isPrimary": true
+            }
+          ],
+          "columns": [
+            {
+              "table": "dbo.Shipments",
+              "column": "ReceiverCompanyCountryName",
+              "meaning": "Gönderinin teslim edildiği ülke",
+              "synonyms": ["gidilen ülke", "varış ülkesi", "hedef ülke", "teslim ülkesi"],
+              "role": "dimension",
+              "confidence": "high"
+            }
+          ],
+          "questions": [
+            {
+              "id": "q1",
+              "table": "dbo.Shipments",
+              "column": "ReceiverCompanyCountryName",
+              "question": "Bu kolonda 'Almanya', 'Hollanda' değerleri var. Bu gönderinin GİTTİĞİ ülke mi, GELDİĞİ ülke mi?",
+              "options": ["Gittiği ülke", "Geldiği ülke", "Emin değilim"]
+            }
+          ]
+        }
+        ```
+
+        `role` şunlardan biri: measure (ölçülebilir sayı), dimension (kırılım),
+        date (zaman), identifier (kimlik), other.
+
+        JSON'dan sonra ### Açıklama başlığıyla kısa bir özet yaz.
+        """;
+    }
+
+    /// <summary>
     /// Basit sohbet sorularını yanıtlar (veri analizi gerektirmeyenler)
     /// </summary>
     public async Task<GeminiChatResult> ChatAsync(string message)

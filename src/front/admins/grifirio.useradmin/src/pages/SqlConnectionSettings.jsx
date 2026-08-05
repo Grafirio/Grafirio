@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema } from '../services/dataAnalysisService';
+import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema, saveSelectedTables, startPreAnalysis, getPreAnalysisState, submitPreAnalysisAnswers } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import TableSchema from '../components/DataAnalysis/TableSchema';
 import '../styles/SettingsPages.css';
@@ -37,6 +37,86 @@ const SqlConnectionSettings = () => {
   
   // Notification Modal
   const [notification, setNotification] = useState({ show: false, type: '', title: '', message: '', details: '' });
+
+  // Ön analiz kapısı: bağlantı, profili çıkarılıp soruları yanıtlanana kadar
+  // dashboard'da kullanılamaz. Durum sunucudan geliyor.
+  const [preAnalysis, setPreAnalysis] = useState({
+    open: false,
+    connectionId: null,
+    connectionName: '',
+    running: false,
+    status: null,
+    questions: [],
+    answers: {},
+    summary: '',
+    stats: null,
+    consent: false,
+    error: ''
+  });
+
+  const openPreAnalysis = async (connection) => {
+    const connectionId = connection.savedConnectionId || connection.id;
+    setPreAnalysis(p => ({
+      ...p, open: true, connectionId, connectionName: connection.name,
+      running: false, error: '', questions: [], answers: {}, summary: '', stats: null
+    }));
+
+    try {
+      const state = await getPreAnalysisState(connectionId);
+      setPreAnalysis(p => ({
+        ...p,
+        status: state.status,
+        questions: state.questions || [],
+        answers: state.answers || {},
+        summary: state.summary || ''
+      }));
+    } catch (error) {
+      setPreAnalysis(p => ({ ...p, error: error.response?.data?.error || error.message }));
+    }
+  };
+
+  const runPreAnalysis = async () => {
+    setPreAnalysis(p => ({ ...p, running: true, error: '' }));
+    try {
+      const result = await startPreAnalysis(preAnalysis.connectionId, preAnalysis.consent);
+      setPreAnalysis(p => ({
+        ...p,
+        running: false,
+        status: result.status,
+        questions: result.questions || [],
+        summary: result.summary || '',
+        stats: {
+          tables: result.tableCount,
+          columns: result.columnCount,
+          sampled: result.sampledColumnCount
+        }
+      }));
+    } catch (error) {
+      setPreAnalysis(p => ({
+        ...p,
+        running: false,
+        error: error.response?.data?.detail || error.response?.data?.error || error.message
+      }));
+    }
+  };
+
+  const submitAnswers = async () => {
+    setPreAnalysis(p => ({ ...p, running: true, error: '' }));
+    try {
+      await submitPreAnalysisAnswers(preAnalysis.connectionId, preAnalysis.answers);
+      setPreAnalysis(p => ({ ...p, running: false, status: 'ready' }));
+      setNotification({
+        show: true, type: 'success', title: 'Bağlantı hazır',
+        message: 'Ön analiz tamamlandı. Bu bağlantı artık dashboard\'da grafik üretebilir.',
+        details: ''
+      });
+    } catch (error) {
+      setPreAnalysis(p => ({
+        ...p, running: false,
+        error: error.response?.data?.error || error.message
+      }));
+    }
+  };
   
   const [formData, setFormData] = useState({
     name: '',
@@ -352,22 +432,49 @@ const SqlConnectionSettings = () => {
     setSelectedTablesForSave(tables);
   };
 
-  const handleSaveSelectedTables = () => {
+  // Secim artik sunucuya kaydediliyor. Onceden yalnizca localStorage'daydi;
+  // sunucu hangi tablolarin secildigini bilmedigi icin "yalnizca secili
+  // tablolar islenir" kurali uygulanamiyordu. localStorage kopyasi arayuzun
+  // anlik gosterimi icin korunuyor, ama artik dogru kaynak sunucu.
+  const handleSaveSelectedTables = async () => {
     if (!currentConnectionId) return;
 
-    const updatedConnections = connections.map(conn => {
-      if (conn.id === currentConnectionId) {
-        return {
-          ...conn,
-          selectedTables: selectedTablesForSave,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return conn;
-    });
+    const connectionId = selectedConnectionForModal?.savedConnectionId
+      || connections.find(c => c.id === currentConnectionId)?.savedConnectionId
+      || currentConnectionId;
+
+    try {
+      await saveSelectedTables(
+        connectionId,
+        selectedTablesForSave.map(t => t.fullName || t.name).filter(Boolean)
+      );
+    } catch (error) {
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Tablo seçimi kaydedilemedi',
+        message: error.response?.data?.error || error.message,
+        details: ''
+      });
+      return;
+    }
+
+    const updatedConnections = connections.map(conn =>
+      conn.id === currentConnectionId
+        ? { ...conn, selectedTables: selectedTablesForSave, preAnalysisStatus: 'pending', updatedAt: new Date().toISOString() }
+        : conn
+    );
 
     saveConnections(updatedConnections);
     handleCloseModal();
+
+    setNotification({
+      show: true,
+      type: 'success',
+      title: 'Tablolar kaydedildi',
+      message: `${selectedTablesForSave.length} tablo seçildi. Bağlantının kullanılabilmesi için "Ön Analiz" çalıştırın.`,
+      details: ''
+    });
   };
 
   const handleShowAnalysisPanel = async (connection) => {
@@ -902,12 +1009,20 @@ const SqlConnectionSettings = () => {
                   >
                     <i className="ti ti-brain"></i> AI Sorgulama
                   </button>
+                  {/* On analiz artik bekletici kapi: baglantiyi kullanilabilir
+                      hale getiren adim bu. Tablo secilmeden calismaz. */}
+                  <button
+                    className="gf-btn gf-btn--sm gf-btn--primary"
+                    onClick={() => openPreAnalysis(connection)}
+                  >
+                    <i className="ti ti-chart-dots"></i> Ön Analiz
+                  </button>
                   {connection.selectedTables && connection.selectedTables.length > 0 && (
                     <button
                       className="gf-btn gf-btn--sm"
                       onClick={() => handleShowAnalysisPanel(connection)}
                     >
-                      <i className="ti ti-chart-dots"></i> Ön Analiz
+                      <i className="ti ti-heartbeat"></i> Veri Kalitesi
                     </button>
                   )}
                   <button
@@ -1275,6 +1390,125 @@ const SqlConnectionSettings = () => {
                 <i className="ti ti-check"></i> 
                 Seçilenleri Kaydet ({selectedTablesForSave.length})
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ön Analiz — bekletici kapı.
+          Bağlantı burada "anlaşılıyor": seçili tabloların profili çıkarılıyor,
+          semantik sözlük üretiliyor, sistemin emin olamadığı şeyler bir kez
+          soruluyor. Ancak bundan sonra dashboard'da kullanılabilir. */}
+      {preAnalysis.open && (
+        <div className="modal-overlay" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2><i className="ti ti-chart-dots"></i> Ön Analiz — {preAnalysis.connectionName}</h2>
+              <button className="modal-close" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+                <i className="ti ti-x"></i>
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {preAnalysis.error && (
+                <div className="gf-alert gf-alert--danger" style={{ marginBottom: 16 }}>
+                  <i className="ti ti-alert-circle"></i> {preAnalysis.error}
+                </div>
+              )}
+
+              {preAnalysis.status === 'ready' && (
+                <div className="gf-alert gf-alert--success" style={{ marginBottom: 16 }}>
+                  <i className="ti ti-check"></i> Bu bağlantı hazır — dashboard'da grafik üretebilir.
+                </div>
+              )}
+
+              {!preAnalysis.running && preAnalysis.status !== 'ready' && preAnalysis.questions.length === 0 && (
+                <>
+                  <p className="gf-hint" style={{ marginBottom: 16 }}>
+                    Seçili tabloların yapısı okunacak, kolonların ne anlama geldiği çıkarılacak.
+                    Böylece soru sorarken kolon adı bilmeniz gerekmez.
+                  </p>
+
+                  <label className="gf-checkbox" style={{ marginBottom: 16, alignItems: 'flex-start' }}>
+                    <input
+                      type="checkbox"
+                      checked={preAnalysis.consent}
+                      onChange={(e) => setPreAnalysis(p => ({ ...p, consent: e.target.checked }))}
+                    />
+                    <span>
+                      Serbest metin kolonlarından (firma adı, ürün adı gibi) örnek değer okunmasına
+                      izin veriyorum. <strong>Kimlik no, telefon, e-posta ve adres hiçbir koşulda
+                      okunmaz.</strong> İzin vermezseniz eşleştirme yalnızca kolon adı ve tipe
+                      dayanır, doğruluk düşebilir.
+                    </span>
+                  </label>
+
+                  <button className="gf-btn gf-btn--primary" onClick={runPreAnalysis}>
+                    <i className="ti ti-player-play"></i> Analizi başlat
+                  </button>
+                </>
+              )}
+
+              {preAnalysis.running && (
+                <div className="analysis-loading">
+                  <div className="spinner-large"></div>
+                  <p>Tablolar okunuyor ve anlamlandırılıyor… Bu işlem birkaç dakika sürebilir.</p>
+                </div>
+              )}
+
+              {preAnalysis.stats && (
+                <div className="gf-alert" style={{ marginBottom: 16 }}>
+                  {preAnalysis.stats.tables} tablo · {preAnalysis.stats.columns} kolon ·
+                  {' '}{preAnalysis.stats.sampled} kolondan örnek değer okundu
+                </div>
+              )}
+
+              {preAnalysis.summary && (
+                <p className="gf-hint" style={{ marginBottom: 16 }}>{preAnalysis.summary}</p>
+              )}
+
+              {preAnalysis.questions.length > 0 && preAnalysis.status !== 'ready' && (
+                <>
+                  <h3 style={{ marginBottom: 12 }}>Birkaç şeyden emin olamadım</h3>
+                  <p className="gf-hint" style={{ marginBottom: 16 }}>
+                    Bunları bir kez yanıtlamanız yeterli; her soruda tekrar sorulmaz.
+                  </p>
+
+                  {preAnalysis.questions.map(q => (
+                    <div key={q.id} className="analysis-section" style={{ marginBottom: 16 }}>
+                      <p style={{ marginBottom: 8 }}>{q.question}</p>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {(q.options?.length ? q.options : ['Evet', 'Hayır', 'Emin değilim']).map(opt => (
+                          <button
+                            key={opt}
+                            className={`gf-btn gf-btn--sm ${preAnalysis.answers[q.id] === opt ? 'gf-btn--primary' : ''}`}
+                            onClick={() => setPreAnalysis(p => ({
+                              ...p, answers: { ...p.answers, [q.id]: opt }
+                            }))}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button className="gf-btn gf-btn--ghost" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+                Kapat
+              </button>
+              {preAnalysis.questions.length > 0 && preAnalysis.status !== 'ready' && (
+                <button
+                  className="gf-btn gf-btn--primary"
+                  onClick={submitAnswers}
+                  disabled={preAnalysis.running || Object.keys(preAnalysis.answers).length < preAnalysis.questions.length}
+                >
+                  <i className="ti ti-check"></i> Yanıtları kaydet ve bitir
+                </button>
+              )}
             </div>
           </div>
         </div>

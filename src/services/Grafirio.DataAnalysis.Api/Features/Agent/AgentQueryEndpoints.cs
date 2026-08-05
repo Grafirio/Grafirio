@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Services;
+using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,7 +13,12 @@ public static class AgentQueryEndpoints
 {
     public static void MapAgentQueryEndpoints(this IEndpointRouteBuilder app)
     {
+        // Kimlik dogrulamasi zorunlu: uc artik sirket suzgeci uyguluyor ve
+        // bunu token'daki company_id'den aliyor. Yetkilendirmesiz birakilirsa
+        // kimligi olmayan cagri sessizce Forbid'e dusuyor; niyeti acikca
+        // belirtmek daha dogru.
         var group = app.MapGroup("/api/agent")
+            .RequireAuthorization()
             .WithTags("AI Agent Query")
             .WithOpenApi();
 
@@ -40,8 +47,39 @@ public static class AgentQueryEndpoints
         [FromServices] GeminiService gemini,
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromServices] IConfiguration configuration,
+        [FromServices] ConnectionProfileStore profileStore,
+        [FromServices] IIdentityService identity,
         [FromServices] ILogger<GeminiService> logger)
     {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+        var scopedCompanyId = companyId.Value.ToString();
+
+        // Bekletici kapi: on analiz tamamlanmadan sorgu calistirilmaz.
+        // Sema profili ve semantik sozluk olmadan LLM kolon adlarini tahmin
+        // etmek zorunda kaliyor ve olmayan kolonlar uyduruyordu.
+        var (_, profileStatus) = await profileStore.GetProfileAsync(
+            request.ConnectionId, scopedCompanyId);
+
+        if (profileStatus != ProfileStatus.Ready)
+        {
+            return Results.BadRequest(new
+            {
+                error = profileStatus switch
+                {
+                    ProfileStatus.AwaitingAnswers =>
+                        "Ön analiz soruları yanıtlanmayı bekliyor. SQL Bağlantı Ayarları'ndan tamamlayın.",
+                    ProfileStatus.Profiling =>
+                        "Ön analiz sürüyor. Tamamlanınca sorgu gönderebilirsiniz.",
+                    ProfileStatus.Failed =>
+                        "Ön analiz başarısız oldu. SQL Bağlantı Ayarları'ndan tekrar çalıştırın.",
+                    _ =>
+                        "Bu bağlantı için ön analiz yapılmamış. Önce tabloları seçip 'Ön Analiz' çalıştırın."
+                },
+                status = profileStatus
+            });
+        }
+
         // 1. Config'i bul
         var config = await db.AnalysisConfigs
             .FirstOrDefaultAsync(c => c.ConnectionId == request.ConnectionId && c.IsActive && c.Status == "ready");
@@ -49,9 +87,12 @@ public static class AgentQueryEndpoints
         if (config is null)
             return Results.BadRequest(new { error = "Bu bağlantı için henüz analiz yapılmamış. Önce 'Analiz Et' butonuna tıklayın." });
 
-        // 2. Bağlantı bilgilerini al
+        // 2. Bağlantı bilgilerini al — sirket suzgeciyle: baska bir sirketin
+        // baglanti kimligini bilen biri onun veritabanini sorgulayamasin.
         var savedConn = await db.SavedConnections
-            .FirstOrDefaultAsync(c => c.Id == request.ConnectionId && c.IsActive);
+            .FirstOrDefaultAsync(c => c.Id == request.ConnectionId
+                                   && c.CompanyId == scopedCompanyId
+                                   && c.IsActive);
 
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
@@ -210,13 +251,34 @@ public static class AgentQueryEndpoints
             }
         }
 
+        // Basarisiz sorgunun sebebi ResultJson'a yaziliyordu ama cevapta hic
+        // yer almiyordu; arayuz de mecburen "Analiz basarisiz oldu" gibi sabit
+        // bir cumle gosteriyordu. Sunucu sebebi biliyorken kullanicinin
+        // bilmemesi icin bir neden yok — ornegin "Invalid column name 'X'"
+        // hatasini goren kullanici sorusunu duzeltebilir.
+        string? failureReason = null;
+        if (query.Status == "failed" && !string.IsNullOrWhiteSpace(query.ResultJson))
+        {
+            try
+            {
+                var stored = JsonSerializer.Deserialize<JsonElement>(query.ResultJson);
+                if (stored.TryGetProperty("error", out var errorProp))
+                    failureReason = errorProp.GetString();
+            }
+            catch (JsonException)
+            {
+                // Bozuk kayit durumu bildirmeyi engellemesin.
+            }
+        }
+
         return Results.Ok(new
         {
             queryId = query.Id,
             status = query.Status,
             question = query.Question,
             createdAt = query.CreatedAt,
-            completedAt = query.CompletedAt
+            completedAt = query.CompletedAt,
+            error = failureReason
         });
     }
 

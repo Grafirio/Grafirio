@@ -25,6 +25,39 @@ ChartJS.register(
   Title, Tooltip, Legend, Filler
 );
 
+/**
+ * Sunucudan gelen ham hata metnini kullanicinin bir sey yapabilecegi bir
+ * cumleye cevirir. Ham metin de korunuyor: cogu durumda asil bilgi orada
+ * (hangi kolon, hangi tablo) ve gizlemek teshisi imkansizlastiriyor.
+ *
+ * En sik gorulen durum, LLM'in var olmayan bir kolon adi uretmesi. Bu
+ * kullanici hatasi degil ama kullanicinin duzeltebilecegi bir sey: soruyu
+ * dogru kolon adiyla tekrar sormasi yetiyor.
+ */
+const describeAnalysisFailure = (raw) => {
+  if (!raw) return 'Analiz başarısız oldu. Sunucu bir sebep bildirmedi.';
+
+  const column = raw.match(/Invalid column name '([^']+)'/i);
+  if (column) {
+    return `Veritabanında '${column[1]}' adında bir kolon yok. Sorunuzda geçen alan adını kontrol edip tekrar deneyin.`;
+  }
+
+  const table = raw.match(/Invalid object name '([^']+)'/i);
+  if (table) {
+    return `Veritabanında '${table[1]}' adında bir tablo yok. Bağlantının tablo seçimini kontrol edin.`;
+  }
+
+  if (/login failed|authentication|password/i.test(raw)) {
+    return 'Veritabanı kimlik doğrulaması başarısız. Bağlantı ayarlarındaki kullanıcı ve şifreyi kontrol edin.';
+  }
+
+  if (/timeout|timed out/i.test(raw)) {
+    return 'Veritabanı zaman aşımına uğradı. Sunucuya erişilebildiğinden emin olun.';
+  }
+
+  return raw.length > 300 ? `${raw.slice(0, 300)}…` : raw;
+};
+
 const AgentQueryPage = () => {
   const [searchParams] = useSearchParams();
   const initialConnectionId = searchParams.get('connectionId');
@@ -239,14 +272,20 @@ const AgentQueryPage = () => {
         } else if (status.status === 'failed') {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
-          
+
+          // Sunucu artik sebebi de donuyor. Sabit "başarısız oldu" cumlesi
+          // kullaniciya hicbir sey soylemiyordu; oysa sebep cogu zaman
+          // kullanicinin kendi duzeltebilecegi bir sey oluyor (ornegin
+          // olmayan bir kolon adi).
+          const reason = describeAnalysisFailure(status.error);
+
           setMessages(prev => {
             const newMessages = [...prev];
             const lastIdx = newMessages.length - 1;
             if (newMessages[lastIdx]?.role === 'ai' && newMessages[lastIdx]?.loading) {
               newMessages[lastIdx] = {
                 role: 'ai',
-                content: '❌ Analiz başarısız oldu.',
+                content: `❌ ${reason}`,
                 error: true,
                 timestamp: new Date().toISOString()
               };
@@ -254,7 +293,7 @@ const AgentQueryPage = () => {
             return newMessages;
           });
 
-          setError('Analiz başarısız oldu');
+          setError(reason);
           setIsQuerying(false);
           setActiveQueryId(null);
         }

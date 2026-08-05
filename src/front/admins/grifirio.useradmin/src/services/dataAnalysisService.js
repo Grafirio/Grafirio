@@ -432,3 +432,61 @@ export const getAgentQueryHistory = async (connectionId) => {
     throw error;
   }
 };
+
+/* ─────────────────────────────────────────────────────────────
+   Tablo seçimi ve ön analiz
+
+   Tablo seçimi eskiden yalnızca localStorage'da tutuluyordu; sunucu hangi
+   tabloların seçildiğini bilmediği için "yalnızca seçili tablolar işlenir"
+   kuralı uygulanamıyor, şema çıkarma tüm veritabanını tarıyordu.
+───────────────────────────────────────────────────────────── */
+
+/** Seçili tabloları sunucuya kaydeder. Seçim değişince profil geçersiz olur. */
+export const saveSelectedTables = async (connectionId, tables) => {
+  const response = await axios.put(
+    `${API_BASE_URL}/api/connections/${connectionId}/tables`,
+    { tables },
+    { timeout: 20000 }
+  );
+  return response.data;
+};
+
+export const getSelectedTables = async (connectionId) => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/connections/${connectionId}/tables`,
+    { timeout: 20000 }
+  );
+  return response.data;
+};
+
+/**
+ * Ön analizi başlatır: seçili tabloların profilini çıkarır ve semantik
+ * sözlük üretir. Veritabanına gerçekten bağlanıp örnek değer okuduğu için
+ * uzun sürebilir — timeout bilerek geniş.
+ */
+export const startPreAnalysis = async (connectionId, samplingConsentGiven = false) => {
+  const response = await axios.post(
+    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis`,
+    { samplingConsentGiven },
+    { timeout: 300000 }
+  );
+  return response.data;
+};
+
+export const getPreAnalysisState = async (connectionId) => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis`,
+    { timeout: 20000 }
+  );
+  return response.data;
+};
+
+/** Kullanıcının soru yanıtlarını gönderir; bağlantı `ready` olur. */
+export const submitPreAnalysisAnswers = async (connectionId, answers) => {
+  const response = await axios.post(
+    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis/answers`,
+    { answers },
+    { timeout: 30000 }
+  );
+  return response.data;
+};
