@@ -124,7 +124,8 @@ const DashboardPage = () => {
           <div>
             <h2>Veri kaynağı ızgarası</h2>
             <p className="db-card-sub">
-              Kayıtlı bağlantılarınız. Yenisini eklemek için karta tıklayın.
+              Bir bağlantıya <strong>çift tıklayın</strong> — solda yapay zekâ sohbeti,
+              sağda grafik kanvası açılır.
             </p>
           </div>
           <span className="db-hint">firma geneli</span>
@@ -138,7 +139,16 @@ const DashboardPage = () => {
 
             {!loadingConns &&
               connections.map((c) => (
-                <div className="db-tile" key={c.id}>
+                // Tasarim taslagindaki davranis: baglanti kartina cift tik,
+                // solda sohbet sagda kanvas. Kanvas ana konusma ekrani oldugu
+                // icin buradan dogrudan aciliyor.
+                <div
+                  className="db-tile"
+                  key={c.id}
+                  onDoubleClick={() => navigate(`/canvas?connectionId=${c.id}`)}
+                  title="Kanvası açmak için çift tıklayın"
+                  style={{ cursor: 'pointer', userSelect: 'none' }}
+                >
                   <div className="db-tile-head">
                     <span className="db-tile-icon" />
                     <span className="db-tile-name">

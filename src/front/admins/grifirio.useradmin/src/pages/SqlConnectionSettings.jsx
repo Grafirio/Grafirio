@@ -1041,7 +1041,7 @@ const SqlConnectionSettings = () => {
                   </button>
                   <button
                     className="gf-btn gf-btn--sm"
-                    onClick={() => navigate(`/ai-query?connectionId=${connection.savedConnectionId || connection.id}`)}
+                    onClick={() => navigate(`/canvas?connectionId=${connection.savedConnectionId || connection.id}`)}
                   >
                     <i className="ti ti-brain"></i> AI Sorgulama
                   </button>

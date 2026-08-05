@@ -4,6 +4,8 @@
  *           → Django AI (Planner → Executor → Composer) → LLM
  *           → C# QueryResultStore (Redis) → Frontend poll
  */
+import keycloak from '../keycloak';
+
 const CSHARP_BASE =
   import.meta.env.VITE_API_URL
     ? `${import.meta.env.VITE_API_URL}/data-analysis`
@@ -11,6 +13,18 @@ const CSHARP_BASE =
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 90; // ~3 dakika — çok görevli planlar 90 saniyeyi aşabilir
+
+/**
+ * Bu dosya axios değil ham `fetch` kullanıyor; dataAnalysisService'teki axios
+ * interceptor'ı buraya uygulanmıyordu ve istekler Authorization başlığı
+ * olmadan gidiyordu. Gateway token'sız isteği 401'liyor — kanvastan sorulan
+ * her soru bu yüzden düşüyordu.
+ */
+const authHeaders = (extra = {}) => {
+  const headers = { ...extra };
+  if (keycloak.token) headers.Authorization = `Bearer ${keycloak.token}`;
+  return headers;
+};
 
 /**
  * Soruyu MassTransit pipeline'ına gönder ve yanıtı bekle.
@@ -39,7 +53,7 @@ export const sendChatMessage = async (question, history = [], options = {}) => {
   // 1. C# API'ye gönder → MassTransit publish tetiklenir
   const sendRes = await fetch(`${CSHARP_BASE}/api/ai/reports/ask-question`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       requestId,
       question,
@@ -70,7 +84,9 @@ export const sendChatMessage = async (question, history = [], options = {}) => {
   for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
 
-    const pollRes = await fetch(`${CSHARP_BASE}/api/ai/reports/status/${requestId}`);
+    const pollRes = await fetch(`${CSHARP_BASE}/api/ai/reports/status/${requestId}`, {
+      headers: authHeaders(),
+    });
     if (!pollRes.ok) continue;
 
     const data = await pollRes.json();

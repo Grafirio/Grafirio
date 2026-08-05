@@ -88,6 +88,16 @@ const canvasRoutes = [
       { path: '', element: <CanvasPage /> },
     ],
   },
+  // Kanvas artik dogrudan bir baglantidan da acilabiliyor:
+  // /canvas?connectionId=... — analiz kaydi olusmasini beklemeden.
+  // Kanvas ana konusma ekrani oldugu icin bu giris yolu gerekli.
+  {
+    path: '/canvas',
+    element: <CanvasLayout />,
+    children: [
+      { path: '', element: <CanvasPage /> },
+    ],
+  },
 ];
 
 export { canvasRoutes };

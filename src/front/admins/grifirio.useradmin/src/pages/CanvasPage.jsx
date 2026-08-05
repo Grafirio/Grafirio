@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconX, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
-import { generateAIReport } from '../services/dataAnalysisService';
+import { generateAIReport, getConnectionById, getSelectedTables } from '../services/dataAnalysisService';
 import { sendChatMessage } from '../services/aiChatService';
 import './CanvasPage.css';
 
@@ -56,6 +56,7 @@ const buildCanvasNodes = (report, parentId, posRef) => {
 export default function CanvasPage() {
   const { analysisId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [analysis, setAnalysis] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -82,7 +83,47 @@ export default function CanvasPage() {
      ve tuval bozulmus gibi gorunuyordu. Artik ayrica isaretleniyor. */
   const [analysisMissing, setAnalysisMissing] = useState(false);
 
+  // Kanvas iki yoldan aciliyor:
+  //   /canvas/:analysisId          -> eski yol, kayit localStorage'da
+  //   /canvas?connectionId=...     -> baglantidan dogrudan; veritabani adi ve
+  //                                   secili tablolar sunucudan okunuyor
+  // Ikincisi kanvasi ana konusma ekrani yapiyor: onceden bir analiz kaydi
+  // olusmadan buraya girilemiyordu.
+  const connectionId = new URLSearchParams(location.search).get('connectionId');
+
   useEffect(() => {
+    let cancelled = false;
+
+    const loadFromConnection = async () => {
+      try {
+        const [connection, selection] = await Promise.all([
+          getConnectionById(connectionId),
+          getSelectedTables(connectionId).catch(() => ({ tables: [] })),
+        ]);
+
+        if (cancelled) return;
+
+        const conn = connection?.connection ?? connection?.data ?? connection;
+        setAnalysis({
+          requestId: connectionId,
+          connectionId,
+          database: conn?.database || conn?.name || 'Veritabanı',
+          tables: selection?.tables ?? [],
+        });
+        setAnalysisMissing(false);
+      } catch {
+        if (!cancelled) {
+          setAnalysis(null);
+          setAnalysisMissing(true);
+        }
+      }
+    };
+
+    if (connectionId) {
+      loadFromConnection();
+      return () => { cancelled = true; };
+    }
+
     const stored = localStorage.getItem('activeAnalyses');
     let found = null;
     if (stored) {
@@ -94,7 +135,8 @@ export default function CanvasPage() {
     }
     setAnalysis(found);
     setAnalysisMissing(!found);
-  }, [analysisId]);
+    return () => { cancelled = true; };
+  }, [analysisId, connectionId]);
 
   /* Auto-scroll chat */
   useEffect(() => {
