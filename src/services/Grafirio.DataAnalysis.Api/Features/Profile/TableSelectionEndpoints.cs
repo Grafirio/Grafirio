@@ -19,7 +19,8 @@ public static class TableSelectionEndpoints
     public static void MapTableSelectionEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/connections/{connectionId:guid}/tables")
-            .RequireAuthorization()
+            // Politika adli: paylasilan kurulumda varsayilan sema yok.
+            .RequireAuthorization("CompanyAccess")
             .WithTags("Table Selection")
             .WithOpenApi();
 

@@ -18,7 +18,7 @@ public static class AgentQueryEndpoints
         // kimligi olmayan cagri sessizce Forbid'e dusuyor; niyeti acikca
         // belirtmek daha dogru.
         var group = app.MapGroup("/api/agent")
-            .RequireAuthorization()
+            .RequireAuthorization("CompanyAccess")
             .WithTags("AI Agent Query")
             .WithOpenApi();
 

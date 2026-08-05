@@ -24,7 +24,8 @@ public static class PreAnalysisEndpoints
     public static void MapPreAnalysisEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/connections/{connectionId:guid}/pre-analysis")
-            .RequireAuthorization()
+            // Politika adli: paylasilan kurulumda varsayilan sema yok.
+            .RequireAuthorization("CompanyAccess")
             .WithTags("Pre-Analysis")
             .WithOpenApi();
 

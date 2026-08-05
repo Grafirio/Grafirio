@@ -14,7 +14,13 @@ public static class SavedConnectionEndpoints
         // kimligi sorgu dizesinden geliyordu; ?userId=<baskasi> yazan herkes
         // o kisinin kayitli baglantilarini, /decrypt ile de veritabani
         // parolasini okuyabiliyordu.
-        var group = app.MapGroup("/api/connections").RequireAuthorization();
+        // Politika adi bilerek veriliyor. Ciplak RequireAuthorization() burada
+        // calismiyordu: paylasilan kurulum AddAuthentication()'i varsayilan sema
+        // vermeden cagiriyor, dolayisiyla "No authenticationScheme was specified"
+        // ile her istek 400 donuyordu — bu uc uretimde bu yuzden bozuktu.
+        // CompanyAccess hem semayi belirtiyor hem de company_id claim'ini sart
+        // kosuyor; zaten sirket suzgeci icin ona ihtiyacimiz var.
+        var group = app.MapGroup("/api/connections").RequireAuthorization("CompanyAccess");
 
         group.MapPost("/", SaveConnection)
             .WithName("SaveConnection")
