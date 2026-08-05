@@ -120,6 +120,14 @@ builder.Services.AddGrafirioMassTransit(
 // userId ile baskasinin kayitli baglantilarini okuyabiliyordu.
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 
+// IIdentityService (token'daki company_id / userId'yi okuyan servis) burada
+// kayitli degildi; Commerce ve Identity servisleri bunu yapiyor, bu servis
+// atlamis. Sonuc: sirket suzgeci kullanan her uc "No service for type
+// IIdentityService" ile 400 donuyordu. IdentityService HttpContext'e
+// bagimli oldugu icin accessor da gerekiyor.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddIdentityServicesExt();
+
 var app = builder.Build();
 
 // Auto-migrate database on startup
