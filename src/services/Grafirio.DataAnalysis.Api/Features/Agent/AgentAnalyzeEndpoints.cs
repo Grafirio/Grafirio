@@ -2,7 +2,9 @@ using System.Text.Json;
 using Dapper;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Services;
+using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,7 @@ public static class AgentAnalyzeEndpoints
     public static void MapAgentAnalyzeEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/agent")
+            .RequireAuthorization("CompanyAccess")
             .WithTags("AI Agent")
             .WithOpenApi();
 
@@ -34,14 +37,29 @@ public static class AgentAnalyzeEndpoints
         Guid connectionId,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] GeminiService gemini,
+        [FromServices] ConnectionProfileStore profileStore,
+        [FromServices] IIdentityService identity,
         [FromServices] ILogger<GeminiService> logger)
     {
-        // 1. Kayıtlı bağlantıyı bul
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+        var scopedCompanyId = companyId.Value.ToString();
+
+        // 1. Kayıtlı bağlantıyı bul — sirket suzgeciyle.
         var savedConn = await db.SavedConnections
-            .FirstOrDefaultAsync(c => c.Id == connectionId && c.IsActive);
+            .FirstOrDefaultAsync(c => c.Id == connectionId
+                                   && c.CompanyId == scopedCompanyId
+                                   && c.IsActive);
 
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
+
+        var selectedTables = await profileStore.GetSelectedTablesAsync(connectionId, scopedCompanyId);
+        if (selectedTables.Count == 0)
+            return Results.BadRequest(new
+            {
+                error = "Önce analiz edilecek tabloları seçin. Analiz yalnızca seçili tablolar üzerinde çalışır."
+            });
 
         // Varsa eski config'i kontrol et
         var existingConfig = await db.AnalysisConfigs
@@ -81,7 +99,7 @@ public static class AgentAnalyzeEndpoints
         {
             var password = EncryptionHelper.Decrypt(savedConn.EncryptedPassword);
             var connStr = BuildConnectionString(savedConn, password);
-            schemaInfo = await FetchSchemaFromDatabase(connStr, savedConn.Database);
+            schemaInfo = await FetchSchemaFromDatabase(connStr, savedConn.Database, selectedTables);
         }
         catch (Exception ex)
         {
@@ -185,19 +203,33 @@ public static class AgentAnalyzeEndpoints
         return csb.ConnectionString;
     }
 
-    private static async Task<SchemaInfo> FetchSchemaFromDatabase(string connectionString, string dbName)
+    private static async Task<SchemaInfo> FetchSchemaFromDatabase(
+        string connectionString, string dbName, IReadOnlyList<string> selectedTables)
     {
         using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
 
-        // Tabloları al
+        // Yalnizca secili tablolar. Onceden butun veritabani taraniyordu:
+        // hem kullanicinin koydugu "sadece secili tablolar" kuralini ihlal
+        // ediyor hem de 42 tablonun semasi tek istemde LLM'in dakikalik token
+        // kotasini asip 429 aliyordu.
+        var tableNames = selectedTables
+            .Select(t => t.Replace("[", "").Replace("]", "").Split('.').Last().Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (tableNames.Count == 0)
+            throw new InvalidOperationException(
+                "Tablo seçimi yapılmamış. Önce analiz edilecek tabloları seçin.");
+
         var tablesQuery = @"
             SELECT TABLE_NAME as TableName, TABLE_SCHEMA as [Schema]
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_TYPE = 'BASE TABLE'
+            WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME IN @Names
             ORDER BY TABLE_SCHEMA, TABLE_NAME";
 
-        var tables = (await connection.QueryAsync<dynamic>(tablesQuery)).ToList();
+        var tables = (await connection.QueryAsync<dynamic>(tablesQuery, new { Names = tableNames })).ToList();
 
         var schemaInfo = new SchemaInfo { DatabaseName = dbName };
 

@@ -98,14 +98,42 @@ public sealed class LlmClient : ILlmClient
 
         foreach (var legacy in attempts)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("api-key", apiKey);
-            request.Content = new StringContent(
-                BuildAzurePayload(prompt, temperature, maxTokens, legacy),
-                Encoding.UTF8, "application/json");
+            // 429 (kota) gecici bir durumdur; tek denemede vazgecmek analizin
+            // tamamini bosa cikariyor. Azure `Retry-After` basligiyla ne kadar
+            // beklenecegini soyluyor — ona uyuluyor, yoksa ustel geri cekilme.
+            const int maxRateLimitRetries = 4;
+            var rateLimitAttempt = 0;
 
-            response = await client.SendAsync(request, cancellationToken);
-            body = await response.Content.ReadAsStringAsync(cancellationToken);
+            while (true)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Headers.Add("api-key", apiKey);
+                request.Content = new StringContent(
+                    BuildAzurePayload(prompt, temperature, maxTokens, legacy),
+                    Encoding.UTF8, "application/json");
+
+                response = await client.SendAsync(request, cancellationToken);
+                body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests) break;
+
+                if (++rateLimitAttempt > maxRateLimitRetries)
+                {
+                    throw new InvalidOperationException(
+                        "Azure OpenAI kota sınırı aşıldı ve tekrar denemeler yetmedi. " +
+                        "Deployment kapasitesini yükseltmek gerekebilir. " +
+                        $"Sunucu yanıtı: {Truncate(body, 200)}");
+                }
+
+                var wait = response.Headers.RetryAfter?.Delta
+                           ?? TimeSpan.FromSeconds(Math.Pow(2, rateLimitAttempt) * 2);
+
+                _logger.LogWarning(
+                    "Azure OpenAI kota sınırı (429). {Wait} sn beklenip tekrar denenecek ({Attempt}/{Max}).",
+                    wait.TotalSeconds, rateLimitAttempt, maxRateLimitRetries);
+
+                await Task.Delay(wait, cancellationToken);
+            }
 
             if (!legacy && response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
                 IsUnsupportedParameter(body))
