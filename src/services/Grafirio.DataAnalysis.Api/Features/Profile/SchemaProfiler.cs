@@ -18,7 +18,12 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// </summary>
 public class SchemaProfiler(ILogger<SchemaProfiler> logger)
 {
+    /// <summary>LLM'e gonderilecek ornek deger sayisi (kolon basina).</summary>
     private const int SampleSize = 20;
+
+    /// <summary>Profil cikarilirken tablodan cekilen satir sayisi.</summary>
+    private const int SampleRowCount = 1000;
+
     private const int LowCardinalityThreshold = 50;
 
     public async Task<DatabaseProfile> ProfileAsync(
@@ -100,9 +105,19 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
                   AND t.TABLE_SCHEMA = @Schema AND t.TABLE_NAME = @Table",
                 new { Schema = schema, Table = table }, cancellationToken: ct))).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Tablodan TEK sorguyla ornek satir kumesi cekilir ve butun kolon
+        // istatistikleri bu kume uzerinden bellekte hesaplanir.
+        //
+        // Onceki surum her kolon icin ayri COUNT(DISTINCT)/MIN/MAX ve ayri bir
+        // ornek sorgusu calistiriyordu: 30 kolonlu bir tabloda 60'tan fazla tam
+        // tarama demekti ve gateway zaman asimina ugruyordu. Profil icin kesin
+        // sayilara ihtiyac yok; amac kolonun ne oldugunu anlamak.
+        var sampleRows = await FetchSampleRowsAsync(connection, schema, table, ct);
+        result.SampledRowCount = sampleRows.Rows.Count;
+
         foreach (var column in columns)
         {
-            var stats = await FetchColumnStatsAsync(connection, schema, table, column, ct);
+            var stats = ComputeStats(sampleRows, column.ColumnName);
 
             var decision = SensitiveColumnPolicy.Evaluate(
                 column.ColumnName, column.DataType, stats.DistinctCount, LowCardinalityThreshold);
@@ -118,6 +133,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
                 NullCount = stats.NullCount,
                 MinValue = stats.MinValue,
                 MaxValue = stats.MaxValue,
+                StatsFromSample = true,
                 SamplingDecision = decision.Decision.ToString(),
                 SamplingNote = decision.Reason
             };
@@ -126,7 +142,10 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
                             || (decision.Decision == SensitiveColumnPolicy.Decision.NeedsConsent && consent);
 
             if (maySample)
-                profile.SampleValues = await FetchSamplesAsync(connection, schema, table, column.ColumnName, ct);
+                profile.SampleValues = stats.DistinctValues
+                    .Where(SensitiveColumnPolicy.IsValueSafe)
+                    .Take(SampleSize)
+                    .ToList();
 
             result.Columns.Add(profile);
         }
@@ -134,55 +153,64 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
         return result;
     }
 
-    private static async Task<ColumnStats> FetchColumnStatsAsync(
-        SqlConnection connection, string schema, string table, ColumnRow column, CancellationToken ct)
+    /// <summary>
+    /// Tablodan ornek satirlari tek sorguyla ceker. ORDER BY yok: amac
+    /// temsili bir kesit, siralama garantisi degil — ve siralamak buyuk
+    /// tabloda taramayi geri getirirdi.
+    /// </summary>
+    private static async Task<DataTable> FetchSampleRowsAsync(
+        SqlConnection connection, string schema, string table, CancellationToken ct)
     {
-        // Kolon adi parametre olarak gecirilemez (tanimlayici), bu yuzden
-        // koseli parantez icine alinip icindeki ] iki katina cikariliyor —
-        // SQL Server'in tanimlayici kacisi budur.
-        var col = Quote(column.ColumnName);
-        var tbl = $"{Quote(schema)}.{Quote(table)}";
+        var sql = $"SELECT TOP {SampleRowCount} * FROM {Quote(schema)}.{Quote(table)}";
+        var result = new DataTable();
 
-        var isComparable = column.DataType.ToLowerInvariant() is not ("text" or "ntext" or "image" or "xml" or "geography" or "geometry");
+        await using var command = new SqlCommand(sql, connection);
+        command.CommandTimeout = 60;
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        result.Load(reader);
 
-        var sql = isComparable
-            ? $"SELECT COUNT(DISTINCT {col}) AS DistinctCount, SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS NullCount, CAST(MIN({col}) AS NVARCHAR(200)) AS MinValue, CAST(MAX({col}) AS NVARCHAR(200)) AS MaxValue FROM {tbl}"
-            : $"SELECT NULL AS DistinctCount, SUM(CASE WHEN {col} IS NULL THEN 1 ELSE 0 END) AS NullCount, NULL AS MinValue, NULL AS MaxValue FROM {tbl}";
-
-        try
-        {
-            return await connection.QuerySingleAsync<ColumnStats>(
-                new CommandDefinition(sql, cancellationToken: ct));
-        }
-        catch
-        {
-            // Tek bir kolonun istatistigi alinamadi diye profil komple
-            // dusmesin; o kolon istatistiksiz devam eder.
-            return new ColumnStats();
-        }
+        return result;
     }
 
-    private static async Task<List<string>> FetchSamplesAsync(
-        SqlConnection connection, string schema, string table, string columnName, CancellationToken ct)
+    private static SampleStats ComputeStats(DataTable rows, string columnName)
     {
-        var col = Quote(columnName);
-        var tbl = $"{Quote(schema)}.{Quote(table)}";
-        var sql = $"SELECT DISTINCT TOP {SampleSize} CAST({col} AS NVARCHAR(200)) AS Value FROM {tbl} WHERE {col} IS NOT NULL";
+        var stats = new SampleStats();
+        if (!rows.Columns.Contains(columnName)) return stats;
 
-        try
+        var distinct = new HashSet<string>(StringComparer.Ordinal);
+        long nullCount = 0;
+        string? min = null, max = null;
+
+        foreach (DataRow row in rows.Rows)
         {
-            var values = await connection.QueryAsync<string>(new CommandDefinition(sql, cancellationToken: ct));
-            // Kolon adi masum olsa bile icerigi hassas desene uyan degerler elenir.
-            return values
-                .Where(SensitiveColumnPolicy.IsValueSafe)
-                .Take(SampleSize)
-                .ToList();
+            var raw = row[columnName];
+            if (raw is null || raw == DBNull.Value) { nullCount++; continue; }
+
+            var text = Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+            if (text.Length > 200) text = text[..200];
+
+            distinct.Add(text);
+            if (min is null || string.CompareOrdinal(text, min) < 0) min = text;
+            if (max is null || string.CompareOrdinal(text, max) > 0) max = text;
         }
-        catch
-        {
-            return [];
-        }
+
+        stats.DistinctCount = distinct.Count;
+        stats.NullCount = nullCount;
+        stats.MinValue = min;
+        stats.MaxValue = max;
+        stats.DistinctValues = distinct.ToList();
+        return stats;
     }
+
+    private sealed class SampleStats
+    {
+        public int? DistinctCount { get; set; }
+        public long? NullCount { get; set; }
+        public string? MinValue { get; set; }
+        public string? MaxValue { get; set; }
+        public List<string> DistinctValues { get; set; } = [];
+    }
+
 
     private static async Task<List<RelationshipProfile>> FetchRelationshipsAsync(
         SqlConnection connection, IReadOnlyList<string> selectedTables, CancellationToken ct)
@@ -246,6 +274,10 @@ public class TableProfile
     public string Schema { get; set; } = "";
     public string TableName { get; set; } = "";
     public long ApproximateRowCount { get; set; }
+
+    /// <summary>Istatistiklerin hesaplandigi ornek satir sayisi.</summary>
+    public int SampledRowCount { get; set; }
+
     public List<ColumnProfile> Columns { get; set; } = [];
     public string? Error { get; set; }
 }
@@ -262,6 +294,14 @@ public class ColumnProfile
     public string? MinValue { get; set; }
     public string? MaxValue { get; set; }
     public List<string> SampleValues { get; set; } = [];
+
+    /// <summary>
+    /// Istatistikler tam tablodan degil ornek satirlardan hesaplandi.
+    /// LLM'in "distinct 12" gibi bir sayiyi kesin gercek sanmamasi icin
+    /// profile acikca yaziliyor.
+    /// </summary>
+    public bool StatsFromSample { get; set; }
+
     public string SamplingDecision { get; set; } = "";
     public string? SamplingNote { get; set; }
 }

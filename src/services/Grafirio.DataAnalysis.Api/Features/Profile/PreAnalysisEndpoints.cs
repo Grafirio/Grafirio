@@ -72,61 +72,75 @@ public static class PreAnalysisEndpoints
             });
         }
 
-        await store.SetStatusAsync(connectionId, scopedCompanyId, ProfileStatus.Profiling, ct: ct);
-
-        DatabaseProfile profile;
+        string connectionString;
         try
         {
-            var password = EncryptionHelper.Decrypt(connection.EncryptedPassword);
-            var connectionString = BuildConnectionString(connection, password);
-
-            profile = await profiler.ProfileAsync(
-                connectionString, connection.Database, selectedTables,
-                request?.SamplingConsentGiven ?? false, ct);
+            connectionString = BuildConnectionString(
+                connection, EncryptionHelper.Decrypt(connection.EncryptedPassword));
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Profil çıkarılamadı. Connection: {ConnectionId}", connectionId);
-            await store.SetStatusAsync(connectionId, scopedCompanyId, ProfileStatus.Failed, ex.Message, ct);
-            return Results.Problem($"Veritabanı profili çıkarılamadı: {ex.Message}");
+            return Results.Problem($"Bağlantı bilgileri çözülemedi: {ex.Message}");
         }
 
-        var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
-        var dictionaryResult = await llm.BuildSemanticDictionary(profileJson, ct);
+        await store.SetStatusAsync(connectionId, scopedCompanyId, ProfileStatus.Profiling, ct: ct);
 
-        if (!dictionaryResult.Success)
+        // Is arka planda yurutuluyor ve uc hemen donuyor.
+        //
+        // Onceden her sey istek icinde yapiliyordu: profil + LLM cagrisi
+        // birlikte gateway'in zaman asimini asiyor ve kullanici 504 goruyordu.
+        // Sonuc aslinda uretilmis olabiliyordu ama istemci onu hic gormuyordu.
+        // Durum zaten Mongo'da tutuluyor; arayuz GET ile takip ediyor.
+        var databaseName = connection.Database;
+        var consent = request?.SamplingConsentGiven ?? false;
+
+        _ = Task.Run(async () =>
         {
-            await store.SetStatusAsync(connectionId, scopedCompanyId, ProfileStatus.Failed, dictionaryResult.Error, ct);
-            return dictionaryResult.IsConfigurationError
-                ? Results.Problem(detail: dictionaryResult.Error,
-                    title: "Yapay zekâ servisi yapılandırılmamış",
-                    statusCode: StatusCodes.Status503ServiceUnavailable)
-                : Results.Problem(detail: dictionaryResult.Error,
-                    title: "Semantik sözlük üretilemedi",
-                    statusCode: StatusCodes.Status502BadGateway);
-        }
+            try
+            {
+                var profile = await profiler.ProfileAsync(
+                    connectionString, databaseName, selectedTables, consent, CancellationToken.None);
 
-        var questions = ExtractQuestions(dictionaryResult.PyCaretParamsJson);
-        var status = questions.Count > 0 ? ProfileStatus.AwaitingAnswers : ProfileStatus.Ready;
+                var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
+                var dictionaryResult = await llm.BuildSemanticDictionary(profileJson, CancellationToken.None);
 
-        var stored = JsonSerializer.Serialize(new StoredProfile
-        {
-            Profile = profileJson,
-            Dictionary = dictionaryResult.PyCaretParamsJson,
-            Summary = dictionaryResult.Explanation
-        }, JsonOptions);
+                if (!dictionaryResult.Success)
+                {
+                    await store.SetStatusAsync(
+                        connectionId, scopedCompanyId, ProfileStatus.Failed, dictionaryResult.Error);
+                    return;
+                }
 
-        await store.SaveProfileAsync(connectionId, scopedCompanyId, stored, status, ct);
+                var questions = ExtractQuestions(dictionaryResult.PyCaretParamsJson);
+                var finalStatus = questions.Count > 0 ? ProfileStatus.AwaitingAnswers : ProfileStatus.Ready;
 
-        return Results.Ok(new
+                var stored = JsonSerializer.Serialize(new StoredProfile
+                {
+                    Profile = profileJson,
+                    Dictionary = dictionaryResult.PyCaretParamsJson,
+                    Summary = dictionaryResult.Explanation,
+                    TableCount = profile.Tables.Count,
+                    ColumnCount = profile.Tables.Sum(t => t.Columns.Count),
+                    SampledColumnCount = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0))
+                }, JsonOptions);
+
+                await store.SaveProfileAsync(connectionId, scopedCompanyId, stored, finalStatus);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Ön analiz başarısız. Connection: {ConnectionId}", connectionId);
+                await store.SetStatusAsync(
+                    connectionId, scopedCompanyId, ProfileStatus.Failed, ex.Message);
+            }
+        }, CancellationToken.None);
+
+        // 202: is kabul edildi, sonuc icin durumu sorgula.
+        return Results.Accepted(value: new
         {
             success = true,
-            status,
-            tableCount = profile.Tables.Count,
-            columnCount = profile.Tables.Sum(t => t.Columns.Count),
-            sampledColumnCount = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0)),
-            questions,
-            summary = dictionaryResult.Explanation
+            status = ProfileStatus.Profiling,
+            tableCount = selectedTables.Count,
+            message = "Ön analiz başlatıldı. Tablolar okunuyor ve anlamlandırılıyor."
         });
     }
 
@@ -153,7 +167,10 @@ public static class PreAnalysisEndpoints
             selectedTables = tables,
             questions = ExtractQuestions(stored?.Dictionary),
             summary = stored?.Summary,
-            answers = stored?.Answers
+            answers = stored?.Answers,
+            tableCount = stored?.TableCount,
+            columnCount = stored?.ColumnCount,
+            sampledColumnCount = stored?.SampledColumnCount
         });
     }
 
@@ -242,4 +259,10 @@ public class StoredProfile
     public string Dictionary { get; set; } = "";
     public string Summary { get; set; } = "";
     public Dictionary<string, string> Answers { get; set; } = [];
+
+    // Arayuzde gosterilen sayilar: is arka planda bittigi icin istek
+    // cevabinda donemiyoruz, durum sorgusuyla birlikte geliyorlar.
+    public int TableCount { get; set; }
+    public int ColumnCount { get; set; }
+    public int SampledColumnCount { get; set; }
 }

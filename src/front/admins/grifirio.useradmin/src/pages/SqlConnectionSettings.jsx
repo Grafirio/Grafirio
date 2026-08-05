@@ -75,29 +75,65 @@ const SqlConnectionSettings = () => {
     }
   };
 
+  // Sunucu isi arka planda yapiyor ve hemen 202 donuyor; sonucu durumu
+  // sorarak ogreniyoruz. Tek uzun istek gateway zaman asimina (504)
+  // takiliyordu — is aslinda bitiyordu ama cevabi kimse goremiyordu.
   const runPreAnalysis = async () => {
-    setPreAnalysis(p => ({ ...p, running: true, error: '' }));
+    setPreAnalysis(p => ({ ...p, running: true, error: '', questions: [], stats: null }));
     try {
-      const result = await startPreAnalysis(preAnalysis.connectionId, preAnalysis.consent);
-      setPreAnalysis(p => ({
-        ...p,
-        running: false,
-        status: result.status,
-        questions: result.questions || [],
-        summary: result.summary || '',
-        stats: {
-          tables: result.tableCount,
-          columns: result.columnCount,
-          sampled: result.sampledColumnCount
-        }
-      }));
+      await startPreAnalysis(preAnalysis.connectionId, preAnalysis.consent);
     } catch (error) {
       setPreAnalysis(p => ({
         ...p,
         running: false,
         error: error.response?.data?.detail || error.response?.data?.error || error.message
       }));
+      return;
     }
+
+    const connectionId = preAnalysis.connectionId;
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 10 * 60 * 1000;
+
+    const poll = async () => {
+      if (Date.now() - startedAt > TIMEOUT_MS) {
+        setPreAnalysis(p => ({
+          ...p, running: false,
+          error: 'Ön analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.'
+        }));
+        return;
+      }
+
+      try {
+        const state = await getPreAnalysisState(connectionId);
+
+        if (state.status === 'profiling') {
+          setTimeout(poll, 4000);
+          return;
+        }
+
+        setPreAnalysis(p => ({
+          ...p,
+          running: false,
+          status: state.status,
+          questions: state.questions || [],
+          summary: state.summary || '',
+          stats: state.tableCount
+            ? { tables: state.tableCount, columns: state.columnCount, sampled: state.sampledColumnCount }
+            : null,
+          error: state.status === 'failed'
+            ? 'Ön analiz başarısız oldu. Sunucu loglarında sebebi yazıyor.'
+            : ''
+        }));
+      } catch (error) {
+        setPreAnalysis(p => ({
+          ...p, running: false,
+          error: error.response?.data?.error || error.message
+        }));
+      }
+    };
+
+    setTimeout(poll, 3000);
   };
 
   const submitAnswers = async () => {
