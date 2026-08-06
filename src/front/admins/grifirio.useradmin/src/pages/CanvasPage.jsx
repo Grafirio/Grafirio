@@ -250,6 +250,7 @@ export default function CanvasPage() {
           a[a.length - 1] = {
             role: 'ai', content: answer, ts: Date.now(),
             result: { charts: res.charts || [] },
+            audit: res.audit || null,
           };
           return a;
         });
@@ -432,6 +433,53 @@ export default function CanvasPage() {
                       )}
                       {msg.result?.charts?.length > 0 && (
                         <div className="cp-msg-meta">📊 {msg.result.charts.length} grafik tuvale eklendi</div>
+                      )}
+
+                      {/* Denetim: sonucun dogru olup olmadigini anlamanin tek
+                          yolu, hangi karara varildigini gormek. Grafigin
+                          makul gorunmesi dogrulugunu kanitlamiyor. */}
+                      {msg.audit && (
+                        <details className="cp-audit">
+                          <summary>Nasıl hesaplandı?</summary>
+                          <dl className="cp-audit-rows">
+                            {msg.audit.targetTable && (
+                              <div><dt>Tablo</dt><dd>{msg.audit.targetTable}</dd></div>
+                            )}
+                            {msg.audit.groupBy?.length > 0 && (
+                              <div><dt>Gruplama</dt><dd>{msg.audit.groupBy.join(', ')}</dd></div>
+                            )}
+                            {msg.audit.targetColumn && (
+                              <div><dt>Ölçüm</dt><dd>{msg.audit.targetColumn}</dd></div>
+                            )}
+                            {msg.audit.aggregation && (
+                              <div><dt>İşlem</dt><dd>{msg.audit.aggregation}</dd></div>
+                            )}
+                            {msg.audit.filters && Object.keys(msg.audit.filters).length > 0 && (
+                              <div>
+                                <dt>Filtre</dt>
+                                <dd>{Object.entries(msg.audit.filters).map(([k, v]) => `${k} = ${v}`).join(' · ')}</dd>
+                              </div>
+                            )}
+                            {typeof msg.audit.rowsRead === 'number' && (
+                              <div><dt>Okunan satır</dt><dd>{msg.audit.rowsRead}</dd></div>
+                            )}
+                          </dl>
+
+                          {msg.audit.executedSql && (
+                            <>
+                              <div className="cp-audit-label">Çalıştırılan SQL</div>
+                              <pre className="cp-audit-sql">{msg.audit.executedSql}</pre>
+                            </>
+                          )}
+
+                          {msg.audit.aggregationPerformedIn === 'pandas' && (
+                            <p className="cp-audit-warn">
+                              ⚠ Gruplama ve toplama veritabanında değil, çekilen satırlar
+                              üzerinde bellekte yapıldı. Tablo bu satır sayısından büyükse
+                              sonuç <strong>kısmi veriye</strong> dayanır.
+                            </p>
+                          )}
+                        </details>
                       )}
                     </div>
                   </div>

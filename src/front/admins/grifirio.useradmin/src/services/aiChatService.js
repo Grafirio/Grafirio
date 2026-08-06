@@ -99,6 +99,9 @@ export const sendChatMessage = async (question, history = [], options = {}) => {
         answer:  result?.answer ?? 'Yanıt alındı.',
         charts:  result?.charts ?? [],
         failedTasks: result?.failedTasks ?? [],
+        // Denetim izi: hangi tablo/kolon seçildi, hangi SQL çalıştı.
+        // Sonucun doğruluğunu değerlendirmenin tek yolu bu.
+        audit:   result?.audit ?? null,
       };
     }
 

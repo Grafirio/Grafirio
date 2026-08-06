@@ -17,6 +17,10 @@ class AgentAnalyzer:
 
     def __init__(self, connection_string: str):
         self.engine = sqlalchemy.create_engine(connection_string)
+        # Denetim izi: uretilen sorgunun ve okunan satir sayisinin disari
+        # verilebilmesi icin tutuluyor. Kullanicinin "hangi sorgu calisti,
+        # dogru kolonu mu secti" sorusunu cevaplayabilmesi buna bagli.
+        self.audit: Dict[str, Any] = {}
 
     def run_analysis(self, config: Dict, params: Dict) -> Dict[str, Any]:
         """
@@ -45,34 +49,64 @@ class AgentAnalyzer:
         if not target_table:
             return self._error_result("Hedef tablo belirlenemedi")
 
+        # LLM'in verdigi kararlar denetim izine yaziliyor: kalite olcumunde
+        # asil bakilacak yer burasi. Uretilen SQL bugun basit; secimi yapan
+        # sey bu parametreler.
+        self.audit = {
+            "analysisType": analysis_type,
+            "targetTable": target_table,
+            "targetColumn": target_column,
+            "groupBy": group_by,
+            "aggregation": aggregation,
+            "filters": filters,
+            "sortBy": sort_by,
+            "sortOrder": sort_order,
+            "limit": limit,
+            # Bugunku hat gruplama/toplama isini SQL'de degil pandas'ta
+            # yapiyor; denetleyen kisi bunu bilmeli.
+            "aggregationPerformedIn": "pandas",
+        }
+
         try:
             # Tablodan veri çek
             df = self._load_table_data(target_table, filters, limit * 10)
 
             if df.empty:
-                return self._error_result(f"'{target_table}' tablosunda veri bulunamadı")
+                return self._with_audit(
+                    self._error_result(f"'{target_table}' tablosunda veri bulunamadı"))
 
             # Analiz tipine göre işlem yap
             if analysis_type in ("statistics", "correlation"):
-                return self._statistics_analysis(df, target_column, chart_type, chart_title, description)
+                result = self._statistics_analysis(df, target_column, chart_type, chart_title, description)
             elif analysis_type == "regression":
-                return self._regression_analysis(df, target_column, feature_columns, chart_type, chart_title, description)
+                result = self._regression_analysis(df, target_column, feature_columns, chart_type, chart_title, description)
             elif analysis_type == "classification":
-                return self._classification_analysis(df, target_column, feature_columns, chart_type, chart_title, description)
+                result = self._classification_analysis(df, target_column, feature_columns, chart_type, chart_title, description)
             elif analysis_type == "anomaly":
-                return self._anomaly_analysis(df, feature_columns, chart_type, chart_title, description)
+                result = self._anomaly_analysis(df, feature_columns, chart_type, chart_title, description)
             elif analysis_type == "clustering":
-                return self._clustering_analysis(df, feature_columns, chart_type, chart_title, description)
+                result = self._clustering_analysis(df, feature_columns, chart_type, chart_title, description)
             else:
                 # Genel gruplama / aggregation
-                return self._aggregation_analysis(
+                result = self._aggregation_analysis(
                     df, target_column, group_by, aggregation,
                     sort_by, sort_order, limit, chart_type, chart_title, description
                 )
 
+            return self._with_audit(result)
+
         except Exception as e:
             logger.error(f"Analiz hatası: {e}")
-            return self._error_result(str(e))
+            return self._with_audit(self._error_result(str(e)))
+
+    def _with_audit(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Denetim izini sonuca ekler. Basarili da olsa basarisiz da olsa
+        eklenir: kalite olcumunde asil ihtiyac duyulan an, sonucun yanlis
+        goründügü andir.
+        """
+        result["audit"] = dict(self.audit)
+        return result
 
     def _load_table_data(self, table_name: str, filters: Dict, max_rows: int = 5000) -> pd.DataFrame:
         """Tablodan veri yükle."""
@@ -91,7 +125,15 @@ class AgentAnalyzer:
                 query += " WHERE " + " AND ".join(conditions)
 
         logger.info(f"SQL: {query}")
-        return pd.read_sql(query, self.engine)
+
+        df = pd.read_sql(query, self.engine)
+
+        # Denetim icin sakla: hangi sorgu calisti, kac satir okundu.
+        self.audit["executedSql"] = query
+        self.audit["rowsRead"] = len(df)
+        self.audit["columnsRead"] = list(df.columns)
+
+        return df
 
     def _statistics_analysis(self, df: pd.DataFrame, target_col: Optional[str],
                              chart_type: str, title: str, desc: str) -> Dict:

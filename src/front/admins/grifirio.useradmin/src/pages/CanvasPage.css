@@ -362,3 +362,75 @@
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+
+/* ── Denetim paneli ──────────────────────────────────────────
+   "Grafik makul görünüyor" doğruluk kanıtı değil. Hangi tabloya
+   gidildiği, nasıl gruplandığı ve hangi SQL'in çalıştığı
+   görünmeden üretilen sonucun kalitesi ölçülemez. */
+.cp-audit {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.cp-audit > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+  user-select: none;
+}
+
+.cp-audit > summary:hover { color: var(--accent); }
+
+.cp-audit-rows {
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cp-audit-rows > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.cp-audit-rows dt {
+  flex: 0 0 88px;
+  color: var(--text-subtle);
+}
+
+.cp-audit-rows dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.cp-audit-label {
+  margin: 12px 0 4px;
+  color: var(--text-subtle);
+}
+
+.cp-audit-sql {
+  margin: 0;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.cp-audit-warn {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--text);
+  line-height: 1.5;
+}

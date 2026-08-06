@@ -302,14 +302,29 @@ public static class AgentQueryEndpoints
             });
         }
 
+        // Denetim izi: sonucun dogrulugunu degerlendirebilmek icin LLM'in
+        // verdigi kararlar da doner. Grafigin dogru gorunmesi yeterli degil —
+        // "hangi tabloya, hangi kolona gitti, nasil grupladi" gorulmeden
+        // kalite olculemez.
+        JsonElement? llmParameters = null;
+        if (!string.IsNullOrWhiteSpace(query.PyCaretParamsJson))
+        {
+            try { llmParameters = JsonSerializer.Deserialize<JsonElement>(query.PyCaretParamsJson); }
+            catch (JsonException) { /* bozuk kayit denetimi engellemesin */ }
+        }
+
         return Results.Ok(new
         {
             queryId = query.Id,
             status = query.Status,
             question = query.Question,
             result = JsonSerializer.Deserialize<JsonElement>(query.ResultJson),
+            llmParameters,
             createdAt = query.CreatedAt,
-            completedAt = query.CompletedAt
+            completedAt = query.CompletedAt,
+            durationMs = query.CompletedAt.HasValue
+                ? (int)(query.CompletedAt.Value - query.CreatedAt).TotalMilliseconds
+                : (int?)null
         });
     }
 
