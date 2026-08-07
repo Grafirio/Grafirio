@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { testConnection, getDataQuality, getStatistics, getMissingData, getRelationships, startAIAnalysis, getAnalysisStatus, saveConnection, getSavedConnections, getConnectionById, analyzeConnectionSchema, saveSelectedTables, startPreAnalysis, getPreAnalysisState, submitPreAnalysisAnswers } from '../services/dataAnalysisService';
+import {
+  testConnection, saveConnection, getSavedConnections, getConnectionById,
+  getDataQuality, getStatistics, getMissingData, getRelationships,
+  saveSelectedTables, startAnalysis, getAnalysisStatus, submitAnalysisAnswers,
+} from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
-import TableSchema from '../components/DataAnalysis/TableSchema';
 import '../styles/SettingsPages.css';
 import '../styles/SqlConnectionSettings.css';
 
@@ -19,28 +22,26 @@ const SqlConnectionSettings = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedConnectionForModal, setSelectedConnectionForModal] = useState(null);
   const [currentConnectionId, setCurrentConnectionId] = useState(null);
-  const [selectedTable, setSelectedTable] = useState(null);
   const [selectedTablesForSave, setSelectedTablesForSave] = useState([]);
   
-  // Ön analiz paneli için state
+  // Veri kalitesi paneli için state
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
   const [selectedConnectionForAnalysis, setSelectedConnectionForAnalysis] = useState(null);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [activeAnalysisTab, setActiveAnalysisTab] = useState(null);
   
-  // AI Settings
-  const [samplingRate, setSamplingRate] = useState(100);
-  const [nullHandling, setNullHandling] = useState('keep');
-  const [dataFormat, setDataFormat] = useState('json');
-  const [aiLoading, setAiLoading] = useState(false);
-  
   // Notification Modal
   const [notification, setNotification] = useState({ show: false, type: '', title: '', message: '', details: '' });
 
-  // Ön analiz kapısı: bağlantı, profili çıkarılıp soruları yanıtlanana kadar
-  // dashboard'da kullanılamaz. Durum sunucudan geliyor.
-  const [preAnalysis, setPreAnalysis] = useState({
+  /* ── Analiz ───────────────────────────────────────────────────────────
+     Bağlantıyı sorgulanabilir hale getiren tek adım. Profili çıkarır,
+     semantik sözlüğü üretir ve çözemediği kolonları sorar.
+
+     Önceden burada iki ayrı akış vardı — "Ön Analiz" ve "Analiz Et" —
+     kullanıcı ikisini de doğru sırayla çalıştırmak zorundaydı; hangisinin
+     önce geleceği hiçbir yerde yazmıyordu. */
+  const [analysis, setAnalysis] = useState({
     open: false,
     connectionId: null,
     connectionName: '',
@@ -54,79 +55,75 @@ const SqlConnectionSettings = () => {
     error: ''
   });
 
-  const openPreAnalysis = async (connection) => {
+  const openAnalysis = async (connection) => {
     const connectionId = connection.savedConnectionId || connection.id;
-    setPreAnalysis(p => ({
+    if (!connectionId) {
+      setNotification({
+        show: true, type: 'error', title: 'Hata',
+        message: 'Bağlantı kimliği bulunamadı. Sayfayı yenileyip tekrar deneyin.',
+        details: ''
+      });
+      return;
+    }
+
+    setAnalysis(p => ({
       ...p, open: true, connectionId, connectionName: connection.name,
       running: false, error: '', questions: [], answers: {}, summary: '', stats: null
     }));
 
     try {
-      const state = await getPreAnalysisState(connectionId);
-      setPreAnalysis(p => ({
-        ...p,
-        status: state.status,
-        questions: state.questions || [],
-        answers: state.answers || {},
-        summary: state.summary || ''
-      }));
+      const state = await getAnalysisStatus(connectionId);
+      applyState(state);
+
+      // Sayfa kapatılıp dönülmüş olabilir: sunucuda iş hâlâ sürüyorsa
+      // yoklamayı kaldığı yerden sürdür.
+      if (state.status === 'analyzing') pollAnalysis(connectionId);
     } catch (error) {
-      setPreAnalysis(p => ({ ...p, error: error.response?.data?.error || error.message }));
+      setAnalysis(p => ({ ...p, error: error.response?.data?.error || error.message }));
     }
+  };
+
+  const applyState = (state) => {
+    setAnalysis(p => ({
+      ...p,
+      running: state.status === 'analyzing',
+      status: state.status,
+      questions: state.questions || [],
+      summary: state.summary || '',
+      stats: state.tableCount
+        ? { tables: state.tableCount, columns: state.columnCount, sampled: state.sampledColumnCount }
+        : p.stats,
+      error: state.status === 'failed'
+        ? (state.summary || 'Analiz başarısız oldu. Sunucu loglarında sebebi yazıyor.')
+        : ''
+    }));
   };
 
   // Sunucu isi arka planda yapiyor ve hemen 202 donuyor; sonucu durumu
   // sorarak ogreniyoruz. Tek uzun istek gateway zaman asimina (504)
   // takiliyordu — is aslinda bitiyordu ama cevabi kimse goremiyordu.
-  const runPreAnalysis = async () => {
-    setPreAnalysis(p => ({ ...p, running: true, error: '', questions: [], stats: null }));
-    try {
-      await startPreAnalysis(preAnalysis.connectionId, preAnalysis.consent);
-    } catch (error) {
-      setPreAnalysis(p => ({
-        ...p,
-        running: false,
-        error: error.response?.data?.detail || error.response?.data?.error || error.message
-      }));
-      return;
-    }
-
-    const connectionId = preAnalysis.connectionId;
+  const pollAnalysis = (connectionId) => {
     const startedAt = Date.now();
     const TIMEOUT_MS = 10 * 60 * 1000;
 
     const poll = async () => {
       if (Date.now() - startedAt > TIMEOUT_MS) {
-        setPreAnalysis(p => ({
+        setAnalysis(p => ({
           ...p, running: false,
-          error: 'Ön analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.'
+          error: 'Analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.'
         }));
         return;
       }
 
       try {
-        const state = await getPreAnalysisState(connectionId);
-
-        if (state.status === 'profiling') {
+        const state = await getAnalysisStatus(connectionId);
+        if (state.status === 'analyzing') {
           setTimeout(poll, 4000);
           return;
         }
-
-        setPreAnalysis(p => ({
-          ...p,
-          running: false,
-          status: state.status,
-          questions: state.questions || [],
-          summary: state.summary || '',
-          stats: state.tableCount
-            ? { tables: state.tableCount, columns: state.columnCount, sampled: state.sampledColumnCount }
-            : null,
-          error: state.status === 'failed'
-            ? 'Ön analiz başarısız oldu. Sunucu loglarında sebebi yazıyor.'
-            : ''
-        }));
+        applyState(state);
       } catch (error) {
-        setPreAnalysis(p => ({
+        setAnalysis(p => ({
           ...p, running: false,
           error: error.response?.data?.error || error.message
         }));
@@ -136,24 +133,40 @@ const SqlConnectionSettings = () => {
     setTimeout(poll, 3000);
   };
 
-  const submitAnswers = async () => {
-    setPreAnalysis(p => ({ ...p, running: true, error: '' }));
+  const runAnalysis = async () => {
+    setAnalysis(p => ({ ...p, running: true, error: '', questions: [], stats: null }));
     try {
-      await submitPreAnalysisAnswers(preAnalysis.connectionId, preAnalysis.answers);
-      setPreAnalysis(p => ({ ...p, running: false, status: 'ready' }));
+      await startAnalysis(analysis.connectionId, analysis.consent);
+    } catch (error) {
+      setAnalysis(p => ({
+        ...p,
+        running: false,
+        error: error.response?.data?.detail || error.response?.data?.error || error.message
+      }));
+      return;
+    }
+
+    pollAnalysis(analysis.connectionId);
+  };
+
+  const submitAnswers = async () => {
+    setAnalysis(p => ({ ...p, running: true, error: '' }));
+    try {
+      await submitAnalysisAnswers(analysis.connectionId, analysis.answers);
+      setAnalysis(p => ({ ...p, running: false, status: 'ready' }));
       setNotification({
         show: true, type: 'success', title: 'Bağlantı hazır',
-        message: 'Ön analiz tamamlandı. Bu bağlantı artık dashboard\'da grafik üretebilir.',
+        message: 'Analiz tamamlandı. Bu bağlantıya artık soru sorabilirsiniz.',
         details: ''
       });
     } catch (error) {
-      setPreAnalysis(p => ({
+      setAnalysis(p => ({
         ...p, running: false,
         error: error.response?.data?.error || error.message
       }));
     }
   };
-  
+
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -172,9 +185,6 @@ const SqlConnectionSettings = () => {
     setIsLoadingConnections(true);
     setLoadError('');
     try {
-      // TODO: Gerçek userId - şimdilik mock
-      const userId = 'user-123';
-
       const result = await getSavedConnections();
 
       if (result.success && result.connections) {
@@ -447,7 +457,6 @@ const SqlConnectionSettings = () => {
       password: resolved.password,
       trustServerCertificate: resolved.trustServerCertificate
     });
-    setSelectedTable(null);
     setSelectedTablesForSave(connection.selectedTables || []);
     setIsModalOpen(true);
   };
@@ -456,12 +465,7 @@ const SqlConnectionSettings = () => {
     setIsModalOpen(false);
     setSelectedConnectionForModal(null);
     setCurrentConnectionId(null);
-    setSelectedTable(null);
     setSelectedTablesForSave([]);
-  };
-
-  const handleTableSelect = (table) => {
-    setSelectedTable(table);
   };
 
   const handleMultiTableSelect = (tables) => {
@@ -497,7 +501,7 @@ const SqlConnectionSettings = () => {
 
     const updatedConnections = connections.map(conn =>
       conn.id === currentConnectionId
-        ? { ...conn, selectedTables: selectedTablesForSave, preAnalysisStatus: 'pending', updatedAt: new Date().toISOString() }
+        ? { ...conn, selectedTables: selectedTablesForSave, analysisStatus: 'none', updatedAt: new Date().toISOString() }
         : conn
     );
 
@@ -508,7 +512,9 @@ const SqlConnectionSettings = () => {
       show: true,
       type: 'success',
       title: 'Tablolar kaydedildi',
-      message: `${selectedTablesForSave.length} tablo seçildi. Bağlantının kullanılabilmesi için "Ön Analiz" çalıştırın.`,
+      // Seçim değişince sunucu eski analizi geçersiz kılıyor; kullanıcı bunu
+      // bilmezse "hazırdı, ne oldu" diye takılıyor.
+      message: `${selectedTablesForSave.length} tablo seçildi. Seçim değiştiği için önceki analiz geçersiz oldu — "Analiz Et" çalıştırın.`,
       details: ''
     });
   };
@@ -582,112 +588,6 @@ const SqlConnectionSettings = () => {
     }
   };
 
-  const handleStartAIAnalysis = async () => {
-    if (!selectedConnectionForAnalysis) return;
-
-    // Debug: Connection bilgilerini loglayalım
-    console.log('🔍 Starting AI Analysis with connection:', {
-      name: selectedConnectionForAnalysis.name,
-      savedConnectionId: selectedConnectionForAnalysis.savedConnectionId,
-      id: selectedConnectionForAnalysis.id,
-      fullConnection: selectedConnectionForAnalysis
-    });
-
-    // Eğer connection'ın savedConnectionId varsa onu kullan, yoksa hata ver
-    if (!selectedConnectionForAnalysis.savedConnectionId) {
-      console.error('❌ No savedConnectionId found in connection:', selectedConnectionForAnalysis);
-      setNotification({
-        show: true,
-        type: 'error',
-        title: '❌ Hata',
-        message: 'Bağlantı ID\'si bulunamadı! Lütfen sayfayı yenileyin ve tekrar deneyin.',
-        details: `Connection: ${selectedConnectionForAnalysis.name}, ID: ${selectedConnectionForAnalysis.id}, SavedID: ${selectedConnectionForAnalysis.savedConnectionId}`
-      });
-      return;
-    }
-
-    setAiLoading(true);
-
-    try {
-      const tables = selectedConnectionForAnalysis.selectedTables?.map(t => t.fullName) || [];
-
-      const settings = {
-        samplingRate,
-        nullHandling,
-        dataFormat
-      };
-
-      // TODO: Gerçek userId ve companyId - şimdilik mock
-      const userId = 'user-123';
-      const companyId = 'company-456';
-
-      const result = await startAIAnalysis(
-        userId, 
-        companyId, 
-        selectedConnectionForAnalysis.savedConnectionId, // connectionId gönder
-        tables, 
-        settings
-      );
-
-      if (result.success) {
-        // Active analysis olarak kaydet
-        const newAnalysis = {
-          requestId: result.requestId,
-          database: selectedConnectionForAnalysis.database,
-          host: selectedConnectionForAnalysis.host,
-          tables: tables,
-          status: 'processing',
-          progress: 10,
-          message: 'AI analizi başlatıldı...',
-          startedAt: new Date().toISOString(),
-          samplingRate: samplingRate,
-          nullHandling: nullHandling,
-          dataFormat: dataFormat,
-          estimatedTime: result.estimatedTime
-        };
-
-        // localStorage'a kaydet - Dashboard tarafından polling yapılacak
-        const existingAnalyses = JSON.parse(localStorage.getItem('activeAnalyses') || '[]');
-        existingAnalyses.push(newAnalysis);
-        localStorage.setItem('activeAnalyses', JSON.stringify(existingAnalyses));
-
-        setNotification({
-          show: true,
-          type: 'success',
-          title: '✅ AI Analizi Başlatıldı!',
-          message: result.message,
-          details: `Request ID: ${result.requestId}\nTahmini süre: ${result.estimatedTime}\n\n📊 Dashboard'dan takip edebilirsiniz!`
-        });
-        
-        // Paneli kapat
-        setTimeout(() => {
-          handleCloseAnalysisPanel();
-          // Dashboard'a yönlendir
-          navigate('/dashboard');
-        }, 2000);
-      } else {
-        setNotification({
-          show: true,
-          type: 'error',
-          title: '❌ AI Analizi Başlatılamadı',
-          message: result.message || 'Bilinmeyen hata',
-          details: ''
-        });
-      }
-    } catch (error) {
-      setNotification({
-        show: true,
-        type: 'error',
-        title: '❌ Hata',
-        message: error.message || 'AI analizi başlatılamadı',
-        details: error.stack || ''
-      });
-      console.error('AI Analysis start error:', error);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   const handleNewConnection = () => {
     setIsFormOpen(true);
     setEditingConnection(null);
@@ -704,69 +604,6 @@ const SqlConnectionSettings = () => {
     setTestStatus({ type: '', message: '' });
   };
 
-  const handleAnalyzeSchema = async (connection) => {
-    const connId = connection.savedConnectionId || connection.id;
-    if (!connId) {
-      setNotification({
-        show: true,
-        type: 'error',
-        title: 'Hata',
-        message: 'Bağlantı ID bulunamadı'
-      });
-      return;
-    }
-
-    // Set analyzing state
-    setConnections(prev => prev.map(c => 
-      c.id === connection.id ? { ...c, _analyzing: true } : c
-    ));
-
-    try {
-      const result = await analyzeConnectionSchema(connId);
-      if (result.success) {
-        // Dashboard'a analiz kartı ekle
-        const entry = {
-          requestId: connId,
-          database: connection.database || connection.name,
-          tables: connection.selectedTables || [],
-          status: 'completed',
-          completedAt: new Date().toISOString()
-        };
-        const existing = JSON.parse(localStorage.getItem('activeAnalyses') || '[]');
-        const filtered = existing.filter(a => a.requestId !== connId);
-        filtered.push(entry);
-        localStorage.setItem('activeAnalyses', JSON.stringify(filtered));
-
-        setNotification({
-          show: true,
-          type: 'success',
-          title: 'Analiz Tamamlandı!',
-          message: 'Analiz Dashboard\'a eklendi. Kanvasa geçmek için Dashboard\'daki karta çift tıklayın.',
-          details: result.schemaSummary || ''
-        });
-
-        setTimeout(() => navigate('/'), 1500);
-      } else {
-        setNotification({
-          show: true,
-          type: 'error',
-          title: 'Analiz Başarısız',
-          message: result.error || 'Schema analizi sırasında hata oluştu'
-        });
-      }
-    } catch (err) {
-      setNotification({
-        show: true,
-        type: 'error',
-        title: 'Hata',
-        message: err.response?.data?.detail || err.message
-      });
-    } finally {
-      setConnections(prev => prev.map(c => 
-        c.id === connection.id ? { ...c, _analyzing: false } : c
-      ));
-    }
-  };
 
   return (
     <div className="sql-connection-settings">
@@ -1028,30 +865,19 @@ const SqlConnectionSettings = () => {
                   >
                     <i className="ti ti-table"></i> Tablo Seç
                   </button>
+                  {/* Bağlantıyı sorgulanabilir hale getiren tek adım. Tablo
+                      seçilmeden çalışmaz; sonunda bağlantı `ready` olur. */}
                   <button
-                    className="gf-btn gf-btn--sm"
-                    onClick={() => handleAnalyzeSchema(connection)}
-                    disabled={connection._analyzing}
+                    className="gf-btn gf-btn--sm gf-btn--primary"
+                    onClick={() => openAnalysis(connection)}
                   >
-                    {connection._analyzing ? (
-                      <><span className="gf-spinner"></span> Analiz Ediliyor...</>
-                    ) : (
-                      <><i className="ti ti-sparkles"></i> Analiz Et</>
-                    )}
+                    <i className="ti ti-sparkles"></i> Analiz Et
                   </button>
                   <button
                     className="gf-btn gf-btn--sm"
                     onClick={() => navigate(`/canvas?connectionId=${connection.savedConnectionId || connection.id}`)}
                   >
                     <i className="ti ti-brain"></i> AI Sorgulama
-                  </button>
-                  {/* On analiz artik bekletici kapi: baglantiyi kullanilabilir
-                      hale getiren adim bu. Tablo secilmeden calismaz. */}
-                  <button
-                    className="gf-btn gf-btn--sm gf-btn--primary"
-                    onClick={() => openPreAnalysis(connection)}
-                  >
-                    <i className="ti ti-chart-dots"></i> Ön Analiz
                   </button>
                   {connection.selectedTables && connection.selectedTables.length > 0 && (
                     <button
@@ -1294,83 +1120,14 @@ const SqlConnectionSettings = () => {
                 )}
               </div>
 
-              {/* AI Ayarları */}
-              <div className="analysis-section">
-                <h3>
-                  <i className="ti ti-adjustments"></i>
-                  AI Analiz Ayarları
-                </h3>
-                <div className="analysis-settings">
-                  <div className="setting-item">
-                    <label>
-                      <i className="ti ti-database"></i>
-                      Örnekleme Oranı
-                    </label>
-                    <select 
-                      className="setting-select" 
-                      value={samplingRate} 
-                      onChange={(e) => setSamplingRate(Number(e.target.value))}
-                    >
-                      <option value="100">%100 - Tüm veriler</option>
-                      <option value="50">%50 - Yarısı</option>
-                      <option value="25">%25 - Çeyrek</option>
-                      <option value="10">%10 - On binde biri</option>
-                    </select>
-                  </div>
-                  <div className="setting-item">
-                    <label>
-                      <i className="ti ti-filter"></i>
-                      NULL Değer İşleme
-                    </label>
-                    <select 
-                      className="setting-select" 
-                      value={nullHandling} 
-                      onChange={(e) => setNullHandling(e.target.value)}
-                    >
-                      <option value="keep">Olduğu gibi bırak</option>
-                      <option value="remove">Satırları sil</option>
-                      <option value="fill">Ortalama ile doldur</option>
-                    </select>
-                  </div>
-                  <div className="setting-item">
-                    <label>
-                      <i className="ti ti-braces"></i>
-                      Veri Formatı
-                    </label>
-                    <select 
-                      className="setting-select" 
-                      value={dataFormat} 
-                      onChange={(e) => setDataFormat(e.target.value)}
-                    >
-                      <option value="json">JSON</option>
-                      <option value="csv">CSV</option>
-                      <option value="xml">XML</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
             </div>
 
+            {/* "AI Analiz Ayarları" bölümü kaldırıldı: örnekleme oranı, NULL
+                işleme ve veri formatı seçimleri Django hattına gidiyordu ve o
+                hat sökülmüştü — seçim yapılıyor ama hiçbir şeyi etkilemiyordu. */}
             <div className="analysis-panel-footer">
-              <button className="gf-btn gf-btn--ghost" onClick={handleCloseAnalysisPanel} disabled={aiLoading}>
-                <i className="ti ti-x"></i> İptal
-              </button>
-              <button
-                className="gf-btn gf-btn--primary"
-                onClick={handleStartAIAnalysis}
-                disabled={aiLoading}
-              >
-                {aiLoading ? (
-                  <>
-                    <div className="gf-spinner"></div>
-                    AI'ya Gönderiliyor...
-                  </>
-                ) : (
-                  <>
-                    <i className="ti ti-brain"></i>
-                    AI Analizi Başlat
-                  </>
-                )}
+              <button className="gf-btn gf-btn--ghost" onClick={handleCloseAnalysisPanel}>
+                <i className="ti ti-x"></i> Kapat
               </button>
             </div>
           </div>
@@ -1431,34 +1188,34 @@ const SqlConnectionSettings = () => {
         </div>
       )}
 
-      {/* Ön Analiz — bekletici kapı.
+      {/* Analiz — bekletici kapı.
           Bağlantı burada "anlaşılıyor": seçili tabloların profili çıkarılıyor,
           semantik sözlük üretiliyor, sistemin emin olamadığı şeyler bir kez
-          soruluyor. Ancak bundan sonra dashboard'da kullanılabilir. */}
-      {preAnalysis.open && (
-        <div className="modal-overlay" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+          soruluyor. Ancak bundan sonra soru sorulabilir. */}
+      {analysis.open && (
+        <div className="modal-overlay" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2><i className="ti ti-chart-dots"></i> Ön Analiz — {preAnalysis.connectionName}</h2>
-              <button className="modal-close" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+              <h2><i className="ti ti-sparkles"></i> Analiz — {analysis.connectionName}</h2>
+              <button className="modal-close" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
                 <i className="ti ti-x"></i>
               </button>
             </div>
 
             <div className="modal-body">
-              {preAnalysis.error && (
+              {analysis.error && (
                 <div className="gf-alert gf-alert--danger" style={{ marginBottom: 16 }}>
-                  <i className="ti ti-alert-circle"></i> {preAnalysis.error}
+                  <i className="ti ti-alert-circle"></i> {analysis.error}
                 </div>
               )}
 
-              {preAnalysis.status === 'ready' && (
+              {analysis.status === 'ready' && (
                 <div className="gf-alert gf-alert--success" style={{ marginBottom: 16 }}>
-                  <i className="ti ti-check"></i> Bu bağlantı hazır — dashboard'da grafik üretebilir.
+                  <i className="ti ti-check"></i> Bu bağlantı hazır — “AI Sorgulama”dan soru sorabilirsiniz.
                 </div>
               )}
 
-              {!preAnalysis.running && preAnalysis.status !== 'ready' && preAnalysis.questions.length === 0 && (
+              {!analysis.running && analysis.status !== 'ready' && analysis.questions.length === 0 && (
                 <>
                   <p className="gf-hint" style={{ marginBottom: 16 }}>
                     Seçili tabloların yapısı okunacak, kolonların ne anlama geldiği çıkarılacak.
@@ -1468,8 +1225,8 @@ const SqlConnectionSettings = () => {
                   <label className="gf-checkbox" style={{ marginBottom: 16, alignItems: 'flex-start' }}>
                     <input
                       type="checkbox"
-                      checked={preAnalysis.consent}
-                      onChange={(e) => setPreAnalysis(p => ({ ...p, consent: e.target.checked }))}
+                      checked={analysis.consent}
+                      onChange={(e) => setAnalysis(p => ({ ...p, consent: e.target.checked }))}
                     />
                     <span>
                       Serbest metin kolonlarından (firma adı, ürün adı gibi) örnek değer okunmasına
@@ -1479,38 +1236,38 @@ const SqlConnectionSettings = () => {
                     </span>
                   </label>
 
-                  <button className="gf-btn gf-btn--primary" onClick={runPreAnalysis}>
+                  <button className="gf-btn gf-btn--primary" onClick={runAnalysis}>
                     <i className="ti ti-player-play"></i> Analizi başlat
                   </button>
                 </>
               )}
 
-              {preAnalysis.running && (
+              {analysis.running && (
                 <div className="analysis-loading">
                   <div className="spinner-large"></div>
                   <p>Tablolar okunuyor ve anlamlandırılıyor… Bu işlem birkaç dakika sürebilir.</p>
                 </div>
               )}
 
-              {preAnalysis.stats && (
+              {analysis.stats && (
                 <div className="gf-alert" style={{ marginBottom: 16 }}>
-                  {preAnalysis.stats.tables} tablo · {preAnalysis.stats.columns} kolon ·
-                  {' '}{preAnalysis.stats.sampled} kolondan örnek değer okundu
+                  {analysis.stats.tables} tablo · {analysis.stats.columns} kolon ·
+                  {' '}{analysis.stats.sampled} kolondan örnek değer okundu
                 </div>
               )}
 
-              {preAnalysis.summary && (
-                <p className="gf-hint" style={{ marginBottom: 16 }}>{preAnalysis.summary}</p>
+              {analysis.summary && (
+                <p className="gf-hint" style={{ marginBottom: 16 }}>{analysis.summary}</p>
               )}
 
-              {preAnalysis.questions.length > 0 && preAnalysis.status !== 'ready' && (
+              {analysis.questions.length > 0 && analysis.status !== 'ready' && (
                 <>
                   <h3 style={{ marginBottom: 12 }}>Birkaç şeyden emin olamadım</h3>
                   <p className="gf-hint" style={{ marginBottom: 16 }}>
                     Bunları bir kez yanıtlamanız yeterli; her soruda tekrar sorulmaz.
                   </p>
 
-                  {preAnalysis.questions.map(q => (
+                  {analysis.questions.map(q => (
                     <div key={q.id} className="analysis-section" style={{ marginBottom: 16 }}>
                       {q.column && (
                         <div className="gf-badge" style={{ marginBottom: 6 }}>
@@ -1522,8 +1279,8 @@ const SqlConnectionSettings = () => {
                         {(q.options?.length ? q.options : ['Evet', 'Hayır', 'Emin değilim']).map(opt => (
                           <button
                             key={opt}
-                            className={`gf-btn gf-btn--sm ${preAnalysis.answers[q.id] === opt ? 'gf-btn--primary' : ''}`}
-                            onClick={() => setPreAnalysis(p => ({
+                            className={`gf-btn gf-btn--sm ${analysis.answers[q.id] === opt ? 'gf-btn--primary' : ''}`}
+                            onClick={() => setAnalysis(p => ({
                               ...p, answers: { ...p.answers, [q.id]: opt }
                             }))}
                           >
@@ -1538,14 +1295,14 @@ const SqlConnectionSettings = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="gf-btn gf-btn--ghost" onClick={() => setPreAnalysis(p => ({ ...p, open: false }))}>
+              <button className="gf-btn gf-btn--ghost" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
                 Kapat
               </button>
-              {preAnalysis.questions.length > 0 && preAnalysis.status !== 'ready' && (
+              {analysis.questions.length > 0 && analysis.status !== 'ready' && (
                 <button
                   className="gf-btn gf-btn--primary"
                   onClick={submitAnswers}
-                  disabled={preAnalysis.running || Object.keys(preAnalysis.answers).length < preAnalysis.questions.length}
+                  disabled={analysis.running || Object.keys(analysis.answers).length < analysis.questions.length}
                 >
                   <i className="ti ti-check"></i> Yanıtları kaydet ve bitir
                 </button>

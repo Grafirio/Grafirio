@@ -1,61 +1,72 @@
 using Grafirio.DataAnalysis.Api.Models;
 using Microsoft.Data.SqlClient;
 
-namespace Grafirio.DataAnalysis.Api.Features.Connection;
+namespace Grafirio.DataAnalysis.Api.Features.Connections;
 
-public static class ConnectionEndpoints
+/// <summary>
+/// Baglanti denemesi: kullanicinin girdigi bilgilerle gercekten baglanilabiliyor
+/// mu diye bakar. Kayitli baglantilarin CRUD'u <see cref="ConnectionEndpoints"/>'te.
+///
+/// Onceden bu sinif da <c>ConnectionEndpoints</c> adiyla ayri bir
+/// <c>Features.Connection</c> (tekil) ad alanindaydi. Iki ayni adli sinif ve
+/// bir harf farkli iki klasor, hangi dosyanin hangi ucu kurdugunu okunamaz
+/// yapiyordu; ayrica baglanti dizesini kuran yardimcilar da burada oldugu icin
+/// "endpoint dosyasi" olmayan yerlerden cagriliyordu.
+/// </summary>
+public static class ConnectionTestEndpoints
 {
-    public static void MapConnectionEndpoints(this IEndpointRouteBuilder app)
+    public static void MapConnectionTestEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/connection")
+        // Kimlik dogrulamasi zorunlu. Uc daha once aciktı: istekteki host'a
+        // sunucu adina baglanti kuruyordu, yani kimligi olmayan biri bunu
+        // ic aglari yoklamak icin kullanabilirdi.
+        var group = app.MapGroup("/api/connections")
+            .RequireAuthorization("CompanyAccess")
             .WithTags("Connection Management")
             .WithOpenApi();
 
         group.MapPost("/test", TestConnection)
             .WithName("TestConnection")
-            .WithDescription("Test SQL Server connection with provided credentials");
+            .WithDescription("Verilen bilgilerle SQL Server bağlantısını dener");
     }
 
-    private static async Task<IResult> TestConnection(SqlConnectionRequest request)
+    private static async Task<IResult> TestConnection(
+        SqlConnectionRequest request,
+        ILogger<SqlConnectionRequest> logger)
     {
         try
         {
             var connectionString = BuildConnectionString(request);
-            
-            // Debug: Log connection string (şifre hariç)
-            Console.WriteLine($"[DEBUG] Attempting connection to: Server={request.Host},{request.Port}; Database={request.Database}; User={request.Username}");
-            
+
+            logger.LogInformation(
+                "Bağlantı deneniyor: {Host},{Port} / {Database} / {User}",
+                request.Host, request.Port, request.Database, request.Username);
+
             using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
-            
-            // Bağlantı başarılı, benzersiz bir ID oluştur
-            var connectionId = Guid.NewGuid().ToString();
-            
-            // Connection string can be cached in Redis with TTL
-            // await _redis.SetAsync($"conn:{connectionId}", connectionString, TimeSpan.FromHours(1));
-            
+
             return Results.Ok(new TestConnectionResponse(
                 Success: true,
-                Message: "Connection successful",
-                ConnectionId: connectionId
+                Message: "Bağlantı başarılı",
+                ConnectionId: Guid.NewGuid().ToString()
             ));
         }
         catch (SqlException ex)
         {
-            Console.WriteLine($"[ERROR] SQL Exception: {ex.Message}");
-            Console.WriteLine($"[ERROR] Error Number: {ex.Number}");
-            Console.WriteLine($"[ERROR] Error State: {ex.State}");
-            
+            logger.LogWarning(ex, "SQL bağlantı hatası. Numara: {Number}", ex.Number);
+
             return Results.Ok(new TestConnectionResponse(
                 Success: false,
-                Message: $"SQL Error: {ex.Message} (Error Number: {ex.Number})"
+                Message: $"SQL hatası: {ex.Message} (hata no: {ex.Number})"
             ));
         }
         catch (Exception ex)
         {
+            logger.LogWarning(ex, "Bağlantı kurulamadı");
+
             return Results.Ok(new TestConnectionResponse(
                 Success: false,
-                Message: $"Connection failed: {ex.Message}"
+                Message: $"Bağlantı kurulamadı: {ex.Message}"
             ));
         }
     }
@@ -68,7 +79,7 @@ public static class ConnectionEndpoints
     internal static (string Host, int Port) NormalizeHostAndPort(string? host, int port)
     {
         var trimmed = (host ?? string.Empty).Trim();
-        var separator = trimmed.LastIndexOfAny(new[] { ',', ':' });
+        var separator = trimmed.LastIndexOfAny([',', ':']);
 
         if (separator > 0 && int.TryParse(trimmed[(separator + 1)..].Trim(), out var embeddedPort))
         {

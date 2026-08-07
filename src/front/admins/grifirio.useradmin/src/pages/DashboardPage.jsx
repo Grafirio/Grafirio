@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
-import { getSavedConnections } from '../services/dataAnalysisService';
+import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
 import '../styles/DashboardPage.css';
 
 /**
@@ -13,8 +13,9 @@ import '../styles/DashboardPage.css';
  * hicbirini besleyen bir uc yok ve sabit "2,41M / 5M" yazmak, veriymis gibi
  * gorunen bir dekordan ibaret olurdu. Servisleri yazildiginda yerleri hazir.
  *
- * Analizler hala localStorage'da; sunucu tarafinda kanvas kaydi yok. Onu
- * degistirmedim, yalnizca yerlesimi tasidim.
+ * Analizler sunucudan okunuyor. Onceden localStorage'daydilar: baska bir
+ * makineden girildiginde ya da gecmis temizlendiginde panel "hic analiz yok"
+ * diyordu, ustelik basarisiz bir analiz orada "hazir" olarak kalabiliyordu.
  */
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -44,15 +45,17 @@ const DashboardPage = () => {
     }
   }, []);
 
-  const loadAnalyses = useCallback(() => {
-    const stored = localStorage.getItem('activeAnalyses');
-    if (!stored) return;
+  const loadAnalyses = useCallback(async () => {
     try {
-      const all = JSON.parse(stored);
-      setActiveAnalyses(all.filter((a) => a.status !== 'completed' && a.status !== 'failed'));
-      setCompletedAnalyses(all.filter((a) => a.status === 'completed' || a.status === 'failed'));
+      const result = await listAnalyses();
+      const all = result?.analyses ?? [];
+      // "Isleniyor" = analiz surerken ya da sorular bekliyorken; kanvasa
+      // ancak `ready` olanlarla girilebilir.
+      setActiveAnalyses(all.filter((a) => a.status === 'analyzing' || a.status === 'awaiting_answers'));
+      setCompletedAnalyses(all.filter((a) => a.status === 'ready' || a.status === 'failed'));
     } catch {
-      // Bozuk bir kayit tum paneli goturmesin.
+      // Panelin geri kalani calismaya devam etsin; baglanti listesi kendi
+      // hatasini zaten gosteriyor.
     }
   }, []);
 
@@ -111,9 +114,10 @@ const DashboardPage = () => {
       {activeAnalyses.length > 0 && (
         <div className="db-processing">
           {activeAnalyses.map((a) => (
-            <span key={a.requestId} className="db-processing-item">
+            <span key={a.connectionId} className="db-processing-item">
               <span className="db-spinner" />
-              {a.database || 'Analiz'} işleniyor · %{a.progress ?? 0}
+              {a.database || 'Analiz'}{' '}
+              {a.status === 'awaiting_answers' ? 'sorularınızı bekliyor' : 'işleniyor'}
             </span>
           ))}
         </div>
@@ -195,9 +199,12 @@ const DashboardPage = () => {
           <div className="db-analyses">
             {completedAnalyses.map((a) => (
               <div
-                key={a.requestId}
+                key={a.connectionId}
                 className={`db-analysis ${a.status === 'failed' ? 'is-failed' : ''}`}
-                onDoubleClick={() => navigate(`/canvas/${a.requestId}`)}
+                // Kanvas bağlantıdan açılıyor: analiz kaydı zaten bağlantıya
+                // ait ve durumu sunucuda. Ayrı bir "analiz kimliği" yoluna
+                // gerek yok, o yol kaydı tarayıcıdan okuyordu.
+                onDoubleClick={() => navigate(`/canvas?connectionId=${a.connectionId}`)}
                 title="Kanvası açmak için çift tıklayın"
               >
                 <div className="db-analysis-top">
@@ -210,8 +217,8 @@ const DashboardPage = () => {
                   </span>
                 </div>
                 <div className="db-analysis-meta">
-                  <span>{a.tables?.length ?? 0} tablo</span>
-                  <span>{fmtDate(a.completedAt || a.updatedAt)}</span>
+                  <span>{a.tableCount ?? 0} tablo</span>
+                  <span>{fmtDate(a.updatedAt || a.createdAt)}</span>
                 </div>
               </div>
             ))}

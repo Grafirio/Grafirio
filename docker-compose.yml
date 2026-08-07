@@ -155,113 +155,6 @@ services:
       retries: 5
     networks:
       - grifirio_network
-  django.ai:
-    build:
-      context: ./src/ai/grafirio-ai-service
-      dockerfile: Dockerfile
-    container_name: django.ai.container
-    environment:
-      SECRET_KEY: ${DJANGO_SECRET_KEY}
-      DEBUG: "False"
-      ALLOWED_HOSTS: django.ai.container,localhost
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
-      REDIS_HOST: redis.db.basket
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
-      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
-      MAX_PLAN_TASKS: 5
-      FORECAST_ENABLED: "true"
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      CSHARP_API_URL: http://data-analysis.api.container:5221
-      MSSQL_HOST: sqlserver.db.order
-      MSSQL_PORT: 1433
-      MSSQL_DB: GrafirioECommerce
-      # LLM'in urettigi SQL sa yerine salt-okunur kullanici ile calisir
-      # (bkz. scripts/sql/create_readonly_login.sql)
-      MSSQL_USER: grafirio_readonly
-      MSSQL_PASSWORD: ${MSSQL_READONLY_PASSWORD}
-    ports:
-      - "8000:8000"
-    depends_on:
-      - rabbitmq
-      - redis.db.basket
-      - pycaret.engine
-    networks:
-      - grifirio_network
-    command: >
-      sh -c "python manage.py migrate &&
-             python manage.py start_ai_consumer &
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
-  celery.worker:
-    build:
-      context: ./src/ai/grafirio-ai-service
-      dockerfile: Dockerfile
-    container_name: celery.worker.container
-    environment:
-      SECRET_KEY: ${DJANGO_SECRET_KEY}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      CELERY_RESULT_BACKEND: redis://redis.db.basket:6379/1
-      REDIS_HOST: redis.db.basket
-      REDIS_PORT: 6379
-      PYCARET_ENGINE_URL: http://pycaret.engine.container:8002
-      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
-      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
-      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-06-01}
-      MAX_PLAN_TASKS: 5
-      FORECAST_ENABLED: "true"
-      CSHARP_API_URL: http://data-analysis.api.container:5221
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      MSSQL_HOST: sqlserver.db.order
-      MSSQL_PORT: 1433
-      MSSQL_DB: GrafirioECommerce
-      # LLM'in urettigi SQL sa yerine salt-okunur kullanici ile calisir
-      # (bkz. scripts/sql/create_readonly_login.sql)
-      MSSQL_USER: grafirio_readonly
-      MSSQL_PASSWORD: ${MSSQL_READONLY_PASSWORD}
-    depends_on:
-      - rabbitmq
-      - redis.db.basket
-      - pycaret.engine
-    networks:
-      - grifirio_network
-    command: celery -A config worker --loglevel=info
-  schema.analyzer:
-    build:
-      context: ./src/ai/ai-service-schema-analyzer
-      dockerfile: Dockerfile
-    container_name: schema.analyzer.container
-    environment:
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USER: ${RABBITMQ_USER}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      BACKEND_API_URL: http://data-analysis.api.container:5221
-      SA_PASSWORD: ${SA_PASSWORD}
-      LOG_LEVEL: INFO
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./src/ai/ai-service-schema-analyzer:/app
-    depends_on:
-      - rabbitmq
-      - data-analysis.api
-    networks:
-      - grifirio_network
   pycaret.engine:
     build:
       context: ./src/ai/ai-service-pycaret-engine
@@ -339,18 +232,22 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5221
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # LLM: tek saglayici Azure OpenAI. Onceden burada yalnizca
+      # GEMINI_API_KEY vardi; Azure degiskenleri hic gecmedigi icin
+      # container icindeki servis LLM'siz ayaga kalkiyordu.
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
+      # Tablo secimi Mongo'da; bu da eksikti.
+      MONGO__CONNECTIONSTRING: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017/?authSource=admin
+      MONGO__DATABASENAME: GrafirioDataAnalysisDb
       PyCaret__BaseUrl: http://pycaret.engine.container:8002
-      RabbitMQ__Host: rabbitmq.container
-      RabbitMQ__Username: ${RABBITMQ_USER}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
-      REDIS__CONNECTIONSTRING: redis.db.basket:6379,password=${REDIS_PASSWORD},abortConnect=false
     ports:
       - "5221:5221"
     depends_on:
       - postgres.db.dataanalysis
-      - rabbitmq
-      - redis.db.basket
+      - mongo.db
     networks:
       - grifirio_network
   gateway:

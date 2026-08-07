@@ -45,7 +45,7 @@ export const normalizeHostAndPort = (host, port) => {
 export const testConnection = async (connectionInfo) => {
   try {
     const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
-    const response = await axios.post(`${API_BASE_URL}/api/connection/test`, {
+    const response = await axios.post(`${API_BASE_URL}/api/connections/test`, {
       ...connectionInfo,
       host,
       port
@@ -149,32 +149,6 @@ export const getTableSchema = async (tableName, connectionInfo) => {
   }
 };
 
-// Send data to Schema Analyzer AI
-export const analyzeSchema = async (schemaData) => {
-  try {
-    const response = await axios.post('http://localhost:8001/analyze', schemaData, {
-      timeout: 60000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Schema analysis failed:', error);
-    throw error;
-  }
-};
-
-// Send data to PyCaret Engine
-export const trainModel = async (trainingData) => {
-  try {
-    const response = await axios.post('http://localhost:8002/train', trainingData, {
-      timeout: 120000 // 2 minutes for training
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Model training failed:', error);
-    throw error;
-  }
-};
-
 // Check Data Analysis API health
 export const checkApiHealth = async () => {
   try {
@@ -249,123 +223,67 @@ export const getRelationships = async (connectionInfo, tables) => {
   }
 };
 
-// AI Analysis - MassTransit ile asenkron analiz başlatma
-export const startAIAnalysis = async (userId, companyId, connectionId, tables, settings) => {
+/* ─────────────────────────────────────────────────────────────
+   Analiz hattı
+
+   Tek adım: "Analiz Et". Seçili tabloların profilini çıkarır, örnek
+   değerlere bakarak semantik sözlük üretir ve çözemediği kolonları
+   kullanıcıya sorar. Sözlük hem analizin çıktısı hem de sorgu anında
+   modelin gördüğü tek kaynak.
+
+   Önceden bu iş "Ön Analiz" ve "Analiz Et" diye ikiye bölünmüştü;
+   kullanıcı ikisini de doğru sırayla çalıştırmak zorundaydı ve sorgu
+   yalnızca ikincisinin çıktısını okuyordu.
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Analizi başlatır. İş arka planda yürüdüğü için uç hemen 202 döner;
+ * ilerleme `getAnalysisStatus` ile takip edilir.
+ */
+export const startAnalysis = async (connectionId, samplingConsentGiven = false) => {
   try {
-    console.log('Starting AI analysis...', { userId, companyId, connectionId, tables, settings });
-    
-    // API'nin beklediği format (camelCase)
-    const payload = {
-      userId: userId,
-      companyId: companyId,
-      connectionId: connectionId,
-      tables: tables,
-      settings: {
-        samplingRate: settings.samplingRate,
-        nullHandling: settings.nullHandling,
-        dataFormat: settings.dataFormat
-      }
-    };
-    
-    console.log('Payload:', JSON.stringify(payload, null, 2));
-    
-    const response = await axios.post(`${API_BASE_URL}/api/ai/start-analysis`, payload, { 
-      timeout: 60000,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await axios.post(
+      `${API_BASE_URL}/api/agent/analyze-connection/${connectionId}`,
+      { samplingConsentGiven },
+      { timeout: 30000 }
+    );
     return response.data;
   } catch (error) {
-    console.error('AI analysis error:', error);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-      throw new Error(error.response.data?.message || JSON.stringify(error.response.data));
-    }
+    console.error('Analysis start failed:', error);
     throw error;
   }
 };
 
-// AI Analiz durumunu kontrol etme
-export const getAnalysisStatus = async (requestId) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/api/ai/analysis-status/${requestId}`, { timeout: 10000 });
-    return response.data;
-  } catch (error) {
-    console.error('Analysis status check error:', error);
-    throw error;
-  }
-};
-
-// AI Rapor oluşturma
-export const generateAIReport = async (requestId, reportType, database, tables) => {
-  try {
-    console.log('Generating AI report:', { requestId, reportType, database, tables });
-    const response = await axios.post(`${API_BASE_URL}/api/ai/reports/generate`, {
-      requestId,
-      reportType,
-      database,
-      tables
-    }, { timeout: 30000 });
-    return response.data;
-  } catch (error) {
-    console.error('Generate report error:', error);
-    throw error;
-  }
-};
-
-// AI'ya soru sorma
-export const askAIQuestion = async (requestId, question, database, tables, options = {}) => {
-  try {
-    const tableName = options.tableName || null;
-    const predictData = options.predictData || null;
-
-    console.log('Asking AI question:', { requestId, question, database, tables, tableName, predictData });
-    const response = await axios.post(`${API_BASE_URL}/api/ai/reports/ask-question`, {
-      requestId,
-      question,
-      database,
-      tables,
-      tableName,
-      predictData
-    }, { timeout: 30000 });
-    return response.data;
-  } catch (error) {
-    console.error('Ask question error:', error);
-    throw error;
-  }
-};
-
-// ========== AI Agent Pipeline ==========
-
-// Bağlantı schema'sını LLM ile analiz et → PyCaret config oluştur
-export const analyzeConnectionSchema = async (connectionId) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/api/agent/analyze-connection/${connectionId}`, null, {
-      timeout: 120000 // 2 dakika — şema analizi zaman alabilir
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Schema analysis failed:', error);
-    throw error;
-  }
-};
-
-// PyCaret config durumunu kontrol et
-export const getAgentConfigStatus = async (connectionId) => {
+/** Analiz durumu + varsa kullanıcıya sorulacak sorular. */
+export const getAnalysisStatus = async (connectionId) => {
   try {
     const response = await axios.get(`${API_BASE_URL}/api/agent/config/${connectionId}/status`, {
       timeout: 10000
     });
     return response.data;
   } catch (error) {
-    console.error('Config status check failed:', error);
+    console.error('Analysis status check failed:', error);
     throw error;
   }
 };
 
-// PyCaret config'ini getir
+/** Soru yanıtlarını sözlüğe işler; bağlantı `ready` olur. */
+export const submitAnalysisAnswers = async (connectionId, answers) => {
+  const response = await axios.post(
+    `${API_BASE_URL}/api/agent/config/${connectionId}/answers`,
+    { answers },
+    { timeout: 30000 }
+  );
+  return response.data;
+};
+
+/** Firmanın analiz edilmiş bağlantıları — panel bunu listeler. */
+export const listAnalyses = async () => {
+  const response = await axios.get(`${API_BASE_URL}/api/agent/configs`, { timeout: 15000 });
+  return response.data;
+};
+
+// Semantik sözlüğü getir
 export const getAgentConfig = async (connectionId) => {
   try {
     const response = await axios.get(`${API_BASE_URL}/api/agent/config/${connectionId}`, {
@@ -434,14 +352,14 @@ export const getAgentQueryHistory = async (connectionId) => {
 };
 
 /* ─────────────────────────────────────────────────────────────
-   Tablo seçimi ve ön analiz
+   Tablo seçimi
 
-   Tablo seçimi eskiden yalnızca localStorage'da tutuluyordu; sunucu hangi
+   Seçim eskiden yalnızca localStorage'da tutuluyordu; sunucu hangi
    tabloların seçildiğini bilmediği için "yalnızca seçili tablolar işlenir"
    kuralı uygulanamıyor, şema çıkarma tüm veritabanını tarıyordu.
 ───────────────────────────────────────────────────────────── */
 
-/** Seçili tabloları sunucuya kaydeder. Seçim değişince profil geçersiz olur. */
+/** Seçili tabloları sunucuya kaydeder. Seçim değişince analiz geçersiz olur. */
 export const saveSelectedTables = async (connectionId, tables) => {
   const response = await axios.put(
     `${API_BASE_URL}/api/connections/${connectionId}/tables`,
@@ -455,38 +373,6 @@ export const getSelectedTables = async (connectionId) => {
   const response = await axios.get(
     `${API_BASE_URL}/api/connections/${connectionId}/tables`,
     { timeout: 20000 }
-  );
-  return response.data;
-};
-
-/**
- * Ön analizi başlatır: seçili tabloların profilini çıkarır ve semantik
- * sözlük üretir. Veritabanına gerçekten bağlanıp örnek değer okuduğu için
- * uzun sürebilir — timeout bilerek geniş.
- */
-export const startPreAnalysis = async (connectionId, samplingConsentGiven = false) => {
-  const response = await axios.post(
-    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis`,
-    { samplingConsentGiven },
-    { timeout: 300000 }
-  );
-  return response.data;
-};
-
-export const getPreAnalysisState = async (connectionId) => {
-  const response = await axios.get(
-    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis`,
-    { timeout: 20000 }
-  );
-  return response.data;
-};
-
-/** Kullanıcının soru yanıtlarını gönderir; bağlantı `ready` olur. */
-export const submitPreAnalysisAnswers = async (connectionId, answers) => {
-  const response = await axios.post(
-    `${API_BASE_URL}/api/connections/${connectionId}/pre-analysis/answers`,
-    { answers },
-    { timeout: 30000 }
   );
   return response.data;
 };

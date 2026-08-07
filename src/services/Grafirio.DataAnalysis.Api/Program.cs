@@ -2,20 +2,15 @@ using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using MongoDB.Driver;
-using Grafirio.DataAnalysis.Api.Features.Connection;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
-using Grafirio.DataAnalysis.Api.Features.AI;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
-using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
-using Grafirio.Contracts.AI;
 using Grafirio.Shared.Infrastructure.Extensions;
 using Grafirio.Shared.Identity.Extensions;
 using Microsoft.EntityFrameworkCore;
-using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,32 +30,15 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Gemini LLM Service
+// LLM — saglayici secimi LlmClient icinde (Azure OpenAI)
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
-builder.Services.AddSingleton<GeminiService>();
+builder.Services.AddSingleton<LlmAnalysisService>();
 builder.Services.AddSingleton<SchemaProfiler>();
 
-// Redis — QueryResultStore + diğer servisler
-var redisConnectionString = builder.Configuration.GetValue<string>("Redis:ConnectionString")
-    ?? Environment.GetEnvironmentVariable("REDIS__CONNECTIONSTRING")
-    ?? "localhost:6379,abortConnect=false";
-try
-{
-    var redisMultiplexer = await ConnectionMultiplexer.ConnectAsync(redisConnectionString);
-    builder.Services.AddSingleton<IConnectionMultiplexer>(redisMultiplexer);
-    builder.Services.AddSingleton<QueryResultStore>();
-}
-catch (Exception redisEx)
-{
-    // Redis bağlanamıyorsa uygulama yine çalışsın, QueryResultStore devre dışı kalır
-    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => throw new InvalidOperationException("Redis bağlanamadı: " + redisEx.Message));
-    builder.Services.AddSingleton<QueryResultStore>(); // hata fırlatacak ama diğer endpointler çalışır
-}
-
-// MongoDB — tablo secimi ve sema profili (kalici)
-// Postgres semasi EnsureCreated ile kuruluyor ve migration yok; profil de
-// dokuman yapisinda oldugu icin burada tutuluyor.
+// MongoDB — tablo secimi (kalici)
+// Postgres semasi EnsureCreated ile kuruluyor ve migration yok; secim de
+// degisken uzunlukta bir liste oldugu icin burada tutuluyor.
 var mongoConnectionString = builder.Configuration.GetValue<string>("Mongo:ConnectionString")
     ?? Environment.GetEnvironmentVariable("MONGO__CONNECTIONSTRING");
 var mongoDatabaseName = builder.Configuration.GetValue<string>("Mongo:DatabaseName")
@@ -98,22 +76,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-// MassTransit - RabbitMQ
-builder.Services.AddGrafirioMassTransit(
-    builder.Configuration,
-    x =>
-    {
-        x.AddConsumer<DataAnalysisRequestConsumer>();  // Analiz request'lerini alır, Django'ya iletir
-        x.AddConsumer<DataAnalysisResponseConsumer>(); // Analiz response'larını dinler
-        // QuestionRequestConsumer kaldırıldı — bridge anti-pattern
-    },
-    cfg =>
-    {
-        // IQuestionRequest → Django'nun 'ai.requests' (fanout) exchange'ine yayınla
-        // Django bu exchange'e bağlı 'django.ai.requests' kuyruğunu dinliyor
-        cfg.Message<IQuestionRequest>(m => m.SetEntityName("ai.requests"));
-        cfg.Publish<IQuestionRequest>(p => p.ExchangeType = RabbitMQ.Client.ExchangeType.Fanout);
-    });
+// MassTransit/RabbitMQ kaldirildi: tek kullanicisi Django AI hattiydi ve o
+// hat sokuldu. Analiz artik dogrudan PyCaret Engine'e HTTP ile gidiyor,
+// durum da veritabanindan takip ediliyor.
 
 // Kimlik dogrulama. Bu servis daha once hic kurmamisti: uclar acikta duruyor
 // ve kullanici kimligini sorgu dizesinden aliyordu, yani isteyen istedigi
@@ -171,25 +136,19 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 // Map endpoints
-app.MapTableSelectionEndpoints(); // Secili tablolar (kural: yalnizca bunlar islenir)
-app.MapPreAnalysisEndpoints();    // On analiz: profil + semantik sozluk + bekletici kapi
-app.MapConnectionEndpoints(); // Test connection
-app.MapSavedConnectionEndpoints(); // Saved connections CRUD
-app.MapSchemaEndpoints();
-app.MapAnalysisEndpoints();
-app.MapAIAnalysisEndpoints();
-app.MapSchemaDiscoveryEndpoints();
-app.MapAIReportEndpoints();
-app.MapQueryResultEndpoints(); // Query result & progress tracking
-app.MapAgentAnalyzeEndpoints(); // AI Agent — schema analiz
-app.MapAgentQueryEndpoints(); // AI Agent — sorgu ve PyCaret
-app.MapTestDjangoEndpoints(); // 🧪 Test endpoint
+app.MapConnectionTestEndpoints();  // Baglanti denemesi
+app.MapSavedConnectionEndpoints(); // Kayitli baglantilarin CRUD'u
+app.MapTableSelectionEndpoints();  // Secili tablolar (kural: yalnizca bunlar islenir)
+app.MapSchemaEndpoints();          // Tablo ve kolon listesi
+app.MapAnalysisEndpoints();        // Veri kalitesi / istatistik / iliskiler
+app.MapAgentAnalyzeEndpoints();    // Analiz Et: profil + semantik sozluk + sorular
+app.MapAgentQueryEndpoints();      // Sorgu: soru -> parametre -> PyCaret
 
 // Health check
 // Onceki surum kosulsuz "Healthy" donuyordu — hicbir bagimliligi yoklamadigi
-// icin Redis de LLM de dusmusken bile yesil gorunuyordu. Bir arizada bakilacak
-// ilk yer burasi oldugu halde hicbir sey soylemiyordu; LLM yapilandirmasi
-// hatasinin teshisi bu yuzden loglari tek tek okumaya kaldi.
+// icin LLM dusmusken bile yesil gorunuyordu. Bir arizada bakilacak ilk yer
+// burasi oldugu halde hicbir sey soylemiyordu; LLM yapilandirmasi hatasinin
+// teshisi bu yuzden loglari tek tek okumaya kaldi.
 app.MapGet("/health", async (
     DataAnalysisDbContext db,
     ILlmClient llm,
@@ -219,24 +178,24 @@ app.MapGet("/health", async (
             throw new InvalidOperationException("Bağlantı kurulamadı");
     });
 
-    await Probe("redis", async () =>
+    await Probe("mongo", async () =>
     {
-        // Redis acilista baglanamadiysa kayit hata firlatan bir fabrikaya
+        // Mongo baglanti dizesi tanimsizsa kayit hata firlatan bir fabrikaya
         // baglanmis oluyor; cozumleme burada patlar ve sebebi gorunur.
-        var mux = services.GetRequiredService<IConnectionMultiplexer>();
-        await mux.GetDatabase().PingAsync();
+        // Tablo secimi burada durdugu icin Mongo dustugunde analiz baslamaz.
+        var database = services.GetRequiredService<IMongoDatabase>();
+        await database.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
     });
 
     // LLM icin gercek bir cagri yapilmiyor: her saglik yoklamasinda token
-    // harcamak istemiyoruz. Yalnizca saglayicinin secili ve anahtarinin
-    // tanimli olup olmadigi bildiriliyor — asil kacirilan sey buydu.
-    var provider = configuration["LLM_PROVIDER"] ?? configuration["Llm:Provider"] ?? "(tanımsız → azure_openai)";
+    // harcamak istemiyoruz. Yalnizca anahtarin tanimli olup olmadigi
+    // bildiriliyor — asil kacirilan sey buydu.
     if (!llm.IsConfigured) healthy = false;
     checks["llm"] = new
     {
         status = llm.IsConfigured ? "ok" : "fail",
-        provider,
-        error = llm.IsConfigured ? null : "API anahtarı tanımlı değil — sorgu çevirisi çalışmaz"
+        deployment = configuration["AZURE_OPENAI_DEPLOYMENT"] ?? configuration["AzureOpenAI:Deployment"] ?? "(tanımsız)",
+        error = llm.IsConfigured ? null : "AZURE_OPENAI_API_KEY tanımlı değil — analiz ve sorgu çalışmaz"
     };
 
     var payload = new

@@ -9,8 +9,6 @@ import OnboardingPage from '../pages/OnboardingPage';
 import DashboardPage from '../pages/DashboardPage';
 import CanvasPage from '../pages/CanvasPage';
 import CompanyAdminPage from '../pages/CompanyAdminPage';
-import AIPage from '../pages/AIPage';
-import DataAnalysisPage from '../pages/DataAnalysis/DataAnalysisPage';
 
 // Ayar Sayfaları — menudeki her giris kendi sayfasina gidiyor.
 import CompanySettingsPage from '../pages/settings/CompanySettingsPage';
@@ -29,12 +27,14 @@ const routes = [
       { path: '/', element: <DashboardPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
       { path: 'company-info', element: <CompanyAdminPage /> },
-      { path: 'ai-dashboard', element: <AIPage /> },
-      { path: 'data-analysis', element: <DataAnalysisPage /> },
-      // Eski /ai-query sayfasi kaldirildi: kanvasla ayni isi yapan ikinci bir
-      // ekrandi ve farkli bir arka uca bagliydi. Eski baglantilar kirilmasin
-      // diye kanvasa yonlendiriliyor.
+      // Kanvasla ayni isi yapan eski ekranlar kaldirildi: /ai-query kendi
+      // arka ucuna, /ai-dashboard Django'ya ve dogrudan localhost portlarina,
+      // /data-analysis ise kanvastan onceki analiz akisina bagliydi. Ucu de
+      // ayni soruyu farkli cevaplayan ekranlardi. Eski baglantilar kirilmasin
+      // diye kanvasa yonlendiriliyorlar.
       { path: 'ai-query', element: <Navigate to="/canvas" replace /> },
+      { path: 'ai-dashboard', element: <Navigate to="/canvas" replace /> },
+      { path: 'data-analysis', element: <Navigate to="/canvas" replace /> },
       {
         path: 'settings',
         children: [
@@ -64,41 +64,34 @@ const routes = [
     path: '/onboarding',
     element: <OnboardingPage />,
   },
-  // Public routes for development/testing (without Keycloak protection)
-  {
-    path: '/ai-dashboard-public',
-    element: <AIPage />,
-  },
-  {
-    path: '/data-analysis-public',
-    element: <DataAnalysisPage />,
-  },
-  // Alternative: Test page at root level for quick access
-  {
-    path: '/test-data-analysis',
-    element: <DataAnalysisPage />,
-  },
+  // Kimlik dogrulamasiz "-public" ve "test-" rotalari kaldirildi: gelistirme
+  // kolayligi icin acilmislardi ama uretimde de duruyorlardi.
   // Diğer rotalar (404 vb.) buraya eklenebilir
 ];
 
 // ── Canvas route: full-screen, kendi layout'u var ──
-// Auth gereksiz (geliştirme kolaylığı için) — üretimde ProtectedRoute'a taşı
+//
+// Artik ProtectedRoute'un altinda. Onceden "gelistirme kolayligi icin" acikti
+// ve dosyada "uretimde ProtectedRoute'a tasi" notu duruyordu; arkadaki uclar
+// zaten CompanyAccess istedigi icin veri sizmiyordu ama giris yapmamis
+// kullanici bos bir kanvasla karsilasiyordu.
+//
+// Tek giris yolu var: /canvas?connectionId=... — veritabani adi ve secili
+// tablolar sunucudan okunuyor. Eski /canvas/:analysisId yolu kaldirildi;
+// kaydi tarayicinin localStorage'indan okudugu icin baska bir makineden
+// girildiginde kanvas bos aciliyordu.
 const canvasRoutes = [
   {
-    path: '/canvas/:analysisId',
-    element: <CanvasLayout />,
-    children: [
-      { path: '', element: <CanvasPage /> },
-    ],
-  },
-  // Kanvas artik dogrudan bir baglantidan da acilabiliyor:
-  // /canvas?connectionId=... — analiz kaydi olusmasini beklemeden.
-  // Kanvas ana konusma ekrani oldugu icin bu giris yolu gerekli.
-  {
     path: '/canvas',
-    element: <CanvasLayout />,
+    element: <ProtectedRoute />,
     children: [
-      { path: '', element: <CanvasPage /> },
+      {
+        path: '',
+        element: <CanvasLayout />,
+        children: [
+          { path: '', element: <CanvasPage /> },
+        ],
+      },
     ],
   },
 ];

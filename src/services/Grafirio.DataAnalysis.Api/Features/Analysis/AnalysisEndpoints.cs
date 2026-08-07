@@ -1,5 +1,5 @@
 using Dapper;
-using Grafirio.DataAnalysis.Api.Features.Connection;
+using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Models;
 using Microsoft.Data.SqlClient;
 
@@ -34,7 +34,7 @@ public static class AnalysisEndpoints
     {
         try
         {
-            var connectionString = ConnectionEndpoints.BuildConnectionString(request.ConnectionInfo);
+            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
             using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
 
@@ -119,7 +119,7 @@ public static class AnalysisEndpoints
     {
         try
         {
-            var connectionString = ConnectionEndpoints.BuildConnectionString(request.ConnectionInfo);
+            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
             using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
 
@@ -210,7 +210,7 @@ public static class AnalysisEndpoints
     {
         try
         {
-            var connectionString = ConnectionEndpoints.BuildConnectionString(request.ConnectionInfo);
+            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
             using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
 
@@ -283,7 +283,7 @@ public static class AnalysisEndpoints
     {
         try
         {
-            var connectionString = ConnectionEndpoints.BuildConnectionString(request.ConnectionInfo);
+            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
             using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
 

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconX, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
 import {
-  generateAIReport, getConnectionById, getSelectedTables,
+  getConnectionById, getSelectedTables,
   submitAgentQuery, getAgentQueryStatus, getAgentQueryResult,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
@@ -121,7 +121,6 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
    CanvasPage
 ───────────────────────────────────────────────────────────── */
 export default function CanvasPage() {
-  const { analysisId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -133,7 +132,6 @@ export default function CanvasPage() {
   const [question, setQuestion] = useState('');
   const [queryCount, setQueryCount] = useState(0);
   const isQuerying = queryCount > 0; // sadece topbar yüklenme göstergesi — input'u bloklamaz
-  const [loadingReport, setLoadingReport] = useState(false);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -143,19 +141,13 @@ export default function CanvasPage() {
   const nextPosRef = useRef({ x: 80, y: 80 });
   const lastGroupIdRef = useRef(null);
 
-  /* Load analysis from localStorage.
-     Kayit yalnizca tarayicida duruyor; baska bir makineden ya da gecmis
-     temizlendikten sonra girildiginde bulunamiyor. Onceki surumde bu durum
-     sessizdi: sohbet kutusu kilitli aciliyor, sebebi hicbir yerde yazmiyordu
-     ve tuval bozulmus gibi gorunuyordu. Artik ayrica isaretleniyor. */
+  /* Kanvas bir bağlantıdan açılıyor: /canvas?connectionId=...
+     Veritabanı adı ve seçili tablolar sunucudan okunuyor. Bağlantı
+     bulunamazsa bu ayrıca işaretleniyor — önceki sürümde sohbet kutusu
+     sessizce kilitli açılıyor, sebebi hiçbir yerde yazmıyordu. */
   const [analysisMissing, setAnalysisMissing] = useState(false);
 
-  // Kanvas iki yoldan aciliyor:
-  //   /canvas/:analysisId          -> eski yol, kayit localStorage'da
-  //   /canvas?connectionId=...     -> baglantidan dogrudan; veritabani adi ve
-  //                                   secili tablolar sunucudan okunuyor
-  // Ikincisi kanvasi ana konusma ekrani yapiyor: onceden bir analiz kaydi
-  // olusmadan buraya girilemiyordu.
+  // Kanvas bir baglantidan aciliyor: /canvas?connectionId=...
   const connectionId = new URLSearchParams(location.search).get('connectionId');
 
   useEffect(() => {
@@ -191,63 +183,20 @@ export default function CanvasPage() {
       return () => { cancelled = true; };
     }
 
-    const stored = localStorage.getItem('activeAnalyses');
-    let found = null;
-    if (stored) {
-      try {
-        found = JSON.parse(stored).find(a => a.requestId === analysisId) || null;
-      } catch {
-        // Bozuk bir kayit tum sayfayi goturmesin.
-      }
-    }
-    setAnalysis(found);
-    setAnalysisMissing(!found);
+    // connectionId yoksa acilacak bir sey yok. Eskiden burada localStorage'dan
+    // bir analiz kaydi aranirdi; kayit yalnizca o tarayicida durdugu icin
+    // baska bir makineden girildiginde kanvas bozulmus gibi aciliyordu.
+    setAnalysis(null);
+    setAnalysisMissing(true);
     return () => { cancelled = true; };
-  }, [analysisId, connectionId]);
+  }, [connectionId]);
 
   /* Auto-scroll chat */
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  /* ── Add report to canvas ── */
-  const addToCanvas = useCallback((report, questionText) => {
-    if (!report) return;
-
-    const qId = questionText ? `q-${Date.now()}` : null;
-
-    if (qId) {
-      const qPos = { ...nextPosRef.current };
-      const qNode = { id: qId, type: 'biInsightNode', position: qPos, data: { type: 'question', title: '💬 Soru', description: questionText } };
-      nextPosRef.current = { x: qPos.x + 450, y: qPos.y };
-      const qEdge = lastGroupIdRef.current ? { id: `e-${lastGroupIdRef.current}-${qId}`, source: lastGroupIdRef.current, target: qId, animated: true, style: { stroke: 'var(--slate-400)' } } : null;
-      const { newNodes, newEdges } = buildCanvasNodes(report, qId, nextPosRef);
-      setCanvasNodes(p => [...p, qNode, ...newNodes]);
-      setCanvasEdges(p => [...p, ...(qEdge ? [qEdge] : []), ...newEdges]);
-      lastGroupIdRef.current = qId;
-    } else {
-      const { newNodes, newEdges } = buildCanvasNodes(report, lastGroupIdRef.current, nextPosRef);
-      setCanvasNodes(p => [...p, ...newNodes]);
-      setCanvasEdges(p => [...p, ...newEdges]);
-      if (newNodes.length > 0) lastGroupIdRef.current = newNodes[0].id;
-    }
-  }, []);
-
-  /* ── Generate preset report ── */
-  const handleReport = async (reportType) => {
-    if (!analysis) return;
-    setLoadingReport(true);
-    try {
-      const res = await generateAIReport(analysis.requestId, reportType, analysis.database, analysis.tables || []);
-      if (res.success) addToCanvas(res, null);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoadingReport(false);
-    }
-  };
-
-  /* ── Ask AI question (Planner → Executor pipeline) ── */
+  /* ── Ask AI question ── */
   const handleAsk = async (q) => {
     const text = (q || question).trim();
     if (!text) return;
@@ -390,13 +339,6 @@ export default function CanvasPage() {
     }
   };
 
-  const PRESETS = [
-    { key: 'user-activity',      label: 'Kullanıcı Aktivitesi', icon: '📊' },
-    { key: 'data-distribution',  label: 'Veri Dağılımı',        icon: '📈' },
-    { key: 'trend-analysis',     label: 'Trend Analizi',        icon: '📉' },
-    { key: 'summary-statistics', label: 'Özet İstatistikler',   icon: '🔢' },
-  ];
-
   const QUICK_Q = ['En aktif kullanıcılar?', 'Aylık veri artışı?', 'En büyük tablo?'];
 
   return (
@@ -421,7 +363,7 @@ export default function CanvasPage() {
               {analysis.tables?.length ?? 0} tablo
             </span>
           )}
-          {(loadingReport || isQuerying) && (
+          {isQuerying && (
             <span className="cp-topbar-loading">
               <IconLoader2 size={14} className="spin" /> Analiz ediliyor…
             </span>
@@ -439,32 +381,12 @@ export default function CanvasPage() {
         {/* ── Sol Panel: LLM Chat ── */}
         <aside className={`cp-sidebar ${sidebarOpen ? 'cp-sidebar--open' : 'cp-sidebar--closed'}`}>
 
-          {/* Preset raporlar — sunucu tarafi henuz gercek rapor uretmiyor.
-              AIReportEndpoints.GenerateReport icinde "TODO: RabbitMQ uzerinden
-              Django AI'ya rapor talebi gonder" duruyor ve her cagri "Rapor
-              Olusturuluyor" basligli sahte bir grafik donduruyor. Butonlar bu
-              yuzden kapali: tuvale anlamsiz dugum eklemek, dugmenin calismamasi
-              kadar zararsiz degil — kullanici onu gercek bir cikti saniyor. */}
-          <div className="cp-section">
-            <div className="cp-section-title">AI Önerilen Raporlar</div>
-            <div className="cp-presets">
-              {PRESETS.map(p => (
-                <button
-                  key={p.key}
-                  className="cp-preset-btn"
-                  onClick={() => handleReport(p.key)}
-                  disabled
-                  title="Hazır raporlar henüz sunucuya bağlı değil"
-                >
-                  <span>{p.icon}</span> {p.label}
-                </button>
-              ))}
-            </div>
-            <p className="cp-preset-note">
-              Hazır raporlar henüz sunucuya bağlı değil. Şimdilik aşağıdaki sohbetten
-              soru sorarak grafik üretebilirsiniz.
-            </p>
-          </div>
+          {/* "AI Önerilen Raporlar" bölümü kaldırıldı. Arkasındaki uç gerçek
+              bir rapor üretmiyordu: içinde "TODO: Django AI'ya rapor talebi
+              gönder" duruyor ve her çağrı "Rapor Oluşturuluyor" başlıklı sahte
+              bir grafik döndürüyordu. Butonlar zaten kapalıydı; hem uç hem
+              butonlar gitti — çalışmayan bir bölüm, olmayan bir bölümden
+              daha çok soru doğuruyor. */}
 
           <div className="cp-divider" />
 

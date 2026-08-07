@@ -65,14 +65,25 @@ public static class TableSelectionEndpoints
 
         await store.SaveSelectedTablesAsync(connectionId, scopedCompanyId, tables, ct);
 
+        // Secim degistiginde eski analiz gecersizdir: sozluk artik secili
+        // olmayan tablolari anlatiyor ya da yeni secilenleri hic tanimiyor.
+        // Bunu yapmazsak baglanti "ready" gorunmeye devam eder ve sorgu ucu
+        // eskimis bir sozlukle kolon secmeye calisir.
+        var stale = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == connectionId && c.CompanyId == scopedCompanyId && c.IsActive)
+            .ToListAsync(ct);
+
+        foreach (var config in stale) config.IsActive = false;
+        if (stale.Count > 0) await db.SaveChangesAsync(ct);
+
         return Results.Ok(new
         {
             success = true,
             connectionId,
             tables,
-            // Secim degistiginde profil gecersiz olur; arayuz kullaniciyi
-            // yeniden on analize yonlendirsin diye durumu da donuyoruz.
-            status = ProfileStatus.Pending
+            // Secim degistiginde analiz gecersiz olur; arayuz kullaniciyi
+            // yeniden "Analiz Et"e yonlendirsin diye durumu da donuyoruz.
+            status = "none"
         });
     }
 
@@ -93,7 +104,12 @@ public static class TableSelectionEndpoints
         if (!exists) return Results.NotFound(new { error = "Bağlantı bulunamadı" });
 
         var tables = await store.GetSelectedTablesAsync(connectionId, scopedCompanyId, ct);
-        var (_, status) = await store.GetProfileAsync(connectionId, scopedCompanyId, ct);
+
+        var status = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == connectionId && c.CompanyId == scopedCompanyId && c.IsActive)
+            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => c.Status)
+            .FirstOrDefaultAsync(ct) ?? "none";
 
         return Results.Ok(new { success = true, connectionId, tables, status });
     }

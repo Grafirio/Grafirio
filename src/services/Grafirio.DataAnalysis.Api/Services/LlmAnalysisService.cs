@@ -1,0 +1,356 @@
+using System.Text.Json;
+
+namespace Grafirio.DataAnalysis.Api.Services;
+
+/// <summary>
+/// Analiz hattinin LLM tarafi. Iki isi var:
+///
+///   1. <see cref="BuildSchemaDictionaryAsync"/> — tablo profilinden semantik
+///      sozluk uretir. "Analiz Et" adiminda bir kez calisir.
+///   2. <see cref="TranslateQuestionAsync"/> — kullanicinin sorusunu o sozlugu
+///      kullanarak analiz parametrelerine cevirir. Her soruda calisir.
+///
+/// Onceki tasarimda uc ayri LLM isi vardi: on analizde semantik sozluk,
+/// "Analiz Et"te ham semadan PyCaret config, sorgu aninda da o config'e bakan
+/// bir ceviri. Sozluk uretiliyor ama sorgu aninda hic okunmuyordu; model
+/// gercek kolon adlarini gormedigi icin olmayan adlar uyduruyordu. Artik tek
+/// bir sozluk var ve ceviri onu goruyor.
+///
+/// Saglayici secimi <see cref="ILlmClient"/> icinde; bu sinif yalnizca prompt
+/// kurar ve yaniti ayristirir.
+/// </summary>
+public class LlmAnalysisService
+{
+    private readonly ILlmClient? _model;
+    private readonly ILogger<LlmAnalysisService> _logger;
+
+    public LlmAnalysisService(ILlmClient llmClient, ILogger<LlmAnalysisService> logger)
+    {
+        _logger = logger;
+
+        if (!llmClient.IsConfigured)
+        {
+            _logger.LogWarning("LLM yapılandırılmamış — analiz ve sorgu çalışmayacak.");
+            _model = null;
+            return;
+        }
+
+        _model = llmClient;
+    }
+
+    private static LlmResult NotConfigured() => new()
+    {
+        Success = false,
+        IsConfigurationError = true,
+        Error = "LLM yapılandırılmamış. Sunucuda AZURE_OPENAI_* değişkenleri tanımlı olmalı."
+    };
+
+    /// <summary>
+    /// Secili tablolarin profilinden semantik sozluk uretir.
+    ///
+    /// Bu, sistemin "gidilen ulke" ifadesini <c>ReceiverCompanyCountryName</c>
+    /// kolonuna baglamasini saglayan katman. Cikti bilerek yapisal: duzyazi
+    /// ozet insan icin, sozluk makine icin. Model emin olamadigi kolonlari
+    /// <c>questions</c> altinda bildiriyor; bunlar kullaniciya bir kez sorulup
+    /// yanitlari sozluge isleniyor.
+    /// </summary>
+    public async Task<LlmResult> BuildSchemaDictionaryAsync(string profileJson, CancellationToken ct = default)
+    {
+        if (_model is null) return NotConfigured();
+
+        _logger.LogInformation("Semantik sözlük isteniyor. Profil uzunluğu: {Len}", profileJson.Length);
+
+        try
+        {
+            // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun sozlugu
+            // arti sorular tek cevaba sigmali, ustelik reasoning token'lari da
+            // ayni butceden dusuyor.
+            var text = await _model.GenerateAsync(
+                BuildDictionaryPrompt(profileJson), temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+
+            return new LlmResult
+            {
+                Success = true,
+                Json = ExtractJson(text),
+                Explanation = ExtractExplanation(text),
+                RawResponse = text
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Semantik sözlük üretimi başarısız");
+            return new LlmResult { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Kullanicinin dogal dil sorusunu, semantik sozluge bakarak analiz
+    /// parametrelerine cevirir.
+    /// </summary>
+    public async Task<LlmResult> TranslateQuestionAsync(
+        string question, string dictionaryJson, string schemaSummary, CancellationToken ct = default)
+    {
+        if (_model is null) return NotConfigured();
+
+        _logger.LogInformation("Soru çevriliyor: {Question}", question);
+
+        try
+        {
+            var text = await _model.GenerateAsync(
+                BuildTranslationPrompt(question, dictionaryJson, schemaSummary),
+                temperature: 0.1, maxTokens: 4000, cancellationToken: ct);
+
+            return new LlmResult
+            {
+                Success = true,
+                Json = ExtractJson(text),
+                Explanation = ExtractExplanation(text),
+                RawResponse = text
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Soru çevirisi başarısız");
+            return new LlmResult { Success = false, Error = ex.Message };
+        }
+    }
+
+    private static string BuildDictionaryPrompt(string profileJson)
+    {
+        return $$"""
+        Sen bir veri modeli uzmanısın. Aşağıda bir müşterinin veritabanından
+        çıkarılmış tablo profili var: kolon adları, tipler, istatistikler ve —
+        gizlilik politikasının izin verdiği kolonlarda — örnek değerler.
+
+        Görevin bu veritabanının SÖZLÜĞÜNÜ çıkarmak: her kolonun ne işe
+        yaradığını yaz. Çözemediğin kolonlar için veritabanını bilen kişiye
+        soru sor.
+
+        ## Profil
+        ```json
+        {{profileJson}}
+        ```
+
+        ## Sözlük kuralları
+        1. YALNIZCA profilde geçen tablo ve kolon adlarını kullan. Ad uydurma.
+        2. Kolonun adı yanıltıcı olabilir, içeriği olmaz — örnek değerlere bak.
+        3. Her kolon için kullanıcının o alandan bahsederken kullanabileceği
+           Türkçe karşılıkları yaz.
+
+        ## Soru kuralları — bunlara harfiyen uy
+
+        Soru sormanın TEK sebebi var: bir kolonun ne olduğunu çözememek.
+
+        - Her soru TEK bir kolon hakkında olacak ve o kolonun adını içerecek.
+        - Kalıp şu: "<Tablo> tablosunda <Kolon> alanını görüyorum, ne işe
+          yaradığını çözemedim. Aşağıdakilerden hangisi?"
+        - Şıklar o alanın OLABİLECEĞİ anlamlar olacak. Kısa, somut, en fazla
+          5 kelime. Sonuncu şık her zaman "Başka bir şey".
+        - Soru TEK cümle olacak. Parantez içi açıklama, "yani", "örneğin"
+          zincirleri yok. Veritabanını bilen ama teknik olmayan biri okuyup
+          hemen cevaplayabilmeli.
+
+        ASLA sorma:
+        - Raporlamada neyi görmek istediğini, hangi metriği tercih ettiğini
+        - Satırların nasıl sayılacağını, nasıl gruplanacağını, neyin
+          toplanacağını
+        - Analiz tercihlerini, ülke mi şehir mi bazlı olacağını
+        - İki alandan hangisini kullanacağını
+
+        Bunlar sorgu anında verilecek kararlar; burada veritabanını
+        öğreniyoruz, rapor tasarlamıyoruz.
+
+        Adından ve içeriğinden anlamı zaten belli olan kolonlara soru sorma
+        (CreatedDate, Quantity, CustomerName gibi). En fazla 8 soru sor;
+        çözemediğin kolon yoksa `questions` boş kalsın.
+
+        JSON bloğunu ```json ve ``` arasında ver:
+
+        ```json
+        {
+          "sector": "lojistik|perakende|üretim|finans|sağlık|diğer",
+          "sectorConfidence": "high|medium|low",
+          "tables": [
+            {
+              "name": "dbo.Shipments",
+              "purpose": "Sevkiyat kayıtları — her satır bir gönderi",
+              "isPrimary": true
+            }
+          ],
+          "columns": [
+            {
+              "table": "dbo.Shipments",
+              "column": "ReceiverCompanyCountryName",
+              "meaning": "Gönderinin teslim edildiği ülke",
+              "synonyms": ["gidilen ülke", "varış ülkesi", "hedef ülke"],
+              "role": "dimension",
+              "confidence": "high"
+            }
+          ],
+          "questions": [
+            {
+              "id": "q1",
+              "table": "dbo.Shipments",
+              "column": "ReferenceId",
+              "question": "Shipments tablosunda ReferenceId alanını görüyorum, ne işe yaradığını çözemedim. Aşağıdakilerden hangisi?",
+              "options": [
+                "Müşterinin sipariş numarası",
+                "Taşıyıcı firmanın takip numarası",
+                "Fatura numarası",
+                "Sistem içi kayıt numarası",
+                "Başka bir şey"
+              ]
+            }
+          ]
+        }
+        ```
+
+        `role` şunlardan biri: measure (ölçülebilir sayı), dimension (kırılım),
+        date (zaman), identifier (kimlik), other.
+
+        JSON'dan sonra ### Açıklama başlığıyla kısa bir özet yaz.
+        """;
+    }
+
+    /// <summary>
+    /// Ceviri prompt'u. Modelin gordugu tek kaynak semantik sozluk: kolon
+    /// adlari, ne anlama geldikleri, kullanicinin onlara ne diyebilecegi ve
+    /// olcum mu kirilim mi olduklari. Onceki surumde burada ham bir PyCaret
+    /// config'i vardi; model kolonun ne oldugunu bilmedigi icin ada bakip
+    /// tahmin ediyordu.
+    /// </summary>
+    private static string BuildTranslationPrompt(string question, string dictionaryJson, string schemaSummary)
+    {
+        return $$"""
+        Sen bir veri analizi asistanısın. Kullanıcının sorusunu, aşağıdaki
+        sözlüğe bakarak analiz parametrelerine çevir.
+
+        ## Veritabanı özeti
+        {{schemaSummary}}
+
+        ## Semantik sözlük
+        Bu veritabanının tek doğru kaynağı. `columns[].synonyms` kullanıcının o
+        alandan bahsederken kullanabileceği ifadeleri, `role` ise kolonun
+        ölçüm mü kırılım mı olduğunu söyler. `answers` varsa, veritabanını
+        bilen kişinin verdiği yanıtlardır ve sözlükteki tanımı ezer.
+
+        ```json
+        {{dictionaryJson}}
+        ```
+
+        ## Kullanıcının sorusu
+        "{{question}}"
+
+        ## Kurallar
+        1. YALNIZCA sözlükte geçen tablo ve kolon adlarını kullan. Kolon adı
+           uydurma, tahmin etme, benzetme yapma.
+        2. Kullanıcının ifadesini `synonyms` üzerinden eşleştir. Örneğin
+           "gidilen ülke" sözlükte hangi kolonun eş anlamlısıysa o kolondur.
+        3. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
+           yapılacak alan `dimension`, zaman filtresi `date` olmalı.
+        4. Soruyu karşılayan kolonu sözlükte bulamıyorsan uydurma —
+           `target_table` alanını boş bırak ve `description` içinde hangi
+           bilginin eksik olduğunu yaz.
+        5. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe yaz.
+
+        JSON bloğunu ```json ve ``` arasında ver:
+
+        ```json
+        {
+          "analysis_type": "statistics|correlation|regression|classification|anomaly|clustering",
+          "target_table": "dbo.Shipments",
+          "target_column": "kolon_adı veya null",
+          "feature_columns": ["kolon1", "kolon2"],
+          "filters": { "kolon_adı": "filtre_değeri" },
+          "aggregation": "sum|avg|count|min|max|none",
+          "group_by": ["kolon_adı"],
+          "sort_by": "kolon_adı",
+          "sort_order": "desc",
+          "limit": 10,
+          "chart_type": "bar|line|pie|doughnut|scatter|heatmap",
+          "chart_title": "Grafik Başlığı",
+          "description": "Bu analizin ne yapacağının kısa açıklaması"
+        }
+        ```
+
+        JSON'dan sonra ### Açıklama başlığıyla, hangi kolonu neden seçtiğini
+        tek cümleyle yaz.
+        """;
+    }
+
+    private static string ExtractJson(string text)
+    {
+        // ```json ... ``` bloğunu bul
+        var startMarkers = new[] { "```json", "```JSON" };
+        var startIdx = -1;
+
+        foreach (var marker in startMarkers)
+        {
+            startIdx = text.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (startIdx >= 0)
+            {
+                startIdx += marker.Length;
+                break;
+            }
+        }
+
+        if (startIdx < 0)
+        {
+            // Direkt JSON dene
+            var firstBrace = text.IndexOf('{');
+            var lastBrace = text.LastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace)
+                return text[firstBrace..(lastBrace + 1)];
+
+            return "{}";
+        }
+
+        var endIdx = text.IndexOf("```", startIdx, StringComparison.Ordinal);
+        if (endIdx < 0) endIdx = text.Length;
+
+        return text[startIdx..endIdx].Trim();
+    }
+
+    private static string ExtractExplanation(string text)
+    {
+        var idx = text.IndexOf("### Açıklama", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            // Baslik farkli yazilmis olabilir: son kod blogundan sonraki ilk
+            // basligi al.
+            var lastFence = text.LastIndexOf("```", StringComparison.Ordinal);
+            if (lastFence >= 0) idx = text.IndexOf("###", lastFence, StringComparison.Ordinal);
+        }
+
+        return idx < 0 ? "" : text[idx..].Trim();
+    }
+}
+
+/// <summary>
+/// LLM cagrilarinin ortak sonucu. Onceden her metodun kendi sonuc tipi vardi
+/// (<c>GeminiAnalysisResult</c>, <c>GeminiQueryResult</c>, <c>GeminiChatResult</c>)
+/// ve alan adlari isle ortusmuyordu — semantik sozluk <c>PyCaretParamsJson</c>
+/// alaninda tasiniyordu.
+/// </summary>
+public class LlmResult
+{
+    public bool Success { get; set; }
+
+    /// <summary>Modelin dondurdugu JSON govdesi.</summary>
+    public string Json { get; set; } = "{}";
+
+    /// <summary>JSON'dan sonra gelen duzyazi ozet.</summary>
+    public string Explanation { get; set; } = "";
+
+    public string RawResponse { get; set; } = "";
+
+    public string? Error { get; set; }
+
+    /// <summary>
+    /// Hata sunucu yapilandirmasindan mi kaynaklaniyor (LLM tanimli degil) —
+    /// yoksa cagrinin kendisi mi basarisiz oldu. Uc bunu ayirt edip 503 mu
+    /// yoksa 502 mi donecegine karar veriyor: ilki "sunucu eksik
+    /// yapilandirilmis", ikincisi "beklenmedik hata" demek ve mudahalesi farkli.
+    /// </summary>
+    public bool IsConfigurationError { get; set; }
+}

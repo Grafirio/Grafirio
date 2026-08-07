@@ -4,10 +4,13 @@ using System.Text.Json;
 namespace Grafirio.DataAnalysis.Api.Services;
 
 /// <summary>
-/// Saglayici-bagimsiz LLM istemcisi. LLM_PROVIDER (veya Llm:Provider) ile secilir:
-///   azure_openai : Azure OpenAI chat-completions deployment'i
-///   gemini       : Google Gemini (eski varsayilan, geri donus icin duruyor)
-/// Python taraftaki llm/client.py ile ayni sozlesmeyi izler.
+/// Azure OpenAI chat-completions istemcisi.
+///
+/// Bir zamanlar saglayici-bagimsizdi ve <c>LLM_PROVIDER</c> ile Gemini'ye de
+/// gidebiliyordu. Gemini kullanimdan kaldirildi; secim mekanizmasi kaldi ve
+/// zarar verdi: compose'daki varsayilan hala <c>gemini</c> oldugu ve ortam
+/// degiskeni yapilandirmayi ezdigi icin ayni kod container'da Gemini'ye,
+/// IDE'den Azure'a gidiyordu. Tek saglayici, tek yol.
 /// </summary>
 public interface ILlmClient
 {
@@ -21,7 +24,6 @@ public sealed class LlmClient : ILlmClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly ILogger<LlmClient> _logger;
-    private readonly string _provider;
 
     // gpt-5 / o-serisi klasik parametreleri reddediyor (max_tokens yerine
     // max_completion_tokens, temperature yalnizca varsayilan). Deployment adi
@@ -36,46 +38,21 @@ public sealed class LlmClient : ILlmClient
         _configuration = configuration;
         _logger = logger;
 
-        var configured = Read("LLM_PROVIDER", "Llm:Provider");
-        _provider = (configured ?? "azure_openai").Trim().ToLowerInvariant();
-
-        // Sessiz varsayilan pahaliya mal oldu: ortamda GEMINI_API_KEY tanimliyken
-        // LLM_PROVIDER tanimli olmadigi icin istemci azure_openai'a dusuyor, onun
-        // anahtari da bulunmadigindan mock mode'a giriyordu. Disaridan gorunen tek
-        // sey sebebi yazmayan bir hataydi. Artik hangi saglayicinin secildigi ve
-        // yapilandirilmis olup olmadigi acilista yaziliyor.
-        if (configured is null)
-        {
-            _logger.LogWarning(
-                "LLM_PROVIDER tanımlı değil, varsayılan '{Provider}' kullanılıyor. Yapılandırılmış: {IsConfigured}",
-                _provider, IsConfigured);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "LLM sağlayıcı: {Provider} | yapılandırılmış: {IsConfigured}", _provider, IsConfigured);
-        }
+        // Yapilandirmanin durumu acilista yaziliyor: sessiz varsayilanlar
+        // pahaliya mal olmustu — anahtar tanimsizken servis ayaga kalkiyor,
+        // hata ancak kullanici analiz baslattiginda ve sebebi yazmadan
+        // goruluyordu.
+        _logger.LogInformation(
+            "LLM: Azure OpenAI | deployment: {Deployment} | yapılandırılmış: {IsConfigured}",
+            Read("AZURE_OPENAI_DEPLOYMENT", "AzureOpenAI:Deployment") ?? "(tanımsız)",
+            IsConfigured);
     }
 
-    public bool IsConfigured => _provider switch
-    {
-        "azure_openai" => !string.IsNullOrWhiteSpace(Read("AZURE_OPENAI_API_KEY", "AzureOpenAI:ApiKey")),
-        "gemini" => !string.IsNullOrWhiteSpace(Read("GEMINI_API_KEY", "Gemini:ApiKey")),
-        _ => false
-    };
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(Read("AZURE_OPENAI_API_KEY", "AzureOpenAI:ApiKey"));
 
     public async Task<string> GenerateAsync(string prompt, double temperature = 0.2,
         int maxTokens = 2048, CancellationToken cancellationToken = default)
-    {
-        if (_provider == "gemini")
-        {
-            return await GenerateGeminiAsync(prompt, cancellationToken);
-        }
-        return await GenerateAzureAsync(prompt, temperature, maxTokens, cancellationToken);
-    }
-
-    private async Task<string> GenerateAzureAsync(string prompt, double temperature, int maxTokens,
-        CancellationToken cancellationToken)
     {
         var endpoint = (Read("AZURE_OPENAI_ENDPOINT", "AzureOpenAI:Endpoint") ?? "").TrimEnd('/');
         var deployment = Read("AZURE_OPENAI_DEPLOYMENT", "AzureOpenAI:Deployment") ?? "";
@@ -90,9 +67,52 @@ public sealed class LlmClient : ILlmClient
         }
 
         var url = $"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={apiVersion}";
-        var attempts = _useLegacyParams is null ? new[] { false, true } : new[] { _useLegacyParams.Value };
-
         var client = _httpClientFactory.CreateClient(nameof(LlmClient));
+
+        // Reasoning modelleri (gpt-5 / o-serisi) dusunme adimlarini da ayni
+        // tavandan harciyor. Tavan yetmezse sunucu HTTP 200 doner ama
+        // finish_reason="length" ve content="" gelir — hataya benzemeyen bir
+        // basarisizlik. Tek denemede vazgecmek analizin tamamini bosa
+        // cikardigi icin butce buyutulup yeniden soruluyor.
+        const int maxBudgetAttempts = 3;
+        var budget = maxTokens;
+
+        for (var budgetAttempt = 1; ; budgetAttempt++)
+        {
+            var body = await SendAzureRequestAsync(
+                client, url, apiKey, prompt, temperature, budget, cancellationToken);
+
+            var content = ExtractContent(body);
+            if (!string.IsNullOrWhiteSpace(content)) return content;
+
+            var finishReason = ExtractFinishReason(body);
+            if (finishReason == "length" && budgetAttempt < maxBudgetAttempts)
+            {
+                budget *= 2;
+                _logger.LogWarning(
+                    "Azure OpenAI token bütçesi düşünmeye yetip cevaba yetmedi (finish_reason=length). " +
+                    "Bütçe {Budget} token'a çıkarılıp tekrar denenecek ({Attempt}/{Max}).",
+                    budget, budgetAttempt, maxBudgetAttempts);
+                continue;
+            }
+
+            throw new InvalidOperationException(finishReason == "length"
+                ? $"Azure OpenAI cevabı token bütçesine sığmadı ({budget} token'a kadar denendi). " +
+                  "Model düşünme adımlarını da aynı bütçeden harcıyor; daha az tablo/kolon " +
+                  "seçmek veya deployment limitini yükseltmek gerekiyor."
+                : $"Azure OpenAI boş içerik döndürdü (finish_reason={finishReason ?? "bilinmiyor"}): " +
+                  $"{Truncate(body, 300)}");
+        }
+    }
+
+    /// <summary>
+    /// Tek bir chat-completions cagrisi yapar; modern/klasik govde secimini ve
+    /// 429 geri cekilmesini yonetir. Basarili yanitin ham govdesini dondurur.
+    /// </summary>
+    private async Task<string> SendAzureRequestAsync(HttpClient client, string url, string apiKey,
+        string prompt, double temperature, int maxTokens, CancellationToken cancellationToken)
+    {
+        var attempts = _useLegacyParams is null ? new[] { false, true } : new[] { _useLegacyParams.Value };
         HttpResponseMessage? response = null;
         string body = "";
 
@@ -152,15 +172,7 @@ public sealed class LlmClient : ILlmClient
             break;
         }
 
-        var content = ExtractContent(body);
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            // Reasoning token'lari da ayni butceden dusuluyor; tavan dar kalirsa
-            // model dusunmeyi bitirir ama gorunur cevaba yer kalmaz.
-            throw new InvalidOperationException(
-                $"Azure OpenAI boş içerik döndürdü: {Truncate(body, 300)}");
-        }
-        return content;
+        return body;
     }
 
     private static string BuildAzurePayload(string prompt, double temperature, int maxTokens, bool legacy)
@@ -177,7 +189,10 @@ public sealed class LlmClient : ILlmClient
         }
         else
         {
-            payload["max_completion_tokens"] = Math.Max(maxTokens, 2048) + 2048;
+            // Modern modellerde tavan yalnizca gorunur cevabi degil, ondan once
+            // harcanan reasoning token'larini da kapsiyor. +2048'lik pay dar
+            // semalarda bile dusunmeye gidip cevaba yer birakmiyordu.
+            payload["max_completion_tokens"] = Math.Max(maxTokens, 2048) + 8192;
         }
 
         return JsonSerializer.Serialize(payload);
@@ -207,11 +222,14 @@ public sealed class LlmClient : ILlmClient
         try
         {
             using var doc = JsonDocument.Parse(body);
-            return doc.RootElement
-                .GetProperty("choices")[0]
-                .GetProperty("message")
-                .GetProperty("content")
-                .GetString() ?? "";
+            var message = doc.RootElement.GetProperty("choices")[0].GetProperty("message");
+
+            // Butce dolunca sunucu `content` alanini bos string olarak, bazen de
+            // hic gondermiyor. Ikisi de "cevap yok" demek; sekil hatasi degil, o
+            // yuzden burada patlamak yerine bos donup cagirana karar biraktiriyoruz.
+            return message.TryGetProperty("content", out var content)
+                ? content.GetString() ?? ""
+                : "";
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or IndexOutOfRangeException)
         {
@@ -219,18 +237,25 @@ public sealed class LlmClient : ILlmClient
         }
     }
 
-    private async Task<string> GenerateGeminiAsync(string prompt, CancellationToken cancellationToken)
+    /// <summary>
+    /// Yanitin neden bittigini soyler ("stop", "length", "content_filter"...).
+    /// Cozulemezse null doner — teshis icin kullanildigi icin burada hata
+    /// firlatmak dogru degil.
+    /// </summary>
+    private static string? ExtractFinishReason(string body)
     {
-        var apiKey = Read("GEMINI_API_KEY", "Gemini:ApiKey");
-        if (string.IsNullOrWhiteSpace(apiKey))
+        try
         {
-            throw new InvalidOperationException("GEMINI_API_KEY yapılandırılmamış");
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.GetProperty("choices")[0]
+                .TryGetProperty("finish_reason", out var reason)
+                ? reason.GetString()
+                : null;
         }
-
-        var googleAi = new Mscc.GenerativeAI.GoogleAI(apiKey);
-        var model = googleAi.GenerativeModel(Mscc.GenerativeAI.Model.Gemini20Flash);
-        var response = await model.GenerateContent(prompt);
-        return response.Text ?? "";
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or IndexOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

@@ -68,9 +68,9 @@ Write-Host "[4/5] Starting AI service (Docker)..." -ForegroundColor Yellow
 $dockerExe = "C:\Program Files\Docker\Docker\resources\bin\docker-compose.exe"
 if (Test-Path $dockerExe) {
     Push-Location "d:\Projeler\Grifirio"
-    & $dockerExe up -d --build django.ai 2>&1 | Out-Null
+    & $dockerExe up -d --build pycaret.engine 2>&1 | Out-Null
     Pop-Location
-    Write-Host "  Django AI container started (port 8000)" -ForegroundColor Green
+    Write-Host "  PyCaret Engine container started (port 8002)" -ForegroundColor Green
 } else {
     Write-Host "  Docker not found — skipping AI service" -ForegroundColor Yellow
 }
@@ -121,15 +121,13 @@ if ($dockerRunning) {
     Write-Host "[2/5] Docker servisleri başlatılıyor..." -ForegroundColor Yellow
     try {
         Set-Location "d:\Projeler\Grifirio"
-        docker-compose up -d mongo.db.identity mongo.db.catalog mongo.db.discount sqlserver.db.order postgres.db.keycloak postgres.db.dataanalysis rabbitmq redis.db.basket schema.analyzer pycaret.engine django.ai celery.worker 2>&1 | Out-Null
+        docker-compose up -d mongo.db sqlserver.db.order postgres.db.keycloak postgres.db.dataanalysis rabbitmq redis.db.basket pycaret.engine 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  ✓ AI servisleri başlatıldı" -ForegroundColor Green
+            Write-Host "    - MongoDB (27017)" -ForegroundColor Gray
             Write-Host "    - RabbitMQ (5672, 15672)" -ForegroundColor Gray
             Write-Host "    - Redis (6379)" -ForegroundColor Gray
-            Write-Host "    - Schema Analyzer (8001)" -ForegroundColor Gray
             Write-Host "    - PyCaret Engine (8002)" -ForegroundColor Gray
-            Write-Host "    - Django AI (8000)" -ForegroundColor Gray
-            Write-Host "    - Celery Worker" -ForegroundColor Gray
         } else {
             Write-Host "  ⚠ Docker servisleri başlatılamadı" -ForegroundColor Yellow
         }

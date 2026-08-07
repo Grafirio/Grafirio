@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
-using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -44,48 +43,44 @@ public static class AgentQueryEndpoints
     private static async Task<IResult> SubmitQuery(
         [FromBody] QueryRequest request,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] GeminiService gemini,
+        [FromServices] LlmAnalysisService llm,
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromServices] IConfiguration configuration,
-        [FromServices] ConnectionProfileStore profileStore,
         [FromServices] IIdentityService identity,
-        [FromServices] ILogger<GeminiService> logger)
+        [FromServices] ILogger<LlmAnalysisService> logger)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
         var scopedCompanyId = companyId.Value.ToString();
 
-        // Bekletici kapi: on analiz tamamlanmadan sorgu calistirilmaz.
-        // Sema profili ve semantik sozluk olmadan LLM kolon adlarini tahmin
-        // etmek zorunda kaliyor ve olmayan kolonlar uyduruyordu.
-        var (_, profileStatus) = await profileStore.GetProfileAsync(
-            request.ConnectionId, scopedCompanyId);
+        // Bekletici kapi. Onceden iki kapi vardi — Mongo'daki on analiz profili
+        // ve Postgres'teki config — ve ikisi ayri ayri kontrol ediliyordu.
+        // Artik tek adim, tek durum.
+        var config = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == request.ConnectionId
+                     && c.CompanyId == scopedCompanyId
+                     && c.IsActive)
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
 
-        if (profileStatus != ProfileStatus.Ready)
+        if (config is null || config.Status != AgentAnalyzeEndpoints.AnalysisStatus.Ready)
         {
             return Results.BadRequest(new
             {
-                error = profileStatus switch
+                error = config?.Status switch
                 {
-                    ProfileStatus.AwaitingAnswers =>
-                        "Ön analiz soruları yanıtlanmayı bekliyor. SQL Bağlantı Ayarları'ndan tamamlayın.",
-                    ProfileStatus.Profiling =>
-                        "Ön analiz sürüyor. Tamamlanınca sorgu gönderebilirsiniz.",
-                    ProfileStatus.Failed =>
-                        "Ön analiz başarısız oldu. SQL Bağlantı Ayarları'ndan tekrar çalıştırın.",
+                    AgentAnalyzeEndpoints.AnalysisStatus.AwaitingAnswers =>
+                        "Analiz soruları yanıtlanmayı bekliyor. SQL Bağlantı Ayarları'ndan tamamlayın.",
+                    AgentAnalyzeEndpoints.AnalysisStatus.Analyzing =>
+                        "Analiz sürüyor. Tamamlanınca sorgu gönderebilirsiniz.",
+                    AgentAnalyzeEndpoints.AnalysisStatus.Failed =>
+                        "Analiz başarısız oldu. SQL Bağlantı Ayarları'ndan tekrar çalıştırın.",
                     _ =>
-                        "Bu bağlantı için ön analiz yapılmamış. Önce tabloları seçip 'Ön Analiz' çalıştırın."
+                        "Bu bağlantı için analiz yapılmamış. Önce tabloları seçip 'Analiz Et' çalıştırın."
                 },
-                status = profileStatus
+                status = config?.Status ?? "none"
             });
         }
-
-        // 1. Config'i bul
-        var config = await db.AnalysisConfigs
-            .FirstOrDefaultAsync(c => c.ConnectionId == request.ConnectionId && c.IsActive && c.Status == "ready");
-
-        if (config is null)
-            return Results.BadRequest(new { error = "Bu bağlantı için henüz analiz yapılmamış. Önce 'Analiz Et' butonuna tıklayın." });
 
         // 2. Bağlantı bilgilerini al — sirket suzgeciyle: baska bir sirketin
         // baglanti kimligini bilen biri onun veritabanini sorgulayamasin.
@@ -97,21 +92,23 @@ public static class AgentQueryEndpoints
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
 
-        // 3. Gemini'ye soruyu gönder → PyCaret parametreleri
-        var geminiResult = await gemini.TranslateQueryForPyCaret(
+        // 3. Soruyu semantik sozlukle birlikte LLM'e gonder → analiz parametreleri.
+        // Sozluk, "Analiz Et" adiminin ciktisi: kolon adlari, ne anlama
+        // geldikleri ve kullanicinin onlara ne diyebilecegi burada yaziyor.
+        var translation = await llm.TranslateQuestionAsync(
             request.Question, config.ConfigJson, config.SchemaSummary);
 
         // Eksik yapilandirma bir cokme degil; 500 yerine 503 donuluyor ki
         // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
-        if (!geminiResult.Success)
+        if (!translation.Success)
         {
-            return geminiResult.IsConfigurationError
+            return translation.IsConfigurationError
                 ? Results.Problem(
-                    detail: geminiResult.Error,
+                    detail: translation.Error,
                     title: "Yapay zekâ servisi yapılandırılmamış",
                     statusCode: StatusCodes.Status503ServiceUnavailable)
                 : Results.Problem(
-                    detail: geminiResult.Error,
+                    detail: translation.Error,
                     title: "Soru analizi başarısız",
                     statusCode: StatusCodes.Status502BadGateway);
         }
@@ -123,7 +120,7 @@ public static class AgentQueryEndpoints
             ConfigId = config.Id,
             UserId = config.UserId,
             Question = request.Question,
-            PyCaretParamsJson = geminiResult.PyCaretParamsJson,
+            PyCaretParamsJson = translation.Json,
             Status = "processing",
             CreatedAt = DateTime.UtcNow
         };
@@ -147,7 +144,7 @@ public static class AgentQueryEndpoints
                 db_user = savedConn.Username,
                 db_password = password,
                 config_json = config.ConfigJson,
-                analysis_params_json = geminiResult.PyCaretParamsJson,
+                analysis_params_json = translation.Json,
                 user_question = request.Question
             };
 
@@ -186,7 +183,7 @@ public static class AgentQueryEndpoints
             success = true,
             queryId = queryHistory.Id,
             status = "processing",
-            explanation = geminiResult.Explanation,
+            explanation = translation.Explanation,
             message = "Sorgunuz analiz edilmeye başlandı"
         });
     }
@@ -196,7 +193,7 @@ public static class AgentQueryEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromServices] IConfiguration configuration,
-        [FromServices] ILogger<GeminiService> logger)
+        [FromServices] ILogger<LlmAnalysisService> logger)
     {
         var query = await db.QueryHistories.FindAsync(queryId);
         if (query is null)

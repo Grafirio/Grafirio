@@ -1,18 +1,40 @@
 using System.Text.Json;
-using Dapper;
+using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.DataAnalysis.Api.Features.Agent;
 
+/// <summary>
+/// Baglantiyi sorgulanabilir hale getiren TEK adim: "Analiz Et".
+///
+/// Akis:
+///   tablo secimi -> analiz baslat -> profil cikar (ornek degerlerle) ->
+///   semantik sozluk -> (LLM emin degilse) sorular -> yanitlar -> ready
+///
+/// Onceden bu is ikiye bolunmustu: "On Analiz" profil cikarip semantik sozluk
+/// uretiyor, "Analiz Et" ayrica ham semadan bir PyCaret config uretiyordu.
+/// Kullanici ikisini de, dogru sirayla calistirmak zorundaydi; sorgu ucu da
+/// ikisini birden zorunlu tutup yalnizca ikincisini okuyordu — yani on analizin
+/// tum maliyeti odeniyor, urunu hicbir yerde kullanilmiyordu. Artik tek buton,
+/// tek LLM cagrisi, tek cikti: sozluk hem analizin sonucu hem sorgunun girdisi.
+/// </summary>
 public static class AgentAnalyzeEndpoints
 {
+    /// <summary>
+    /// Kurulumda sorulacak en fazla soru sayisi. Ilk surumde model bir kolona
+    /// bagli olmayan, "raporda neyi gormek istersiniz" turunden uzun tercih
+    /// sorulari uretiyordu; kullanici sorularin ne dedigini anlayamiyordu.
+    /// Ust sinir ve kolon sarti, bunun tekrarlamamasi icin.
+    /// </summary>
+    private const int MaxQuestions = 8;
+
     public static void MapAgentAnalyzeEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/agent")
@@ -22,63 +44,89 @@ public static class AgentAnalyzeEndpoints
 
         group.MapPost("/analyze-connection/{connectionId:guid}", AnalyzeConnection)
             .WithName("AnalyzeConnection")
-            .WithDescription("Kaydedilmiş bağlantının schema'sını Gemini ile analiz edip PyCaret config oluşturur");
+            .WithDescription("Seçili tabloların profilini çıkarır ve semantik sözlük üretir");
+
+        group.MapGet("/configs", ListConfigs)
+            .WithName("ListAnalysisConfigs")
+            .WithDescription("Firmanın analiz edilmiş bağlantılarını listeler");
 
         group.MapGet("/config/{connectionId:guid}", GetConfig)
             .WithName("GetAnalysisConfig")
-            .WithDescription("Bağlantıya ait PyCaret config'ini getirir");
+            .WithDescription("Bağlantının semantik sözlüğünü getirir");
 
         group.MapGet("/config/{connectionId:guid}/status", GetConfigStatus)
             .WithName("GetConfigStatus")
-            .WithDescription("Config oluşturma durumunu kontrol eder");
+            .WithDescription("Analiz durumunu ve varsa soruları döndürür");
+
+        group.MapPost("/config/{connectionId:guid}/answers", SubmitAnswers)
+            .WithName("SubmitAnalysisAnswers")
+            .WithDescription("Kullanıcının soru yanıtlarını sözlüğe işler ve bağlantıyı hazır hale getirir");
+    }
+
+    /* ── Durumlar ─────────────────────────────────────────────────────────
+       AnalysisConfig.Status tek gercek kaynak. Onceden durum hem Postgres'te
+       (config) hem Mongo'da (profil) tutuluyordu ve ikisi birbirinden habersiz
+       ilerliyordu. */
+    public static class AnalysisStatus
+    {
+        public const string Analyzing = "analyzing";
+        public const string AwaitingAnswers = "awaiting_answers";
+        public const string Ready = "ready";
+        public const string Failed = "failed";
     }
 
     private static async Task<IResult> AnalyzeConnection(
         Guid connectionId,
+        AnalyzeRequest? request,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] GeminiService gemini,
+        [FromServices] LlmAnalysisService llm,
+        [FromServices] SchemaProfiler profiler,
         [FromServices] ConnectionProfileStore profileStore,
         [FromServices] IIdentityService identity,
-        [FromServices] ILogger<GeminiService> logger)
+        [FromServices] IServiceScopeFactory scopeFactory,
+        [FromServices] ILogger<SchemaProfiler> logger,
+        CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
         var scopedCompanyId = companyId.Value.ToString();
 
-        // 1. Kayıtlı bağlantıyı bul — sirket suzgeciyle.
-        var savedConn = await db.SavedConnections
-            .FirstOrDefaultAsync(c => c.Id == connectionId
-                                   && c.CompanyId == scopedCompanyId
-                                   && c.IsActive);
+        var savedConn = await db.SavedConnections.FirstOrDefaultAsync(
+            c => c.Id == connectionId && c.CompanyId == scopedCompanyId && c.IsActive, ct);
 
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
 
-        var selectedTables = await profileStore.GetSelectedTablesAsync(connectionId, scopedCompanyId);
+        // Esnetilemez kural: tablo secimi olmadan analiz baslamaz.
+        var selectedTables = await profileStore.GetSelectedTablesAsync(connectionId, scopedCompanyId, ct);
         if (selectedTables.Count == 0)
+        {
             return Results.BadRequest(new
             {
                 error = "Önce analiz edilecek tabloları seçin. Analiz yalnızca seçili tablolar üzerinde çalışır."
             });
-
-        // Varsa eski config'i kontrol et
-        var existingConfig = await db.AnalysisConfigs
-            .FirstOrDefaultAsync(c => c.ConnectionId == connectionId && c.IsActive && c.Status == "ready");
-
-        if (existingConfig is not null)
-        {
-            return Results.Ok(new
-            {
-                success = true,
-                message = "Config zaten mevcut",
-                configId = existingConfig.Id,
-                config = JsonSerializer.Deserialize<JsonElement>(existingConfig.ConfigJson),
-                schemaSummary = existingConfig.SchemaSummary,
-                status = existingConfig.Status
-            });
         }
 
-        // 2. Pending config oluştur
+        string connectionString;
+        try
+        {
+            connectionString = BuildConnectionString(
+                savedConn, EncryptionHelper.Decrypt(savedConn.EncryptedPassword));
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Bağlantı bilgileri çözülemedi: {ex.Message}");
+        }
+
+        // Ayni baglantinin eski config'i pasiflestiriliyor. Onceden mevcut bir
+        // config varsa uc onu oldugu gibi geri donuyordu — yani "Analiz Et"
+        // ikinci kez calistirilamiyor, tablo secimi degisse bile eski sozluk
+        // kullanilmaya devam ediyordu.
+        var previous = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == connectionId && c.IsActive)
+            .ToListAsync(ct);
+        foreach (var old in previous) old.IsActive = false;
+
         var config = new AnalysisConfig
         {
             Id = Guid.NewGuid(),
@@ -86,188 +134,413 @@ public static class AgentAnalyzeEndpoints
             UserId = savedConn.UserId,
             CompanyId = savedConn.CompanyId,
             DatabaseName = savedConn.Database,
-            Status = "analyzing",
+            TablesJson = JsonSerializer.Serialize(selectedTables),
+            Status = AnalysisStatus.Analyzing,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
         db.AnalysisConfigs.Add(config);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
 
-        // 3. SQL Server'dan schema bilgisini çek
-        SchemaInfo schemaInfo;
-        try
+        // Is arka planda yurutuluyor ve uc hemen donuyor.
+        //
+        // Onceden her sey istek icinde yapiliyordu: profil + LLM cagrisi
+        // birlikte gateway'in zaman asimini asiyor ve kullanici 504 goruyordu.
+        // Sonuc aslinda uretilmis olabiliyordu ama istemci onu hic gormuyordu.
+        // Durum veritabaninda tutuldugu icin arayuz GET ile takip ediyor.
+        var configId = config.Id;
+        var databaseName = savedConn.Database;
+        var consent = request?.SamplingConsentGiven ?? false;
+
+        _ = Task.Run(async () =>
         {
-            var password = EncryptionHelper.Decrypt(savedConn.EncryptedPassword);
-            var connStr = BuildConnectionString(savedConn, password);
-            schemaInfo = await FetchSchemaFromDatabase(connStr, savedConn.Database, selectedTables);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Schema bilgisi çekilemedi");
-            config.Status = "failed";
-            config.SchemaSummary = $"Schema çekme hatası: {ex.Message}";
-            await db.SaveChangesAsync();
-            return Results.Problem($"Veritabanı schema'sı çekilemedi: {ex.Message}");
-        }
+            // Arka plan isi istegin DI kapsamini kullanamaz: istek bitince
+            // DbContext dispose ediliyor. Kendi kapsamini aciyor.
+            using var scope = scopeFactory.CreateScope();
+            var scopedDb = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
 
-        // 4. Gemini'ye gönder
-        var result = await gemini.AnalyzeSchemaForPyCaret(schemaInfo);
+            try
+            {
+                var profile = await profiler.ProfileAsync(
+                    connectionString, databaseName, selectedTables, consent, CancellationToken.None);
 
-        if (!result.Success)
-        {
-            config.Status = "failed";
-            config.SchemaSummary = $"LLM hatası: {result.Error}";
-            await db.SaveChangesAsync();
-            return Results.Problem($"LLM analizi başarısız: {result.Error}");
-        }
+                var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
+                var result = await llm.BuildSchemaDictionaryAsync(profileJson, CancellationToken.None);
 
-        // 5. Config'i kaydet
-        config.ConfigJson = result.ConfigJson;
-        config.SchemaSummary = result.SchemaSummary;
-        config.TablesJson = JsonSerializer.Serialize(schemaInfo.Tables.Select(t => t.TableName));
-        config.Status = "ready";
-        config.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync();
+                var stored = await scopedDb.AnalysisConfigs.FindAsync([configId], CancellationToken.None);
+                if (stored is null) return;
 
-        logger.LogInformation("Config oluşturuldu: {ConfigId} for connection {ConnectionId}", config.Id, connectionId);
+                if (!result.Success)
+                {
+                    stored.Status = AnalysisStatus.Failed;
+                    stored.SchemaSummary = $"Analiz başarısız: {result.Error}";
+                    stored.UpdatedAt = DateTime.UtcNow;
+                    await scopedDb.SaveChangesAsync(CancellationToken.None);
+                    return;
+                }
 
-        return Results.Ok(new
+                // Arayuzde gosterilen sayilar sozlugun icine yaziliyor: is arka
+                // planda bittigi icin istek cevabinda donemiyorlar.
+                var dictionary = AttachProfileStats(result.Json, profile);
+
+                stored.ConfigJson = dictionary;
+                stored.SchemaSummary = result.Explanation;
+                stored.Status = ExtractQuestions(dictionary).Count > 0
+                    ? AnalysisStatus.AwaitingAnswers
+                    : AnalysisStatus.Ready;
+                stored.UpdatedAt = DateTime.UtcNow;
+
+                await scopedDb.SaveChangesAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Analiz başarısız. Connection: {ConnectionId}", connectionId);
+                try
+                {
+                    var stored = await scopedDb.AnalysisConfigs.FindAsync([configId], CancellationToken.None);
+                    if (stored is not null)
+                    {
+                        stored.Status = AnalysisStatus.Failed;
+                        stored.SchemaSummary = $"Analiz başarısız: {ex.Message}";
+                        stored.UpdatedAt = DateTime.UtcNow;
+                        await scopedDb.SaveChangesAsync(CancellationToken.None);
+                    }
+                }
+                catch (Exception saveEx)
+                {
+                    logger.LogError(saveEx, "Analiz hatası kaydedilemedi. Connection: {ConnectionId}", connectionId);
+                }
+            }
+        }, CancellationToken.None);
+
+        // 202: is kabul edildi, sonuc icin durumu sorgula.
+        return Results.Accepted(value: new
         {
             success = true,
-            message = "Schema analiz edildi ve PyCaret config oluşturuldu",
-            configId = config.Id,
-            config = JsonSerializer.Deserialize<JsonElement>(result.ConfigJson),
-            schemaSummary = result.SchemaSummary,
-            status = "ready"
-        });
-    }
-
-    private static async Task<IResult> GetConfig(
-        Guid connectionId,
-        [FromServices] DataAnalysisDbContext db)
-    {
-        var config = await db.AnalysisConfigs
-            .Where(c => c.ConnectionId == connectionId && c.IsActive)
-            .OrderByDescending(c => c.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (config is null)
-            return Results.NotFound(new { error = "Bu bağlantı için henüz analiz yapılmamış" });
-
-        return Results.Ok(new
-        {
-            success = true,
-            configId = config.Id,
-            connectionId = config.ConnectionId,
-            databaseName = config.DatabaseName,
-            config = config.Status == "ready"
-                ? JsonSerializer.Deserialize<JsonElement>(config.ConfigJson)
-                : (JsonElement?)null,
-            schemaSummary = config.SchemaSummary,
-            tables = JsonSerializer.Deserialize<JsonElement>(config.TablesJson),
-            status = config.Status,
-            createdAt = config.CreatedAt,
-            updatedAt = config.UpdatedAt
+            configId,
+            status = AnalysisStatus.Analyzing,
+            tableCount = selectedTables.Count,
+            message = "Analiz başlatıldı. Tablolar okunuyor ve anlamlandırılıyor."
         });
     }
 
     private static async Task<IResult> GetConfigStatus(
         Guid connectionId,
-        [FromServices] DataAnalysisDbContext db)
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
     {
-        var config = await db.AnalysisConfigs
-            .Where(c => c.ConnectionId == connectionId && c.IsActive)
-            .OrderByDescending(c => c.CreatedAt)
-            .Select(c => new { c.Id, c.Status, c.CreatedAt })
-            .FirstOrDefaultAsync();
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        var config = await ActiveConfig(db, connectionId, companyId.Value.ToString(), ct);
 
         if (config is null)
-            return Results.Ok(new { exists = false, status = "none" });
+            return Results.Ok(new { status = "none", questions = Array.Empty<object>() });
 
-        return Results.Ok(new { exists = true, configId = config.Id, status = config.Status, createdAt = config.CreatedAt });
+        var stats = ExtractProfileStats(config.ConfigJson);
+
+        return Results.Ok(new
+        {
+            status = config.Status,
+            configId = config.Id,
+            questions = ExtractQuestions(config.ConfigJson),
+            summary = config.SchemaSummary,
+            tableCount = stats?.TableCount,
+            columnCount = stats?.ColumnCount,
+            sampledColumnCount = stats?.SampledColumnCount,
+            updatedAt = config.UpdatedAt ?? config.CreatedAt
+        });
     }
 
-    // --- Helpers ---
-
-    private static string BuildConnectionString(SavedConnection conn, string password)
+    /// <summary>
+    /// Firmanin analiz edilmis baglantilari. Panel bu listeyi onceden
+    /// tarayicinin localStorage'indan okuyordu: baska bir makineden girildiginde
+    /// ya da gecmis temizlendiginde "hic analiz yok" gorunuyordu, ustelik liste
+    /// basarisiz analizleri de "hazir" diye tutabiliyordu.
+    /// </summary>
+    private static async Task<IResult> ListConfigs(
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
     {
-        var csb = new SqlConnectionStringBuilder
-        {
-            DataSource = conn.Port != 1433 ? $"{conn.Host},{conn.Port}" : conn.Host,
-            InitialCatalog = conn.Database,
-            UserID = conn.Username,
-            Password = password,
-            TrustServerCertificate = conn.TrustServerCertificate,
-            ConnectTimeout = 15
-        };
-        return csb.ConnectionString;
-    }
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+        var scopedCompanyId = companyId.Value.ToString();
 
-    private static async Task<SchemaInfo> FetchSchemaFromDatabase(
-        string connectionString, string dbName, IReadOnlyList<string> selectedTables)
-    {
-        using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync();
-
-        // Yalnizca secili tablolar. Onceden butun veritabani taraniyordu:
-        // hem kullanicinin koydugu "sadece secili tablolar" kuralini ihlal
-        // ediyor hem de 42 tablonun semasi tek istemde LLM'in dakikalik token
-        // kotasini asip 429 aliyordu.
-        var tableNames = selectedTables
-            .Select(t => t.Replace("[", "").Replace("]", "").Split('.').Last().Trim())
-            .Where(t => t.Length > 0)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (tableNames.Count == 0)
-            throw new InvalidOperationException(
-                "Tablo seçimi yapılmamış. Önce analiz edilecek tabloları seçin.");
-
-        var tablesQuery = @"
-            SELECT TABLE_NAME as TableName, TABLE_SCHEMA as [Schema]
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME IN @Names
-            ORDER BY TABLE_SCHEMA, TABLE_NAME";
-
-        var tables = (await connection.QueryAsync<dynamic>(tablesQuery, new { Names = tableNames })).ToList();
-
-        var schemaInfo = new SchemaInfo { DatabaseName = dbName };
-
-        foreach (var table in tables)
-        {
-            string tableName = table.TableName;
-            string schema = table.Schema;
-
-            // Kolon bilgilerini al
-            var columnsQuery = @"
-                SELECT COLUMN_NAME as ColumnName, DATA_TYPE as DataType,
-                       CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END as IsNullable,
-                       CHARACTER_MAXIMUM_LENGTH as MaxLength
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @Table
-                ORDER BY ORDINAL_POSITION";
-
-            var columns = (await connection.QueryAsync<ColumnDetail>(
-                columnsQuery, new { Schema = schema, Table = tableName })).ToList();
-
-            // Satır sayısı
-            int rowCount = 0;
-            try
+        var configs = await db.AnalysisConfigs
+            .Where(c => c.CompanyId == scopedCompanyId && c.IsActive)
+            .OrderByDescending(c => c.UpdatedAt ?? c.CreatedAt)
+            .Select(c => new
             {
-                rowCount = await connection.ExecuteScalarAsync<int>(
-                    $"SELECT COUNT(*) FROM [{schema}].[{tableName}]");
+                connectionId = c.ConnectionId,
+                configId = c.Id,
+                database = c.DatabaseName,
+                status = c.Status,
+                summary = c.SchemaSummary,
+                tablesJson = c.TablesJson,
+                createdAt = c.CreatedAt,
+                updatedAt = c.UpdatedAt
+            })
+            .ToListAsync(ct);
+
+        // Tablo listesi metin olarak saklaniyor; sayiya cevirmek istemcinin
+        // isi olmasin diye burada acilliyor.
+        var analyses = configs.Select(c => new
+        {
+            c.connectionId,
+            c.configId,
+            c.database,
+            c.status,
+            c.summary,
+            tableCount = SafeParse(c.tablesJson)?.ValueKind == JsonValueKind.Array
+                ? SafeParse(c.tablesJson)!.Value.GetArrayLength()
+                : 0,
+            c.createdAt,
+            c.updatedAt
+        });
+
+        return Results.Ok(new { analyses });
+    }
+
+    private static async Task<IResult> GetConfig(
+        Guid connectionId,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        var config = await ActiveConfig(db, connectionId, companyId.Value.ToString(), ct);
+
+        if (config is null)
+            return Results.NotFound(new { error = "Bu bağlantı için analiz yapılmamış" });
+
+        return Results.Ok(new
+        {
+            configId = config.Id,
+            status = config.Status,
+            database = config.DatabaseName,
+            dictionary = SafeParse(config.ConfigJson),
+            summary = config.SchemaSummary,
+            tables = SafeParse(config.TablesJson),
+            createdAt = config.CreatedAt,
+            updatedAt = config.UpdatedAt
+        });
+    }
+
+    /// <summary>
+    /// Kullanicinin yanitlarini sozluge kalici olarak isler: yanitlanan kolonun
+    /// <c>meaning</c> alani yanit olur, <c>confidence</c> "high"a cikar ve soru
+    /// listeden dusulur. Amac, ayni seyin bir daha sorulmamasi ve sorgu aninda
+    /// modelin dogru tanimi gormesi — yanitlari ayri bir yerde biriktirmek bu
+    /// ikisini de saglamiyordu.
+    /// </summary>
+    private static async Task<IResult> SubmitAnswers(
+        Guid connectionId,
+        AnswersRequest request,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        var config = await ActiveConfig(db, connectionId, companyId.Value.ToString(), ct);
+
+        if (config is null)
+            return Results.BadRequest(new { error = "Önce 'Analiz Et' çalıştırın." });
+
+        config.ConfigJson = ApplyAnswers(config.ConfigJson, request.Answers ?? []);
+        config.Status = AnalysisStatus.Ready;
+        config.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { success = true, status = config.Status });
+    }
+
+    private static Task<AnalysisConfig?> ActiveConfig(
+        DataAnalysisDbContext db, Guid connectionId, string companyId, CancellationToken ct) =>
+        db.AnalysisConfigs
+            .Where(c => c.ConnectionId == connectionId && c.CompanyId == companyId && c.IsActive)
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+    /* ── Sozluk uzerinde islemler ─────────────────────────────────────── */
+
+    private static string ApplyAnswers(string dictionaryJson, Dictionary<string, string> answers)
+    {
+        if (answers.Count == 0) return dictionaryJson;
+
+        try
+        {
+            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) return dictionaryJson;
+
+            var questions = root["questions"] as JsonArray;
+            if (questions is null) return dictionaryJson;
+
+            var columns = root["columns"] as JsonArray;
+            if (columns is null)
+            {
+                columns = [];
+                root["columns"] = columns;
             }
-            catch { /* skip permission errors */ }
 
-            schemaInfo.Tables.Add(new TableSchemaDetail
+            var remaining = new JsonArray();
+
+            foreach (var node in questions)
             {
-                TableName = tableName,
-                Schema = schema,
-                RowCount = rowCount,
-                Columns = columns
-            });
-        }
+                if (node is not JsonObject question) continue;
 
-        return schemaInfo;
+                var id = question["id"]?.GetValue<string>();
+                if (id is null || !answers.TryGetValue(id, out var answer) || string.IsNullOrWhiteSpace(answer))
+                {
+                    // Yanitlanmayan soru duruyor; kullanici sonra tamamlayabilir.
+                    remaining.Add(question.DeepClone());
+                    continue;
+                }
+
+                var table = question["table"]?.GetValue<string>();
+                var column = question["column"]?.GetValue<string>();
+                if (column is null) continue;
+
+                var existing = columns.OfType<JsonObject>().FirstOrDefault(c =>
+                    string.Equals(c["column"]?.GetValue<string>(), column, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(c["table"]?.GetValue<string>(), table, StringComparison.OrdinalIgnoreCase));
+
+                if (existing is null)
+                {
+                    columns.Add(new JsonObject
+                    {
+                        ["table"] = table,
+                        ["column"] = column,
+                        ["meaning"] = answer,
+                        ["role"] = "other",
+                        ["confidence"] = "high",
+                        ["source"] = "user"
+                    });
+                }
+                else
+                {
+                    existing["meaning"] = answer;
+                    existing["confidence"] = "high";
+                    existing["source"] = "user";
+                }
+            }
+
+            root["questions"] = remaining;
+            return root.ToJsonString(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            // Bozuk sozluk yanit kaydini engellemesin; durum yine ready olur.
+            return dictionaryJson;
+        }
     }
+
+    private static string AttachProfileStats(string dictionaryJson, DatabaseProfile profile)
+    {
+        try
+        {
+            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) return dictionaryJson;
+
+            root["profileStats"] = new JsonObject
+            {
+                ["tableCount"] = profile.Tables.Count,
+                ["columnCount"] = profile.Tables.Sum(t => t.Columns.Count),
+                ["sampledColumnCount"] = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0))
+            };
+
+            return root.ToJsonString(JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return dictionaryJson;
+        }
+    }
+
+    private static ProfileStats? ExtractProfileStats(string dictionaryJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(dictionaryJson);
+            if (!doc.RootElement.TryGetProperty("profileStats", out var stats)) return null;
+
+            return new ProfileStats(
+                stats.TryGetProperty("tableCount", out var t) ? t.GetInt32() : 0,
+                stats.TryGetProperty("columnCount", out var c) ? c.GetInt32() : 0,
+                stats.TryGetProperty("sampledColumnCount", out var s) ? s.GetInt32() : 0);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static List<QuestionDto> ExtractQuestions(string? dictionaryJson)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryJson)) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(dictionaryJson);
+            if (!doc.RootElement.TryGetProperty("questions", out var questions)
+                || questions.ValueKind != JsonValueKind.Array)
+                return [];
+
+            return questions.EnumerateArray()
+                .Select(q => new QuestionDto(
+                    ReadString(q, "id") ?? Guid.NewGuid().ToString("N")[..8],
+                    ReadString(q, "table"),
+                    ReadString(q, "column"),
+                    ReadString(q, "question") ?? "",
+                    q.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array
+                        ? o.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToList()
+                        : []))
+                .Where(q => q.Question.Length > 0)
+                // Bir kolona bagli olmayan soru, kolon anlamini sormuyor
+                // demektir — genellikle "raporda neyi gormek istersiniz"
+                // turunden bir tercih sorusu. Onlar sorgu anininin isi.
+                .Where(q => !string.IsNullOrWhiteSpace(q.Column))
+                // Ayni kolon icin birden fazla soru sorulmasin.
+                .GroupBy(q => $"{q.Table}.{q.Column}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                // Kurulum adimi bir ankete donusmesin.
+                .Take(MaxQuestions)
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            // Model bozuk JSON dondurduyse sorular kaybolur ama akis durmaz;
+            // durum yine de kaydedilmis olur.
+            return [];
+        }
+    }
+
+    private static string? ReadString(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static JsonElement? SafeParse(string json)
+    {
+        try { return JsonSerializer.Deserialize<JsonElement>(json); }
+        catch (JsonException) { return null; }
+    }
+
+    private static string BuildConnectionString(SavedConnection c, string password) =>
+        $"Server={c.Host},{c.Port};Database={c.Database};User Id={c.Username};Password={password};" +
+        $"TrustServerCertificate={(c.TrustServerCertificate ? "True" : "False")};Encrypt=True;Connection Timeout=30";
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
 }
+
+public record AnalyzeRequest(bool SamplingConsentGiven);
+
+public record AnswersRequest(Dictionary<string, string>? Answers);
+
+public record QuestionDto(string Id, string? Table, string? Column, string Question, List<string> Options);
+
+internal record ProfileStats(int TableCount, int ColumnCount, int SampledColumnCount);
