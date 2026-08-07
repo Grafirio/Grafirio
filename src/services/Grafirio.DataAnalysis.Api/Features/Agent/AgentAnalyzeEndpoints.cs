@@ -6,6 +6,7 @@ using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Identity.Services;
+using MassTransit;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -79,12 +80,9 @@ public static class AgentAnalyzeEndpoints
         Guid connectionId,
         AnalyzeRequest? request,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] LlmAnalysisService llm,
-        [FromServices] SchemaProfiler profiler,
         [FromServices] ConnectionProfileStore profileStore,
+        [FromServices] IPublishEndpoint publishEndpoint,
         [FromServices] IIdentityService identity,
-        [FromServices] IServiceScopeFactory scopeFactory,
-        [FromServices] ILogger<SchemaProfiler> logger,
         CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
@@ -105,17 +103,6 @@ public static class AgentAnalyzeEndpoints
             {
                 error = "Önce analiz edilecek tabloları seçin. Analiz yalnızca seçili tablolar üzerinde çalışır."
             });
-        }
-
-        string connectionString;
-        try
-        {
-            connectionString = BuildConnectionString(
-                savedConn, EncryptionHelper.Decrypt(savedConn.EncryptedPassword));
-        }
-        catch (Exception ex)
-        {
-            return Results.Problem($"Bağlantı bilgileri çözülemedi: {ex.Message}");
         }
 
         // Ayni baglantinin eski config'i pasiflestiriliyor. Onceden mevcut bir
@@ -142,82 +129,27 @@ public static class AgentAnalyzeEndpoints
         db.AnalysisConfigs.Add(config);
         await db.SaveChangesAsync(ct);
 
-        // Is arka planda yurutuluyor ve uc hemen donuyor.
+        // Is kuyruga birakiliyor ve uc hemen donuyor.
         //
         // Onceden her sey istek icinde yapiliyordu: profil + LLM cagrisi
         // birlikte gateway'in zaman asimini asiyor ve kullanici 504 goruyordu.
         // Sonuc aslinda uretilmis olabiliyordu ama istemci onu hic gormuyordu.
-        // Durum veritabaninda tutuldugu icin arayuz GET ile takip ediyor.
-        var configId = config.Id;
-        var databaseName = savedConn.Database;
-        var consent = request?.SamplingConsentGiven ?? false;
-
-        _ = Task.Run(async () =>
+        // Bir sonraki denemede is `Task.Run`'a alindi; bu da yeterli degildi:
+        // container yeniden baslarsa is kayboluyor ve kayit sonsuza kadar
+        // "analyzing" kaliyordu. Kuyruk her ikisini de cozuyor.
+        await publishEndpoint.Publish(new AnalyzeConnectionRequested
         {
-            // Arka plan isi istegin DI kapsamini kullanamaz: istek bitince
-            // DbContext dispose ediliyor. Kendi kapsamini aciyor.
-            using var scope = scopeFactory.CreateScope();
-            var scopedDb = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
-
-            try
-            {
-                var profile = await profiler.ProfileAsync(
-                    connectionString, databaseName, selectedTables, consent, CancellationToken.None);
-
-                var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
-                var result = await llm.BuildSchemaDictionaryAsync(profileJson, CancellationToken.None);
-
-                var stored = await scopedDb.AnalysisConfigs.FindAsync([configId], CancellationToken.None);
-                if (stored is null) return;
-
-                if (!result.Success)
-                {
-                    stored.Status = AnalysisStatus.Failed;
-                    stored.SchemaSummary = $"Analiz başarısız: {result.Error}";
-                    stored.UpdatedAt = DateTime.UtcNow;
-                    await scopedDb.SaveChangesAsync(CancellationToken.None);
-                    return;
-                }
-
-                // Arayuzde gosterilen sayilar sozlugun icine yaziliyor: is arka
-                // planda bittigi icin istek cevabinda donemiyorlar.
-                var dictionary = AttachProfileStats(result.Json, profile);
-
-                stored.ConfigJson = dictionary;
-                stored.SchemaSummary = result.Explanation;
-                stored.Status = ExtractQuestions(dictionary).Count > 0
-                    ? AnalysisStatus.AwaitingAnswers
-                    : AnalysisStatus.Ready;
-                stored.UpdatedAt = DateTime.UtcNow;
-
-                await scopedDb.SaveChangesAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Analiz başarısız. Connection: {ConnectionId}", connectionId);
-                try
-                {
-                    var stored = await scopedDb.AnalysisConfigs.FindAsync([configId], CancellationToken.None);
-                    if (stored is not null)
-                    {
-                        stored.Status = AnalysisStatus.Failed;
-                        stored.SchemaSummary = $"Analiz başarısız: {ex.Message}";
-                        stored.UpdatedAt = DateTime.UtcNow;
-                        await scopedDb.SaveChangesAsync(CancellationToken.None);
-                    }
-                }
-                catch (Exception saveEx)
-                {
-                    logger.LogError(saveEx, "Analiz hatası kaydedilemedi. Connection: {ConnectionId}", connectionId);
-                }
-            }
-        }, CancellationToken.None);
+            ConfigId = config.Id,
+            ConnectionId = connectionId,
+            CompanyId = scopedCompanyId,
+            SamplingConsentGiven = request?.SamplingConsentGiven ?? false
+        }, ct);
 
         // 202: is kabul edildi, sonuc icin durumu sorgula.
         return Results.Accepted(value: new
         {
             success = true,
-            configId,
+            configId = config.Id,
             status = AnalysisStatus.Analyzing,
             tableCount = selectedTables.Count,
             message = "Analiz başlatıldı. Tablolar okunuyor ve anlamlandırılıyor."
@@ -439,27 +371,6 @@ public static class AgentAnalyzeEndpoints
         }
     }
 
-    private static string AttachProfileStats(string dictionaryJson, DatabaseProfile profile)
-    {
-        try
-        {
-            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) return dictionaryJson;
-
-            root["profileStats"] = new JsonObject
-            {
-                ["tableCount"] = profile.Tables.Count,
-                ["columnCount"] = profile.Tables.Sum(t => t.Columns.Count),
-                ["sampledColumnCount"] = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0))
-            };
-
-            return root.ToJsonString(JsonOptions);
-        }
-        catch (JsonException)
-        {
-            return dictionaryJson;
-        }
-    }
-
     private static ProfileStats? ExtractProfileStats(string dictionaryJson)
     {
         try
@@ -478,7 +389,7 @@ public static class AgentAnalyzeEndpoints
         }
     }
 
-    private static List<QuestionDto> ExtractQuestions(string? dictionaryJson)
+    internal static List<QuestionDto> ExtractQuestions(string? dictionaryJson)
     {
         if (string.IsNullOrWhiteSpace(dictionaryJson)) return [];
         try

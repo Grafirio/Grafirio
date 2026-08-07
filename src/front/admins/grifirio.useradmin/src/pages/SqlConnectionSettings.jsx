@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   testConnection, saveConnection, getSavedConnections, getConnectionById,
@@ -43,6 +43,12 @@ const SqlConnectionSettings = () => {
      önce geleceği hiçbir yerde yazmıyordu. */
   const [analysis, setAnalysis] = useState({
     open: false,
+    // Analiz dakikalar surebiliyor; kullanicinin modalin basinda beklemesi
+    // icin bir sebep yok. Kucultunce is arka planda devam ediyor, ilerleme
+    // sag altta kucuk bir bildirimden takip ediliyor. Sorular geldiginde
+    // modal kendiliginden geri aciliyor — cevaplanacak bir sey varsa
+    // kullanicinin onu kacirmamasi gerekiyor.
+    minimized: false,
     connectionId: null,
     connectionName: '',
     running: false,
@@ -54,6 +60,11 @@ const SqlConnectionSettings = () => {
     consent: false,
     error: ''
   });
+
+  // Yoklama tek bir zamanlayicidan yurusun: modal kapatilip acilirsa ya da
+  // kucultulup buyutulurse ikinci bir dongu baslamamali.
+  const pollTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(pollTimerRef.current), []);
 
   const openAnalysis = async (connection) => {
     const connectionId = connection.savedConnectionId || connection.id;
@@ -67,7 +78,7 @@ const SqlConnectionSettings = () => {
     }
 
     setAnalysis(p => ({
-      ...p, open: true, connectionId, connectionName: connection.name,
+      ...p, open: true, minimized: false, connectionId, connectionName: connection.name,
       running: false, error: '', questions: [], answers: {}, summary: '', stats: null
     }));
 
@@ -93,15 +104,26 @@ const SqlConnectionSettings = () => {
       stats: state.tableCount
         ? { tables: state.tableCount, columns: state.columnCount, sampled: state.sampledColumnCount }
         : p.stats,
+      // Yanıtlanacak soru geldiyse küçültülmüş bildirim yetmez; modal geri
+      // açılıyor. Hata da öyle: küçük bir rozette kaybolmamalı. Kullanıcı
+      // bildirimi tamamen gizlemiş olsa bile geri açılıyor — aksi hâlde
+      // sorular hiç sorulmadan analiz yarım kalırdı.
+      open: (state.status === 'awaiting_answers' || state.status === 'failed') ? true : p.open,
+      minimized: (state.status === 'awaiting_answers' || state.status === 'failed')
+        ? false
+        : p.minimized,
       error: state.status === 'failed'
         ? (state.summary || 'Analiz başarısız oldu. Sunucu loglarında sebebi yazıyor.')
         : ''
     }));
   };
 
-  // Sunucu isi arka planda yapiyor ve hemen 202 donuyor; sonucu durumu
-  // sorarak ogreniyoruz. Tek uzun istek gateway zaman asimina (504)
-  // takiliyordu — is aslinda bitiyordu ama cevabi kimse goremiyordu.
+  // Sunucu isi kuyruga aliyor ve hemen 202 donuyor; sonucu durumu sorarak
+  // ogreniyoruz. Tek uzun istek gateway zaman asimina (504) takiliyordu —
+  // is aslinda bitiyordu ama cevabi kimse goremiyordu.
+  //
+  // Yoklama modaldan bagimsiz: kullanici kucultup baska bir sey yapsa da
+  // devam ediyor, bittiginde modal kendiliginden geri aciliyor.
   const pollAnalysis = (connectionId) => {
     const startedAt = Date.now();
     const TIMEOUT_MS = 10 * 60 * 1000;
@@ -109,7 +131,7 @@ const SqlConnectionSettings = () => {
     const poll = async () => {
       if (Date.now() - startedAt > TIMEOUT_MS) {
         setAnalysis(p => ({
-          ...p, running: false,
+          ...p, running: false, minimized: false,
           error: 'Analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.'
         }));
         return;
@@ -118,19 +140,20 @@ const SqlConnectionSettings = () => {
       try {
         const state = await getAnalysisStatus(connectionId);
         if (state.status === 'analyzing') {
-          setTimeout(poll, 4000);
+          pollTimerRef.current = setTimeout(poll, 4000);
           return;
         }
         applyState(state);
       } catch (error) {
         setAnalysis(p => ({
-          ...p, running: false,
+          ...p, running: false, minimized: false,
           error: error.response?.data?.error || error.message
         }));
       }
     };
 
-    setTimeout(poll, 3000);
+    clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = setTimeout(poll, 3000);
   };
 
   const runAnalysis = async () => {
@@ -1192,14 +1215,36 @@ const SqlConnectionSettings = () => {
           Bağlantı burada "anlaşılıyor": seçili tabloların profili çıkarılıyor,
           semantik sözlük üretiliyor, sistemin emin olamadığı şeyler bir kez
           soruluyor. Ancak bundan sonra soru sorulabilir. */}
-      {analysis.open && (
-        <div className="modal-overlay" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
+      {analysis.open && !analysis.minimized && (
+        <div
+          className="modal-overlay"
+          onClick={() => setAnalysis(p => ({ ...p, minimized: p.running, open: !p.running }))}
+        >
           <div className="modal-container" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2><i className="ti ti-sparkles"></i> Analiz — {analysis.connectionName}</h2>
-              <button className="modal-close" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
-                <i className="ti ti-x"></i>
-              </button>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {analysis.running && (
+                  <button
+                    className="modal-close"
+                    title="Küçült — analiz arka planda devam eder"
+                    onClick={() => setAnalysis(p => ({ ...p, minimized: true }))}
+                  >
+                    <i className="ti ti-minus"></i>
+                  </button>
+                )}
+                <button
+                  className="modal-close"
+                  title={analysis.running ? 'Küçült — analiz arka planda devam eder' : 'Kapat'}
+                  onClick={() => setAnalysis(p => ({
+                    // Analiz sürerken X de kapatmıyor, küçültüyor: işi
+                    // durduramıyoruz, kapatmak yalnızca takibi kaybettirir.
+                    ...p, minimized: p.running, open: !p.running
+                  }))}
+                >
+                  <i className="ti ti-x"></i>
+                </button>
+              </div>
             </div>
 
             <div className="modal-body">
@@ -1295,9 +1340,21 @@ const SqlConnectionSettings = () => {
             </div>
 
             <div className="modal-footer">
-              <button className="gf-btn gf-btn--ghost" onClick={() => setAnalysis(p => ({ ...p, open: false }))}>
-                Kapat
-              </button>
+              {analysis.running ? (
+                <button
+                  className="gf-btn gf-btn--ghost"
+                  onClick={() => setAnalysis(p => ({ ...p, minimized: true }))}
+                >
+                  <i className="ti ti-arrow-down-right"></i> Arka planda çalıştır
+                </button>
+              ) : (
+                <button
+                  className="gf-btn gf-btn--ghost"
+                  onClick={() => setAnalysis(p => ({ ...p, open: false }))}
+                >
+                  Kapat
+                </button>
+              )}
               {analysis.questions.length > 0 && analysis.status !== 'ready' && (
                 <button
                   className="gf-btn gf-btn--primary"
@@ -1309,6 +1366,38 @@ const SqlConnectionSettings = () => {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Küçültülmüş analiz — sağ altta ilerleme bildirimi.
+          İş sunucuda kuyrukta yürüyor; burası yalnızca durumu gösteriyor.
+          Tıklayınca modal geri açılır. */}
+      {analysis.open && analysis.minimized && (
+        <div className="analysis-toast" role="status" aria-live="polite">
+          <button
+            className="analysis-toast__body"
+            onClick={() => setAnalysis(p => ({ ...p, minimized: false }))}
+            title="Ayrıntıları göster"
+          >
+            <span className="analysis-toast__icon">
+              {analysis.running ? <span className="gf-spinner"></span> : <i className="ti ti-check"></i>}
+            </span>
+            <span className="analysis-toast__text">
+              <strong>{analysis.connectionName}</strong>
+              <span>
+                {analysis.running
+                  ? 'Tablolar okunuyor ve anlamlandırılıyor…'
+                  : 'Analiz tamamlandı'}
+              </span>
+            </span>
+          </button>
+          <button
+            className="analysis-toast__close"
+            title="Bildirimi gizle — analiz arka planda devam eder"
+            onClick={() => setAnalysis(p => ({ ...p, open: false, minimized: false }))}
+          >
+            <i className="ti ti-x"></i>
+          </button>
         </div>
       )}
 

@@ -20,8 +20,6 @@ on:
         options:
           - changed
           - all
-          - django-ai
-          - schema-analyzer
           - pycaret-engine
           - identity-api
           - commerce-api
@@ -65,10 +63,6 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
-            django-ai:
-              - 'src/ai/grafirio-ai-service/**'
-            schema-analyzer:
-              - 'src/ai/ai-service-schema-analyzer/**'
             pycaret-engine:
               - 'src/ai/ai-service-pycaret-engine/**'
             identity-api:
@@ -99,8 +93,6 @@ jobs:
       - name: Build deployment matrix
         id: generate-matrix
         env:
-          FILTER_DJANGO_AI: ${{ steps.filter.outputs.django-ai }}
-          FILTER_SCHEMA_ANALYZER: ${{ steps.filter.outputs.schema-analyzer }}
           FILTER_PYCARET_ENGINE: ${{ steps.filter.outputs.pycaret-engine }}
           FILTER_IDENTITY_API: ${{ steps.filter.outputs.identity-api }}
           FILTER_COMMERCE_API: ${{ steps.filter.outputs.commerce-api }}
@@ -115,8 +107,6 @@ jobs:
           set -euo pipefail
 
           SERVICES='[
-            {"key":"django-ai","image":"django-ai","dockerfile":"./src/ai/grafirio-ai-service/Dockerfile","context":"./src/ai/grafirio-ai-service","app":"django-ai","port":8000,"ingress":"internal"},
-            {"key":"schema-analyzer","image":"schema-analyzer","dockerfile":"./src/ai/ai-service-schema-analyzer/Dockerfile","context":"./src/ai/ai-service-schema-analyzer","app":"schema-analyzer","port":8001,"ingress":"internal"},
             {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine","port":8002,"ingress":"internal"},
             {"key":"identity-api","image":"identity-api","dockerfile":"./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile","context":".","app":"identity-api","port":8080,"ingress":"internal"},
             {"key":"commerce-api","image":"commerce-api","dockerfile":"./src/services/Grafirio.Commerce.Api/Dockerfile","context":".","app":"commerce-api","port":8080,"ingress":"internal"},
@@ -141,7 +131,7 @@ jobs:
           fi
 
           changed_keys=""
-          for key in django-ai schema-analyzer pycaret-engine identity-api commerce-api data-analysis-api gateway frontend projectadmin useradmin keycloak; do
+          for key in pycaret-engine identity-api commerce-api data-analysis-api gateway frontend projectadmin useradmin keycloak; do
             env_key="FILTER_$(echo "$key" | tr '[:lower:]-' '[:upper:]_')"
             value="${!env_key:-false}"
             if [ "$value" = "true" ]; then

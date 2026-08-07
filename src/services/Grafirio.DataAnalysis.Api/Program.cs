@@ -9,6 +9,8 @@ using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Infrastructure.Extensions;
+using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
+using MassTransit;
 using Grafirio.Shared.Identity.Extensions;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,7 +32,18 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// LLM — saglayici secimi LlmClient icinde (Azure OpenAI)
+// LLM — Azure OpenAI.
+//
+// Kendi adli istemcisi var cunku varsayilan 100 saniyelik zaman asimi bu is
+// icin yetmiyordu: onlarca tablonun sozlugunu ureten cagri, reasoning
+// adimlariyla birlikte dakikalari buluyor ve istek tam da model cevabi
+// yazarken iptal ediliyordu. Disaridan gorunen sey "The request was canceled
+// due to the configured HttpClient.Timeout of 100 seconds elapsing" oluyordu —
+// yani LLM'den degil, kendi istemcimizden gelen bir hata.
+builder.Services.AddHttpClient(nameof(LlmClient), client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<LlmAnalysisService>();
@@ -76,9 +89,24 @@ builder.Services.AddCors(options =>
     });
 });
 
-// MassTransit/RabbitMQ kaldirildi: tek kullanicisi Django AI hattiydi ve o
-// hat sokuldu. Analiz artik dogrudan PyCaret Engine'e HTTP ile gidiyor,
-// durum da veritabanindan takip ediliyor.
+// MassTransit — "Analiz Et" isini kuyruga alir.
+//
+// Django hattina hizmet eden eski consumer'lar kaldirildi; kuyrugun kendisi
+// duruyor cunku analiz uzun suren bir is: profil cikarma arti LLM cagrisi
+// dakikalar aliyor. Istek icinde yapilinca gateway 504 veriyor, `Task.Run`
+// ile yapilinca container yeniden baslarsa is sessizce kayboluyor ve kayit
+// sonsuza kadar "analyzing" kaliyordu. Kuyruk isi dayanikli kiliyor,
+// yeniden deneme de gecici Azure hatalarini karsiliyor.
+builder.Services.AddGrafirioMassTransit(
+    builder.Configuration,
+    x => x.AddConsumer<ConnectionAnalysisConsumer>(),
+    cfg =>
+    {
+        // Yeniden deneme sayisi tuketicideki MaxRetries ile ayni olmali:
+        // tuketici son denemede hatayi yutup kaydi "failed" isaretliyor.
+        cfg.UseMessageRetry(r => r.Interval(
+            ConnectionAnalysisConsumer.MaxRetries, TimeSpan.FromSeconds(30)));
+    });
 
 // Kimlik dogrulama. Bu servis daha once hic kurmamisti: uclar acikta duruyor
 // ve kullanici kimligini sorgu dizesinden aliyordu, yani isteyen istedigi

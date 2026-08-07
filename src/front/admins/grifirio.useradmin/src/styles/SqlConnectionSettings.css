@@ -719,3 +719,98 @@
   .connections-grid { grid-template-columns: 1fr; }
   .connection-actions > * { flex: 1 1 auto; }
 }
+
+/* --- Küçültülmüş analiz bildirimi ----------------------------------------
+   Analiz dakikalar sürüyor ve iş sunucudaki kuyrukta yürüyor; kullanıcının
+   modalin başında beklemesi için bir sebep yok. Küçültülünce durum buraya
+   iniyor, tıklayınca modal geri açılıyor. */
+.analysis-toast {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 1200;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: min(24rem, calc(100vw - 2rem));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+  overflow: hidden;
+  animation: analysis-toast-in 180ms ease-out;
+}
+
+@keyframes analysis-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analysis-toast { animation: none; }
+}
+
+.analysis-toast__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: 0;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.analysis-toast__body:hover { background: var(--accent-soft); }
+.analysis-toast__body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.analysis-toast__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--accent);
+}
+
+.analysis-toast__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.analysis-toast__text strong {
+  font-size: 0.875rem;
+  line-height: 1.2;
+}
+
+.analysis-toast__text span {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-toast__close {
+  flex: 0 0 auto;
+  padding: 0 var(--space-3);
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.analysis-toast__close:hover { background: var(--surface-sunken); color: var(--text); }
+.analysis-toast__close:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+@media (max-width: 768px) {
+  .analysis-toast { left: var(--space-3); right: var(--space-3); max-width: none; }
+}

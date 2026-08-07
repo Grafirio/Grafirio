@@ -242,12 +242,18 @@ services:
       # Tablo secimi Mongo'da; bu da eksikti.
       MONGO__CONNECTIONSTRING: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017/?authSource=admin
       MONGO__DATABASENAME: GrafirioDataAnalysisDb
+      # "Analiz Et" isi kuyruga aliniyor: profil + LLM cagrisi dakikalar
+      # suruyor ve container yeniden baslasa bile is kaybolmamali.
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ${RABBITMQ_USER}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
       PyCaret__BaseUrl: http://pycaret.engine.container:8002
     ports:
       - "5221:5221"
     depends_on:
       - postgres.db.dataanalysis
       - mongo.db
+      - rabbitmq
     networks:
       - grifirio_network
   gateway:
