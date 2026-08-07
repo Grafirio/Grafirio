@@ -241,6 +241,24 @@ public class LlmAnalysisService
         ## Kullanıcının sorusu
         "{{question}}"
 
+        ## analysis_type nasıl seçilir
+
+        `aggregation` VARSAYILANDIR. "En çok", "en az", "ilk 5", "kaç tane",
+        "toplam", "ortalama", "şuna göre dağılım" gibi her soru `aggregation`.
+        Bunlar sayma ve gruplama sorularıdır; makine öğrenmesi gerektirmezler.
+
+        Diğerlerini yalnızca kullanıcı açıkça isterse seç:
+        - `statistics`  : "özet istatistik ver", "dağılımı betimle"
+        - `correlation` : "hangi alanlar birbiriyle ilişkili"
+        - `regression`  : "tahmin et", "öngör" (sayısal hedef)
+        - `classification` : "sınıflandır", "hangi gruba girer"
+        - `anomaly`     : "aykırı", "anormal", "sıra dışı"
+        - `clustering`  : "segmentlere ayır", "kümele"
+
+        Kullanıcı bunlardan birini istemediyse `aggregation` dışında bir şey
+        seçme. Sayma sorusuna `statistics` demek, soruyla ilgisiz kolon
+        ortalamaları döndürür.
+
         ## Kurallar
         1. YALNIZCA sözlükte geçen tablo ve kolon adlarını kullan. Kolon adı
            uydurma, tahmin etme, benzetme yapma.
@@ -248,16 +266,31 @@ public class LlmAnalysisService
            "gidilen ülke" sözlükte hangi kolonun eş anlamlısıysa o kolondur.
         3. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
            yapılacak alan `dimension`, zaman filtresi `date` olmalı.
-        4. Soruyu karşılayan kolonu sözlükte bulamıyorsan uydurma —
+        4. `aggregation` seçtiysen `group_by` MUTLAKA dolu olmalı ve kırılım
+           yapılacak `dimension` kolonunu içermeli. Satır sayısı soruluyorsa
+           `aggregation: "count"`, `target_column: null` yeterlidir.
+        5. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
+           Kimlik numarasının ortalaması anlamsızdır; onları yalnızca saymak
+           (`count`) için kullan.
+        6. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
+        7. Soruyu karşılayan kolonu sözlükte bulamıyorsan uydurma —
            `target_table` alanını boş bırak ve `description` içinde hangi
            bilginin eksik olduğunu yaz.
-        5. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe yaz.
+        8. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe yaz.
+
+        ## Örnek
+        Soru: "En çok gidilen 5 ülkeyi bana sütun grafiği yap"
+        Sözlükte `ReceiverCompanyCountryName` kolonu "gidilen ülke" eş
+        anlamlısıyla ve `role: dimension` ile geçiyorsa:
+        `analysis_type: "aggregation"`, `group_by: ["ReceiverCompanyCountryName"]`,
+        `aggregation: "count"`, `target_column: null`, `limit: 5`,
+        `sort_order: "desc"`, `chart_type: "bar"`.
 
         JSON bloğunu ```json ve ``` arasında ver:
 
         ```json
         {
-          "analysis_type": "statistics|correlation|regression|classification|anomaly|clustering",
+          "analysis_type": "aggregation|statistics|correlation|regression|classification|anomaly|clustering",
           "target_table": "dbo.Shipments",
           "target_column": "kolon_adı veya null",
           "feature_columns": ["kolon1", "kolon2"],

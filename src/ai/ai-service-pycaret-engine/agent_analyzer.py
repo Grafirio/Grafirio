@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 class AgentAnalyzer:
     """LLM tarafından oluşturulan config ve parametrelerle veri analizi yapar."""
 
+    # Tek sorguda okunacak en fazla satir. Gruplama pandas'ta yapildigi icin
+    # dogru sayilar ancak yeterince satir okunursa cikiyor; ust sinir yine de
+    # gerekli, musteri tablolari milyonlarca satir olabiliyor.
+    MAX_ROWS = 50000
+
     def __init__(self, connection_string: str):
         self.engine = sqlalchemy.create_engine(connection_string)
         # Denetim izi: uretilen sorgunun ve okunan satir sayisinin disari
@@ -68,15 +73,23 @@ class AgentAnalyzer:
         }
 
         try:
-            # Tablodan veri çek
-            df = self._load_table_data(target_table, filters, limit * 10)
+            # Kac satir okunacak?
+            #
+            # Onceden her analiz icin `limit * 10` satir cekiliyordu. Gruplama
+            # sorularinda bu sonucu dogrudan yanlis yapiyor: "en cok gidilen 5
+            # ulke" sorusunda tablodan yalnizca 50 satir okunup sayiliyor,
+            # cikan siralama tablonun ilk 50 satirinin siralamasi oluyordu.
+            # `limit` grupladiktan SONRA uygulanmali; okuma tavani ayri.
+            df = self._load_table_data(target_table, filters, self.MAX_ROWS)
 
             if df.empty:
                 return self._with_audit(
                     self._error_result(f"'{target_table}' tablosunda veri bulunamadı"))
 
             # Analiz tipine göre işlem yap
-            if analysis_type in ("statistics", "correlation"):
+            if analysis_type == "correlation":
+                result = self._correlation_analysis(df, chart_title, description)
+            elif analysis_type == "statistics":
                 result = self._statistics_analysis(df, target_column, chart_type, chart_title, description)
             elif analysis_type == "regression":
                 result = self._regression_analysis(df, target_column, feature_columns, chart_type, chart_title, description)
@@ -135,18 +148,45 @@ class AgentAnalyzer:
 
         return df
 
+    # Kimlik kolonlari olcum degildir: ortalamasi, korelasyonu ya da
+    # standart sapmasi anlamli bir sey soylemez. Onceden bunlar da sayisal
+    # sayildigi icin "istatistik" grafigi ReferenceId, CustomerCompanyId,
+    # ShipperCompanyId gibi kolonlarin ortalamasini cizip duruyordu.
+    _ID_SUFFIXES = ("id", "no", "kod", "code", "guid", "uuid")
+
+    def _measure_columns(self, df: pd.DataFrame) -> List[str]:
+        """Gercekten olculebilir sayisal kolonlar."""
+        numeric = df.select_dtypes(include=["number"])
+        keep = []
+        for col in numeric.columns:
+            lowered = col.lower()
+            if any(lowered.endswith(s) for s in self._ID_SUFFIXES):
+                continue
+            # Her satirda farkli deger ureten sayisal kolon da pratikte bir
+            # kimliktir (otomatik artan anahtarlar boyle goruniyor).
+            if numeric[col].nunique(dropna=True) == len(numeric[col].dropna()) and len(numeric) > 1:
+                continue
+            keep.append(col)
+        return keep
+
     def _statistics_analysis(self, df: pd.DataFrame, target_col: Optional[str],
                              chart_type: str, title: str, desc: str) -> Dict:
-        """Temel istatistik analizi."""
-        numeric_df = df.select_dtypes(include=["number"])
+        """
+        Temel istatistik analizi.
 
-        if numeric_df.empty:
-            return self._error_result("Sayısal kolon bulunamadı")
+        Yalnizca kullanici acikca ozet istatistik istediginde calisir. Onceden
+        buraya sayma/gruplama sorulari da dusuyordu (LLM'in secebilecegi
+        tiplerde `aggregation` yoktu) ve kullanici "en cok gidilen 5 ulke"
+        diye sorup kimlik kolonlarinin ortalamasini goruyordu.
+        """
+        cols = self._measure_columns(df)[:15]
 
-        stats = numeric_df.describe().to_dict()
+        if not cols:
+            return self._error_result(
+                "Ölçülebilir sayısal kolon bulunamadı — bu tabloda yalnızca "
+                "kimlik ve metin kolonları var.")
 
-        # Grafik: her kolonun ortalamasını göster
-        cols = list(numeric_df.columns)[:15]
+        numeric_df = df[cols]
         means = [float(numeric_df[c].mean()) for c in cols]
 
         charts = [{
@@ -158,31 +198,9 @@ class AgentAnalyzer:
             }
         }]
 
-        # Korelasyon grafiği
-        if len(cols) >= 2:
-            corr = numeric_df[cols].corr()
-            top_corr_pairs = []
-            for i in range(len(cols)):
-                for j in range(i + 1, len(cols)):
-                    top_corr_pairs.append({
-                        "pair": f"{cols[i]} ↔ {cols[j]}",
-                        "value": round(float(corr.iloc[i, j]), 3)
-                    })
-            top_corr_pairs.sort(key=lambda x: abs(x["value"]), reverse=True)
-            top5 = top_corr_pairs[:8]
-
-            charts.append({
-                "type": "bar",
-                "title": "En Yüksek Korelasyonlar",
-                "data": {
-                    "labels": [p["pair"] for p in top5],
-                    "datasets": [{"label": "Korelasyon", "data": [p["value"] for p in top5]}]
-                }
-            })
-
         insights = [
             {"type": "info", "title": "Toplam Satır", "description": f"{len(df)} satır analiz edildi"},
-            {"type": "info", "title": "Sayısal Kolon", "description": f"{len(cols)} sayısal kolon bulundu"},
+            {"type": "info", "title": "Ölçülebilir Kolon", "description": f"{len(cols)} kolon değerlendirildi"},
         ]
 
         if target_col and target_col in numeric_df.columns:
@@ -199,6 +217,49 @@ class AgentAnalyzer:
             "charts": charts,
             "insights": insights,
             "summary": desc or f"{len(df)} satır üzerinde istatistik analizi tamamlandı."
+        }
+
+    def _correlation_analysis(self, df: pd.DataFrame, title: str, desc: str) -> Dict:
+        """
+        Kolonlar arasi iliski.
+
+        Ayri bir metot: onceden korelasyon grafigi her istatistik sonucuna
+        kosulsuz ekleniyordu, yani kullanici "en cok gidilen 5 ulke" diye
+        sordugunda cevaba hic istemedigi bir "En Yuksek Korelasyonlar"
+        grafigi de dusuyordu.
+        """
+        cols = self._measure_columns(df)[:15]
+
+        if len(cols) < 2:
+            return self._error_result(
+                "Korelasyon için en az iki ölçülebilir sayısal kolon gerekiyor.")
+
+        corr = df[cols].corr()
+        pairs = []
+        for i in range(len(cols)):
+            for j in range(i + 1, len(cols)):
+                pairs.append({
+                    "pair": f"{cols[i]} ↔ {cols[j]}",
+                    "value": round(float(corr.iloc[i, j]), 3),
+                })
+        pairs.sort(key=lambda x: abs(x["value"]), reverse=True)
+        top = pairs[:8]
+
+        return {
+            "success": True,
+            "charts": [{
+                "type": "bar",
+                "title": title or "En Yüksek Korelasyonlar",
+                "data": {
+                    "labels": [p["pair"] for p in top],
+                    "datasets": [{"label": "Korelasyon", "data": [p["value"] for p in top]}],
+                },
+            }],
+            "insights": [
+                {"type": "info", "title": "Karşılaştırılan Kolon",
+                 "description": f"{len(cols)} ölçülebilir kolon arasında {len(pairs)} çift incelendi"},
+            ],
+            "summary": desc or f"{len(cols)} kolon arasındaki ilişkiler incelendi.",
         }
 
     def _regression_analysis(self, df: pd.DataFrame, target_col: Optional[str],
@@ -449,18 +510,30 @@ class AgentAnalyzer:
                               group_by: List[str], aggregation: str,
                               sort_by: Optional[str], sort_order: str,
                               limit: int, chart_type: str, title: str, desc: str) -> Dict:
-        """Gruplama ve aggregation analizi."""
+        """
+        Gruplama ve aggregation analizi.
+
+        Gruplama kolonu cozulemezse burada duruluyor. Onceden sessizce
+        `_statistics_analysis`'e dusuluyordu: kullanici "en cok gidilen 5
+        ulke" diye soruyor, ekrana kimlik kolonlarinin ortalamasi geliyor ve
+        hicbir yerde "sorunu anlayamadim" yazmiyordu. Yanlis cevap vermektense
+        neyin eksik oldugunu soylemek gerekiyor.
+        """
         if not group_by:
-            # Kategorik kolonları bul
             cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-            if cat_cols:
-                group_by = [cat_cols[0]]
-            else:
-                return self._statistics_analysis(df, target_col, chart_type, title, desc)
+            if not cat_cols:
+                return self._error_result(
+                    "Gruplama yapılacak bir kolon belirlenemedi ve tabloda "
+                    "kategorik kolon yok. Soruyu hangi alana göre kırmak "
+                    "istediğinizi belirtir misiniz?")
+            group_by = [cat_cols[0]]
 
         valid_group = [c for c in group_by if c in df.columns]
         if not valid_group:
-            return self._statistics_analysis(df, target_col, chart_type, title, desc)
+            return self._error_result(
+                f"Gruplama için istenen kolon(lar) tabloda yok: "
+                f"{', '.join(group_by)}. Mevcut kolonlar: "
+                f"{', '.join(list(df.columns)[:15])}")
 
         try:
             if target_col and target_col in df.columns:

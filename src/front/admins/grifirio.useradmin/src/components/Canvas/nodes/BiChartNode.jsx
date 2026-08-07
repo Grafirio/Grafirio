@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -6,6 +6,9 @@ import {
   Title, Tooltip, Legend, Filler
 } from 'chart.js';
 import { Bar, Line, Pie, Doughnut, Radar, Scatter } from 'react-chartjs-2';
+import {
+  resolveTheme, BAR_RADIUS, BAR_PERCENTAGE, CATEGORY_PERCENTAGE,
+} from './chartTheme';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -13,55 +16,62 @@ ChartJS.register(
   Title, Tooltip, Legend, Filler
 );
 
-// Chart.js paints to a canvas and cannot read CSS custom properties, so the
-// brand chart palette (tokens.css --gf-c01…c12) is mirrored here as literals.
-// The order is fixed by the brand guide and must not be reshuffled: the same
-// series has to keep the same colour wherever it is drawn.
-const PALETTE = [
-  'rgba(14,143,140,0.8)',  // --gf-c01 teal
-  'rgba(26,122,156,0.8)',  // --gf-c02
-  'rgba(47,95,168,0.8)',   // --gf-c03
-  'rgba(75,74,159,0.8)',   // --gf-c04
-  'rgba(107,58,151,0.8)',  // --gf-c05
-  'rgba(138,46,142,0.8)',  // --gf-c06
-  'rgba(168,42,124,0.8)',  // --gf-c07
-  'rgba(196,46,110,0.8)',  // --gf-c08
-  'rgba(214,69,80,0.8)',   // --gf-c09
-  'rgba(228,99,60,0.8)',   // --gf-c10
-  'rgba(240,144,43,0.8)',  // --gf-c11
-  'rgba(248,198,48,0.8)',  // --gf-c12 sun
-];
-const PALETTE_BORDER = PALETTE.map(c => c.replace('0.8)', '1)'));
+/** Kimlik taşıyan formlar: her dilim/segment ayrı bir şeyi temsil eder. */
+const IDENTITY_TYPES = ['pie', 'doughnut', 'donut', 'radar'];
 
-/** AI'dan gelen ham dataset'leri Chart.js formatına normalize et */
-function buildDatasets(rawDatasets, chartType) {
+const withAlpha = (hex, alpha) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+};
+
+/**
+ * AI'dan gelen ham dataset'leri Chart.js formatına çevirir.
+ *
+ * Renk kuralı: kimliği renk taşıyorsa kategorik palet, taşımıyorsa tek ton.
+ * Tek serili bir çubuk grafikte her çubuğu farklı renge boyamak bilgi
+ * eklemez — çubuğun boyu değeri zaten anlatıyor — ama renk ile sıralama
+ * arasında olmayan bir ilişki kurulduğu izlenimi verir.
+ */
+function buildDatasets(rawDatasets, chartType, theme) {
   if (!rawDatasets?.length) return [];
+
+  const palette = theme.categorical;
+  const multiSeries = rawDatasets.length > 1;
+  const sliceColored = IDENTITY_TYPES.includes(chartType);
 
   return rawDatasets.map((ds, i) => {
     const isLine = ['line', 'area'].includes((ds.type || chartType).toLowerCase());
+    const hue = multiSeries ? palette[i % palette.length] : theme.primary;
+
     const base = {
-      label:       ds.label || `Seri ${i + 1}`,
-      data:        ds.data  || [],
-      type:        ds.type  || undefined,   // mixed chart desteği (Pareto)
-      order:       ds.order ?? i,
-      borderWidth: isLine ? 2 : 1,
-      tension:     0.4,
-      fill:        ds.fill  ?? (chartType === 'area'),
+      label: ds.label || `Seri ${i + 1}`,
+      data: ds.data || [],
+      type: ds.type || undefined, // mixed chart desteği (Pareto)
+      order: ds.order ?? i,
+      borderWidth: isLine ? 2 : 0,
+      tension: 0.35,
+      fill: ds.fill ?? (chartType === 'area'),
     };
 
-    // Renk her zaman buradaki paletten gelir. Backend de bir palet gonderiyor
-    // ama sunum karari istemcinin: aksi halde tema degistiginde grafikler eski
-    // renklerde kalir ve tuval geri kalan arayuzle uyumsuz gorunur.
     if (isLine) {
-      base.backgroundColor = 'rgba(54,69,79,0.12)';
-      base.borderColor     = PALETTE_BORDER[i % PALETTE_BORDER.length];
-      base.pointBackgroundColor = PALETTE_BORDER[i % PALETTE_BORDER.length];
-    } else if (['pie', 'doughnut', 'donut'].includes(chartType)) {
-      base.backgroundColor = PALETTE;
-      base.borderColor     = '#fff';
+      base.borderColor = hue;
+      base.backgroundColor = chartType === 'area' ? withAlpha(hue, 0.14) : 'transparent';
+      base.pointBackgroundColor = hue;
+      base.pointBorderColor = theme.surface;
+      base.pointBorderWidth = 2;
+      base.pointRadius = 4;
+      base.pointHoverRadius = 6;
+    } else if (sliceColored) {
+      // Dilimlerin her biri ayrı bir kategori: kimlik rengi burada anlamlı.
+      base.backgroundColor = palette;
+      // Zemin renginde ince ayraç — bitişik dilimler birbirine karışmasın.
+      base.borderColor = theme.surface;
+      base.borderWidth = 2;
     } else {
-      base.backgroundColor = PALETTE[i % PALETTE.length];
-      base.borderColor     = PALETTE_BORDER[i % PALETTE_BORDER.length];
+      base.backgroundColor = hue;
+      base.borderRadius = BAR_RADIUS;
+      base.borderSkipped = false;
+      base.hoverBackgroundColor = withAlpha(hue, 0.82);
     }
 
     return base;
@@ -86,7 +96,22 @@ function normalizeType(raw) {
   return MAP[t] || 'bar';
 }
 
+/** Uzun kategori adları ekseni boğmasın. */
+const truncate = (value, max = 18) => {
+  const s = String(value);
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+};
+
 export default function BiChartNode({ data }) {
+  const rootRef = useRef(null);
+
+  // Zeminin gerçekten koyu olup olmadığı hesaplanmış arka plandan okunuyor;
+  // tema adına güvenmek yetmiyor (bkz. chartTheme.resolveTheme).
+  const [theme, setTheme] = useState(() => resolveTheme(null));
+  useEffect(() => {
+    setTheme(resolveTheme(rootRef.current));
+  }, [data]);
+
   // ── Timeout state (CanvasPage'deki ajan yoklama penceresiyle eşleşir) ──
   const [timedOut, setTimedOut] = useState(false);
   useEffect(() => {
@@ -95,10 +120,52 @@ export default function BiChartNode({ data }) {
     return () => clearTimeout(t);
   }, [data?.loading]);
 
+  const rawType = data?.type || data?.chartType || 'bar';
+  const chartType = normalizeType(rawType);
+  const labels = useMemo(() => data?.data?.labels || [], [data]);
+  const rawDatasets = data?.data?.datasets;
+
+  const finalDatasets = useMemo(() => {
+    // ── Pareto: bar + kümülatif çizgi ──
+    if (chartType === 'pareto' && rawDatasets?.length === 1) {
+      const vals = rawDatasets[0].data || [];
+      const total = vals.reduce((s, v) => s + Number(v), 0) || 1;
+      let cum = 0;
+      const cumData = vals.map((v) => { cum += Number(v); return +((cum / total) * 100).toFixed(1); });
+
+      return [
+        {
+          ...buildDatasets(rawDatasets, 'bar', theme)[0],
+          type: 'bar',
+          yAxisID: 'y',
+        },
+        {
+          label: 'Kümülatif %',
+          data: cumData,
+          type: 'line',
+          borderColor: theme.categorical[1],
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: theme.categorical[1],
+          tension: 0.3,
+          yAxisID: 'y2',
+        },
+      ];
+    }
+
+    const built = buildDatasets(rawDatasets, chartType, theme);
+    if (built.length) return built;
+
+    // Eski format uyumluluğu: flat values array
+    const values = data?.data?.values || [];
+    return buildDatasets([{ label: 'Veri', data: values }], chartType, theme);
+  }, [chartType, rawDatasets, data, theme]);
+
   // ── Loading state ──────────────────────────────────────────────────
   if (data?.loading) {
     return (
-      <div className="bi-node bi-chart-node">
+      <div className="bi-node bi-chart-node" ref={rootRef}>
         <div className="bi-node-header">
           <span className="bi-node-icon">📊</span>
           <span className="bi-node-title">{data?.title || 'Grafik Hazırlanıyor...'}</span>
@@ -123,97 +190,127 @@ export default function BiChartNode({ data }) {
     );
   }
 
-  const rawType    = data?.type || data?.chartType || 'bar';
-  const chartType  = normalizeType(rawType);
-  const labels     = data?.data?.labels || [];
-  const rawDatasets = data?.data?.datasets;
-
-  // ── Pareto: bar + kümülatif çizgi ─────────────────────────────────
-  // Pareto özel hazırlık — tek dataset geliyorsa kümülatif çizgiyi hesapla
-  let finalDatasets;
-  if (chartType === 'pareto' && rawDatasets?.length === 1) {
-    const vals    = rawDatasets[0].data || [];
-    const total   = vals.reduce((s, v) => s + Number(v), 0) || 1;
-    let cum       = 0;
-    const cumData = vals.map(v => { cum += Number(v); return +((cum / total) * 100).toFixed(1); });
-
-    finalDatasets = [
-      {
-        ...buildDatasets(rawDatasets, 'bar')[0],
-        type: 'bar',
-        backgroundColor: PALETTE[0],
-        borderColor:     PALETTE_BORDER[0],
-        yAxisID: 'y',
-      },
-      {
-        label: 'Kümülatif %',
-        data: cumData,
-        type: 'line',
-        borderColor: PALETTE_BORDER[3],
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        pointRadius: 3,
-        tension: 0.3,
-        yAxisID: 'y2',
-      },
-    ];
-  } else {
-    finalDatasets = buildDatasets(rawDatasets, chartType);
-    if (!finalDatasets.length) {
-      // Eski format uyumluluğu: flat values array
-      const values = data?.data?.values || [];
-      finalDatasets = [{
-        label: 'Veri',
-        data: values,
-        backgroundColor: ['pie','doughnut','donut'].includes(chartType) ? PALETTE : PALETTE[0],
-        borderColor: '#fff',
-        borderWidth: 1,
-      }];
-    }
-  }
-
   const chartData = { labels, datasets: finalDatasets };
 
-  const scaleDefaults = {
-    y:  { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } },
-    x:  { grid: { display: false } },
+  // Tek seride başlık zaten seriyi adlandırıyor; ayrıca bir kutu göstermek
+  // yer kaplamaktan başka bir şey yapmıyor.
+  const showLegend = finalDatasets.length > 1;
+
+  const tickFont = { size: 11, family: 'Manrope, system-ui, sans-serif' };
+
+  const linearScales = {
+    y: {
+      beginAtZero: true,
+      border: { display: false },
+      grid: { color: theme.grid, drawTicks: false },
+      ticks: {
+        color: theme.muted,
+        font: tickFont,
+        padding: 8,
+        // Binlik ayraçlı Türkçe biçim: 2.500 gibi.
+        callback: (v) => (typeof v === 'number' ? v.toLocaleString('tr-TR') : v),
+      },
+    },
+    x: {
+      border: { display: false },
+      grid: { display: false },
+      ticks: {
+        color: theme.muted,
+        font: tickFont,
+        padding: 6,
+        autoSkip: true,
+        maxRotation: 0,
+        callback(value) {
+          return truncate(this.getLabelForValue(value));
+        },
+      },
+    },
   };
 
   const options = {
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 4, right: 8, bottom: 0, left: 0 } },
+    barPercentage: BAR_PERCENTAGE,
+    categoryPercentage: CATEGORY_PERCENTAGE,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { display: true, position: 'top', labels: { font: { size: 11 } } },
-      tooltip: { backgroundColor: 'rgba(15,23,42,0.9)', padding: 10 },
+      legend: showLegend
+        ? {
+            display: true,
+            position: 'top',
+            align: 'end',
+            labels: {
+              color: theme.muted,
+              font: tickFont,
+              boxWidth: 10,
+              boxHeight: 10,
+              usePointStyle: true,
+              pointStyle: 'circle',
+              padding: 14,
+            },
+          }
+        : { display: false },
+      tooltip: {
+        backgroundColor: theme.tooltipBg,
+        titleColor: theme.tooltipInk,
+        bodyColor: theme.tooltipInk,
+        padding: 10,
+        cornerRadius: 6,
+        displayColors: finalDatasets.length > 1,
+        // Eksende kısaltılan etiketin tamamı burada görünsün.
+        callbacks: {
+          title: (items) => (items.length ? String(labels[items[0].dataIndex] ?? '') : ''),
+          label: (item) => {
+            const v = item.parsed.y ?? item.parsed;
+            const num = typeof v === 'number' ? v.toLocaleString('tr-TR') : v;
+            return finalDatasets.length > 1 ? `${item.dataset.label}: ${num}` : String(num);
+          },
+        },
+      },
     },
-    scales: ['pie', 'doughnut', 'donut', 'radar', 'scatter'].includes(chartType) ? {} :
-            chartType === 'pareto' ? {
-              y:  { ...scaleDefaults.y, position: 'left',  title: { display: true, text: 'Adet' } },
-              y2: { beginAtZero: true, max: 100, position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: v => v + '%' } },
-              x:  scaleDefaults.x,
-            } : scaleDefaults,
+    scales: IDENTITY_TYPES.includes(chartType) || chartType === 'scatter'
+      ? undefined
+      : chartType === 'pareto'
+        ? {
+            ...linearScales,
+            y: { ...linearScales.y, position: 'left' },
+            y2: {
+              beginAtZero: true,
+              max: 100,
+              position: 'right',
+              border: { display: false },
+              grid: { drawOnChartArea: false },
+              ticks: { color: theme.muted, font: tickFont, callback: (v) => `${v}%` },
+            },
+          }
+        : linearScales,
   };
 
   const renderChart = () => {
-    // Pareto veya mixed: Bar ile render et (datasets içinde type tanımlı)
-    if (chartType === 'pareto' || finalDatasets.some(d => d.type)) {
+    if (chartType === 'pareto' || finalDatasets.some((d) => d.type)) {
       return <Bar data={chartData} options={options} />;
     }
     switch (chartType) {
-      case 'bar':      return <Bar     data={chartData} options={options} />;
+      case 'bar': return <Bar data={chartData} options={options} />;
       case 'line':
-      case 'area':     return <Line    data={chartData} options={options} />;
-      case 'pie':      return <Pie     data={chartData} options={options} />;
+      case 'area': return <Line data={chartData} options={options} />;
+      case 'pie': return <Pie data={chartData} options={options} />;
       case 'doughnut':
-      case 'donut':    return <Doughnut data={chartData} options={options} />;
-      case 'radar':    return <Radar   data={chartData} options={options} />;
-      case 'scatter':  return <Scatter data={chartData} options={{ ...options, scales: { x: { grid: { color: 'rgba(0,0,0,0.05)' } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' } } } }} />;
-      default:         return <Bar     data={chartData} options={options} />;
+      case 'donut': return <Doughnut data={chartData} options={options} />;
+      case 'radar': return <Radar data={chartData} options={options} />;
+      case 'scatter': return (
+        <Scatter
+          data={chartData}
+          options={{ ...options, scales: linearScales }}
+        />
+      );
+      default: return <Bar data={chartData} options={options} />;
     }
   };
 
   return (
-    <div className="bi-node bi-chart-node">
+    <div className="bi-node bi-chart-node" ref={rootRef}>
       <div className="bi-node-header">
         <span className="bi-node-icon">📊</span>
         <span className="bi-node-title">{data?.title || 'Grafik'}</span>
