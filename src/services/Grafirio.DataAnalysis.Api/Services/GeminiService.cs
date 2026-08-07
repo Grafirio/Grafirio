@@ -181,26 +181,47 @@ public class GeminiService
         çıkarılmış tablo profili var: kolon adları, tipler, istatistikler ve —
         gizlilik politikasının izin verdiği kolonlarda — örnek değerler.
 
-        Görevin, iş kullanıcısının günlük dilini bu kolonlara bağlayan bir
-        sözlük üretmek. Kullanıcı kolon adı bilmiyor; "en çok gidilen ülkeler"
-        diyecek ve senin bunu doğru kolona bağlaman gerekiyor.
+        Görevin bu veritabanının SÖZLÜĞÜNÜ çıkarmak: her kolonun ne işe
+        yaradığını yaz. Çözemediğin kolonlar için veritabanını bilen kişiye
+        soru sor.
 
         ## Profil
         ```json
         {{profileJson}}
         ```
 
-        ## Kurallar
+        ## Sözlük kuralları
         1. YALNIZCA profilde geçen tablo ve kolon adlarını kullan. Ad uydurma.
-        2. Örnek değerlere bak — kolonun adı yanıltıcı olabilir, içeriği olmaz.
-           `sampleValues` boşsa (gizlilik nedeniyle alınmamış olabilir) ada ve
-           tipe göre karar ver ve emin değilsen soru sor.
-        3. Her kolon için Türkçe eş anlamlılar üret: kullanıcının kullanabileceği
-           ifadeler ("gidilen ülke", "varış ülkesi", "hedef ülke").
-        4. Emin olamadığın her şeyi `questions` altına koy. Soru, kolon adı
-           bilmeyen birinin cevaplayabileceği kadar somut olmalı ve örnek
-           değerlere dayanmalı.
-        5. Sektörü profilin bütününden çıkar.
+        2. Kolonun adı yanıltıcı olabilir, içeriği olmaz — örnek değerlere bak.
+        3. Her kolon için kullanıcının o alandan bahsederken kullanabileceği
+           Türkçe karşılıkları yaz.
+
+        ## Soru kuralları — bunlara harfiyen uy
+
+        Soru sormanın TEK sebebi var: bir kolonun ne olduğunu çözememek.
+
+        - Her soru TEK bir kolon hakkında olacak ve o kolonun adını içerecek.
+        - Kalıp şu: "<Tablo> tablosunda <Kolon> alanını görüyorum, ne işe
+          yaradığını çözemedim. Aşağıdakilerden hangisi?"
+        - Şıklar o alanın OLABİLECEĞİ anlamlar olacak. Kısa, somut, en fazla
+          5 kelime. Sonuncu şık her zaman "Başka bir şey".
+        - Soru TEK cümle olacak. Parantez içi açıklama, "yani", "örneğin"
+          zincirleri yok. Veritabanını bilen ama teknik olmayan biri okuyup
+          hemen cevaplayabilmeli.
+
+        ASLA sorma:
+        - Raporlamada neyi görmek istediğini, hangi metriği tercih ettiğini
+        - Satırların nasıl sayılacağını, nasıl gruplanacağını, neyin
+          toplanacağını
+        - Analiz tercihlerini, ülke mi şehir mi bazlı olacağını
+        - İki alandan hangisini kullanacağını
+
+        Bunlar sorgu anında verilecek kararlar; burada veritabanını
+        öğreniyoruz, rapor tasarlamıyoruz.
+
+        Adından ve içeriğinden anlamı zaten belli olan kolonlara soru sorma
+        (CreatedDate, Quantity, CustomerName gibi). En fazla 8 soru sor;
+        çözemediğin kolon yoksa `questions` boş kalsın.
 
         JSON bloğunu ```json ve ``` arasında ver:
 
@@ -220,7 +241,7 @@ public class GeminiService
               "table": "dbo.Shipments",
               "column": "ReceiverCompanyCountryName",
               "meaning": "Gönderinin teslim edildiği ülke",
-              "synonyms": ["gidilen ülke", "varış ülkesi", "hedef ülke", "teslim ülkesi"],
+              "synonyms": ["gidilen ülke", "varış ülkesi", "hedef ülke"],
               "role": "dimension",
               "confidence": "high"
             }
@@ -229,9 +250,15 @@ public class GeminiService
             {
               "id": "q1",
               "table": "dbo.Shipments",
-              "column": "ReceiverCompanyCountryName",
-              "question": "Bu kolonda 'Almanya', 'Hollanda' değerleri var. Bu gönderinin GİTTİĞİ ülke mi, GELDİĞİ ülke mi?",
-              "options": ["Gittiği ülke", "Geldiği ülke", "Emin değilim"]
+              "column": "ReferenceId",
+              "question": "Shipments tablosunda ReferenceId alanını görüyorum, ne işe yaradığını çözemedim. Aşağıdakilerden hangisi?",
+              "options": [
+                "Müşterinin sipariş numarası",
+                "Taşıyıcı firmanın takip numarası",
+                "Fatura numarası",
+                "Sistem içi kayıt numarası",
+                "Başka bir şey"
+              ]
             }
           ]
         }

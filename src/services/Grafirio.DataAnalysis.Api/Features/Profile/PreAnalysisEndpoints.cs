@@ -21,6 +21,15 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// </summary>
 public static class PreAnalysisEndpoints
 {
+    /// <summary>
+    /// Kurulumda sorulacak en fazla soru sayisi. Ilk surumde model bir kolona
+    /// bagli olmayan, "raporda neyi gormek istersiniz" turunden uzun tercih
+    /// sorulari uretiyordu; kullanici sorularin ne dedigini anlayamiyordu.
+    /// Ust sinir ve kolon sarti, bunun tekrarlamamasi icin.
+    /// </summary>
+    private const int MaxQuestions = 8;
+
+
     public static void MapPreAnalysisEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/connections/{connectionId:guid}/pre-analysis")
@@ -223,6 +232,15 @@ public static class PreAnalysisEndpoints
                         ? o.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToList()
                         : []))
                 .Where(q => q.Question.Length > 0)
+                // Bir kolona bagli olmayan soru, kolon anlamini sormuyor
+                // demektir — genellikle "raporda neyi gormek istersiniz"
+                // turunden bir tercih sorusu. Onlar sorgu anininin isi.
+                .Where(q => !string.IsNullOrWhiteSpace(q.Column))
+                // Ayni kolon icin birden fazla soru sorulmasin.
+                .GroupBy(q => $"{q.Table}.{q.Column}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                // Kurulum adimi bir ankete donusmesin.
+                .Take(MaxQuestions)
                 .ToList();
         }
         catch (JsonException)

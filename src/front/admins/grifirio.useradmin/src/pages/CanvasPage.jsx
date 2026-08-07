@@ -66,7 +66,22 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
     return { success: false, error: 'Bu kanvas bir bağlantıya bağlı değil.' };
   }
 
-  const submitted = await submitAgentQuery(connectionId, question);
+  // Sunucu 400 dondugunde sebebi govdede yaziyor ("Önce tabloları seçip Ön
+  // Analiz çalıştırın" gibi). Axios bunu exception'a cevirdigi icin, yakalanip
+  // acilmazsa kullaniciya yalnizca "Request failed with status code 400"
+  // gorunuyordu — yani sunucu sebebi biliyor, ekran soylemiyordu.
+  let submitted;
+  try {
+    submitted = await submitAgentQuery(connectionId, question);
+  } catch (err) {
+    const body = err.response?.data;
+    return {
+      success: false,
+      error: body?.error || body?.detail || body?.title || err.message,
+      status: body?.status,
+    };
+  }
+
   if (!submitted?.success) {
     return { success: false, error: submitted?.error || 'Sorgu gönderilemedi.' };
   }
@@ -344,7 +359,15 @@ export default function CanvasPage() {
         }
         setMessages(p => {
           const a = [...p];
-          a[a.length - 1] = { role: 'ai', content: `❌ ${res.error || 'Hata oluştu'}`, error: true, ts: Date.now() };
+          a[a.length - 1] = {
+            role: 'ai',
+            content: `❌ ${res.error || 'Hata oluştu'}`,
+            error: true,
+            ts: Date.now(),
+            // On analiz tamamlanmadiysa kullaniciyi burada birakmayalim:
+            // kanvastan cikis yolu olmadan "yapamazsin" demek, cikmaz sokak.
+            needsPreAnalysis: Boolean(res.status) && res.status !== 'ready',
+          };
           return a;
         });
       }
@@ -490,6 +513,16 @@ export default function CanvasPage() {
                       )}
                       {msg.result?.charts?.length > 0 && (
                         <div className="cp-msg-meta">📊 {msg.result.charts.length} grafik tuvale eklendi</div>
+                      )}
+
+                      {msg.needsPreAnalysis && (
+                        <button
+                          className="cp-quick-q"
+                          style={{ marginTop: 8, width: '100%' }}
+                          onClick={() => navigate('/settings/sql-connection')}
+                        >
+                          Ön Analiz’i tamamla →
+                        </button>
                       )}
 
                       {/* Denetim: sonucun dogru olup olmadigini anlamanin tek

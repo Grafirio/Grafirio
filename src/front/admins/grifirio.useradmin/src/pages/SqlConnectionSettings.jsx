@@ -1512,6 +1512,11 @@ const SqlConnectionSettings = () => {
 
                   {preAnalysis.questions.map(q => (
                     <div key={q.id} className="analysis-section" style={{ marginBottom: 16 }}>
+                      {q.column && (
+                        <div className="gf-badge" style={{ marginBottom: 6 }}>
+                          {q.table ? `${q.table}.${q.column}` : q.column}
+                        </div>
+                      )}
                       <p style={{ marginBottom: 8 }}>{q.question}</p>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {(q.options?.length ? q.options : ['Evet', 'Hayır', 'Emin değilim']).map(opt => (
