@@ -1,3 +1,4 @@
+import { Navigate } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import AuthLayout from '../layouts/AuthLayout';
 import CanvasLayout from '../layouts/CanvasLayout';
@@ -10,7 +11,6 @@ import CanvasPage from '../pages/CanvasPage';
 import CompanyAdminPage from '../pages/CompanyAdminPage';
 import AIPage from '../pages/AIPage';
 import DataAnalysisPage from '../pages/DataAnalysis/DataAnalysisPage';
-import AgentQueryPage from '../pages/AgentQueryPage';
 
 // Ayar Sayfaları — menudeki her giris kendi sayfasina gidiyor.
 import CompanySettingsPage from '../pages/settings/CompanySettingsPage';
@@ -31,7 +31,10 @@ const routes = [
       { path: 'company-info', element: <CompanyAdminPage /> },
       { path: 'ai-dashboard', element: <AIPage /> },
       { path: 'data-analysis', element: <DataAnalysisPage /> },
-      { path: 'ai-query', element: <AgentQueryPage /> },
+      // Eski /ai-query sayfasi kaldirildi: kanvasla ayni isi yapan ikinci bir
+      // ekrandi ve farkli bir arka uca bagliydi. Eski baglantilar kirilmasin
+      // diye kanvasa yonlendiriliyor.
+      { path: 'ai-query', element: <Navigate to="/canvas" replace /> },
       {
         path: 'settings',
         children: [

@@ -87,7 +87,7 @@ function normalizeType(raw) {
 }
 
 export default function BiChartNode({ data }) {
-  // ── Timeout state (3 dk — aiChatService polling penceresiyle eşleşir) ──
+  // ── Timeout state (CanvasPage'deki ajan yoklama penceresiyle eşleşir) ──
   const [timedOut, setTimedOut] = useState(false);
   useEffect(() => {
     if (!data?.loading) { setTimedOut(false); return; }
