@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconX, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
-import { generateAIReport, getConnectionById, getSelectedTables } from '../services/dataAnalysisService';
-import { sendChatMessage } from '../services/aiChatService';
+import {
+  generateAIReport, getConnectionById, getSelectedTables,
+  submitAgentQuery, getAgentQueryStatus, getAgentQueryResult,
+} from '../services/dataAnalysisService';
 import './CanvasPage.css';
 
 /* ─────────────────────────────────────────────────────────────
@@ -48,6 +50,56 @@ const buildCanvasNodes = (report, parentId, posRef) => {
 
   posRef.current = { x: sx, y: Math.max(sy, curY) + 60 };
   return { newNodes, newEdges };
+};
+
+/**
+ * Soruyu ajan hattina gonderir ve sonucu bekler.
+ *
+ * Hat asenkron: gonder -> kuyruga girer -> durum sorulur -> sonuc alinir.
+ * Cagiran taraf tek bir Promise gorsun diye yoklama burada kapsulleniyor.
+ */
+const AGENT_POLL_MS = 3000;
+const AGENT_MAX_ATTEMPTS = 100; // ~5 dakika
+
+const askViaAgent = async (question, { connectionId, onProgress }) => {
+  if (!connectionId) {
+    return { success: false, error: 'Bu kanvas bir bağlantıya bağlı değil.' };
+  }
+
+  const submitted = await submitAgentQuery(connectionId, question);
+  if (!submitted?.success) {
+    return { success: false, error: submitted?.error || 'Sorgu gönderilemedi.' };
+  }
+
+  const queryId = submitted.queryId;
+  onProgress?.('Sorgu kuyruğa alındı…');
+
+  for (let attempt = 0; attempt < AGENT_MAX_ATTEMPTS; attempt++) {
+    await new Promise(r => setTimeout(r, AGENT_POLL_MS));
+
+    const status = await getAgentQueryStatus(queryId);
+
+    if (status.status === 'completed') {
+      const payload = await getAgentQueryResult(queryId);
+      const result = payload?.result ?? {};
+      return {
+        success: true,
+        answer: result.summary || result.answer || 'Analiz tamamlandı.',
+        charts: result.charts || [],
+        failedTasks: [],
+        // Denetim izi: hangi tablo/kolon secildi, hangi SQL calisti.
+        audit: { ...(result.audit || {}), llmParameters: payload?.llmParameters },
+      };
+    }
+
+    if (status.status === 'failed') {
+      return { success: false, error: status.message || status.error || 'Analiz başarısız oldu.' };
+    }
+
+    onProgress?.('Analiz ediliyor…');
+  }
+
+  return { success: false, error: 'Zaman aşımı — analiz 5 dakikada tamamlanmadı.' };
 };
 
 /* ─────────────────────────────────────────────────────────────
@@ -193,10 +245,9 @@ export default function CanvasPage() {
     setMessages(p => [...p, { role: 'ai', content: '', loading: true, ts: Date.now() }]);
 
     // Build history from existing messages (exclude the loading placeholder we just added)
-    const history = messages.map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      content: m.content,
-    })).filter(m => m.content);
+    // Not: ajan hatti su an sohbet gecmisini almiyor; her soru bagimsiz
+    // degerlendiriliyor. "Onu su kolona gore ver" gibi takip sorulari bu
+    // yuzden calismaz — hattin gecmis destegi eklenene kadar boyle.
 
     // ── Her soru için tuvale hemen soru + loading node ekle ──
     // (grafik gelip gelmeyeceğine keyword değil, backend'in sonucu karar verir)
@@ -230,10 +281,16 @@ export default function CanvasPage() {
     lastGroupIdRef.current = qNodeId;
 
     try {
-      const res = await sendChatMessage(text, history, {
-        database: analysis?.database || '',
-        tables:   analysis?.tables   || [],
-        onProgress: (_progress, message) => {
+      // Kanvas artik ajan hattini kullaniyor (/api/agent/query).
+      //
+      // Onceden Django/RabbitMQ hattina gidiyordu; o hat on analiz kapisini,
+      // semantik sozlugu ve denetim izini tanimiyor. Yani kanvastan sorulan
+      // soru, kolon adlarini ogrendigimiz butun altyapiyi atliyordu. Ayni
+      // isi yapan iki paralel hat vardi; kanvas ekrani korunup alttaki
+      // hat tekillestirildi.
+      const res = await askViaAgent(text, {
+        connectionId: analysis?.connectionId || analysis?.requestId,
+        onProgress: (message) => {
           if (!message) return;
           setCanvasNodes(p => p.map(n =>
             n.id === loadingNodeId
