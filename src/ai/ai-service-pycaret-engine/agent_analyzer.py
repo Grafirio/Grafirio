@@ -9,15 +9,22 @@ import pandas as pd
 import sqlalchemy
 from typing import Dict, Any, List, Optional
 
+from query_spec import (
+    AliasFactory, Aggregate, ColumnRef, OrderBy, Predicate, QuerySpec,
+    QuerySpecError, TableRef, render, render_group_count,
+)
+
 logger = logging.getLogger(__name__)
 
 
 class AgentAnalyzer:
     """LLM tarafından oluşturulan config ve parametrelerle veri analizi yapar."""
 
-    # Tek sorguda okunacak en fazla satir. Gruplama pandas'ta yapildigi icin
-    # dogru sayilar ancak yeterince satir okunursa cikiyor; ust sinir yine de
-    # gerekli, musteri tablolari milyonlarca satir olabiliyor.
+    # Satir bazli okumada tavan. Yalnizca model egiten analizler (regression,
+    # classification, anomaly, clustering) ve korelasyon/ozet istatistik
+    # buraya girer; bunlar zaten ornek uzerinde calisir. Gruplama ve sayma
+    # SQL'de yapildigi icin bu tavana takilmaz — sonuc tablonun tamamindan
+    # cikar.
     MAX_ROWS = 50000
 
     def __init__(self, connection_string: str):
@@ -31,32 +38,55 @@ class AgentAnalyzer:
         """
         Config ve parametrelere göre analiz yap, grafik verileri ve insights döndür.
         """
-        analysis_type = params.get("analysis_type", "statistics")
+        # Varsayilan `aggregation`: ceviri prompt'unun da varsayilani bu.
+        # Onceden burada "statistics" yaziyordu, yani tipi bos gelen her soru
+        # sessizce kolon ortalamalarina dusuyordu.
+        analysis_type = str(params.get("analysis_type") or "aggregation").strip().lower()
+        if analysis_type not in self.ANALYSIS_TYPES:
+            # Taninmayan tip sorunun kendisini gecersiz kilmaz; varsayilana
+            # dusmek sessiz bir yanlis degil, denetim izine yaziliyor.
+            analysis_type = "aggregation"
         target_table = params.get("target_table")
         target_column = params.get("target_column")
         feature_columns = params.get("feature_columns", [])
-        group_by = params.get("group_by", [])
-        aggregation = params.get("aggregation", "count")
+        group_by = params.get("group_by") or []
+        aggregation = params.get("aggregation") or "count"
         sort_by = params.get("sort_by")
         sort_order = params.get("sort_order", "desc")
-        limit = params.get("limit", 10)
+        limit = self._safe_limit(params.get("limit", 10))
         chart_type = params.get("chart_type", "bar")
         chart_title = params.get("chart_title", "Analiz Sonucu")
         description = params.get("description", "")
-        filters = params.get("filters", {})
+        filters = params.get("filters") or {}
 
         if not target_table:
-            # Config'den ilk tabloyu al
-            tables = config.get("tables", [])
-            if tables:
-                target_table = tables[0].get("name", "")
+            # Tek tablo varsa bu bir secim degil, zorunluluk. Birden fazlaysa
+            # ilkini almak kumardir: LLM tabloyu bilerek bos birakiyor —
+            # prompt ona "soruyu karsilayan kolonu bulamazsan target_table'i
+            # bos birak" diyor. Onceden `tables[0]` aliniyordu, yani sistem
+            # "anlayamadim" dedigi anda rastgele bir tabloyu analiz edip
+            # sonucu dogruymus gibi gosteriyordu.
+            # Sozlukteki `tables` normalde nesne listesi ama modelin duz ad
+            # listesi dondurdugu de oluyor; burada patlamak yerine ikisini de
+            # kabul ediyoruz.
+            tables = []
+            for entry in config.get("tables") or []:
+                name = entry.get("name") if isinstance(entry, dict) else entry
+                if name:
+                    tables.append(str(name))
+            if len(tables) == 1:
+                target_table = tables[0]
+            elif len(tables) > 1:
+                return self._error_result(
+                    "Sorunun hangi tabloyla ilgili olduğu anlaşılamadı. Analiz "
+                    f"kapsamındaki tablolar: {', '.join(tables)}. Sorunuzda "
+                    "tablo ya da alan adını belirtir misiniz?")
 
         if not target_table:
             return self._error_result("Hedef tablo belirlenemedi")
 
         # LLM'in verdigi kararlar denetim izine yaziliyor: kalite olcumunde
-        # asil bakilacak yer burasi. Uretilen SQL bugun basit; secimi yapan
-        # sey bu parametreler.
+        # asil bakilacak yer burasi.
         self.audit = {
             "analysisType": analysis_type,
             "targetTable": target_table,
@@ -67,20 +97,46 @@ class AgentAnalyzer:
             "sortBy": sort_by,
             "sortOrder": sort_order,
             "limit": limit,
-            # Bugunku hat gruplama/toplama isini SQL'de degil pandas'ta
-            # yapiyor; denetleyen kisi bunu bilmeli.
-            "aggregationPerformedIn": "pandas",
         }
 
         try:
-            # Kac satir okunacak?
-            #
-            # Onceden her analiz icin `limit * 10` satir cekiliyordu. Gruplama
-            # sorularinda bu sonucu dogrudan yanlis yapiyor: "en cok gidilen 5
-            # ulke" sorusunda tablodan yalnizca 50 satir okunup sayiliyor,
-            # cikan siralama tablonun ilk 50 satirinin siralamasi oluyordu.
-            # `limit` grupladiktan SONRA uygulanmali; okuma tavani ayri.
-            df = self._load_table_data(target_table, filters, self.MAX_ROWS)
+            schema, table = self._split_table(target_table)
+            columns = self._table_columns(schema, table)
+        except Exception as e:
+            logger.error(f"Tablo cozumlenemedi: {e}")
+            return self._with_audit(self._error_result(str(e)))
+
+        # Takma adlar burada dagitiliyor. Bugun tek tablo var, ama join'ler
+        # geldiginde her kolon referansinin nitelenmis olmasi gerekecek; tek
+        # tablo icin de ayni yoldan gecmek o gun icin surpriz birakmiyor.
+        aliases = AliasFactory()
+        base = TableRef(schema, table, aliases.take())
+
+        # Filtreler kolon adlariyla dogrulanip parametreye baglaniyor.
+        # Uygulanamayan filtre sessizce dusurulmuyor: "bu yil" diye sorup
+        # tum zamanlarin sonucunu gormek, yanlis cevabin en sinsi hali.
+        try:
+            predicates, where_params, filter_notes = self._build_where(
+                filters, columns, base.alias)
+        except ValueError as e:
+            return self._with_audit(self._error_result(str(e)))
+
+        self.audit["appliedFilters"] = filter_notes
+
+        try:
+            # Gruplama/sayma sorulari SQL'de calisir: sonuc tablonun tamami
+            # uzerinden ve kesindir. Onceden tablodan TOP 50000 satir cekilip
+            # gruplama pandas'ta yapiliyordu — tablo bundan buyukse "en cok
+            # gidilen 5 ulke" keyfi bir 50 binlik dilimin siralamasi oluyordu.
+            if analysis_type == "aggregation":
+                return self._with_audit(self._sql_aggregation(
+                    base, columns, target_column, group_by, aggregation,
+                    sort_order, limit, predicates, where_params, chart_type,
+                    chart_title, description))
+
+            # Kalan tipler (PyCaret modelleri, korelasyon, ozet istatistik)
+            # satir bazli veri istiyor; bunlar icin okuma tavani kacinilmaz.
+            df = self._load_table_data(base, predicates, where_params, self.MAX_ROWS)
 
             if df.empty:
                 return self._with_audit(
@@ -100,11 +156,8 @@ class AgentAnalyzer:
             elif analysis_type == "clustering":
                 result = self._clustering_analysis(df, feature_columns, chart_type, chart_title, description)
             else:
-                # Genel gruplama / aggregation
-                result = self._aggregation_analysis(
-                    df, target_column, group_by, aggregation,
-                    sort_by, sort_order, limit, chart_type, chart_title, description
-                )
+                return self._with_audit(self._error_result(
+                    f"Bilinmeyen analiz tipi: '{analysis_type}'."))
 
             return self._with_audit(result)
 
@@ -119,32 +172,339 @@ class AgentAnalyzer:
         goründügü andir.
         """
         result["audit"] = dict(self.audit)
+
+        # Okuma tavanina degildiyse sonuc tablonun tamamini temsil etmiyor.
+        # Bunu kullaniciya soylemek sart: dogru gorunen ama eksik veriden
+        # cikmis bir grafik, acikca basarisiz olan bir sorgudan daha zararli.
+        if self.audit.get("truncated") and result.get("success"):
+            readable = f"{self.MAX_ROWS:,}".replace(",", ".")
+            result.setdefault("insights", []).insert(0, {
+                "type": "warning",
+                "title": "Kısmi veri",
+                "description": (
+                    f"Tablodan yalnızca ilk {readable} satır okundu. Bu analiz "
+                    "tablonun tamamını temsil etmiyor olabilir; sonucu daraltmak "
+                    "için tarih ya da kategori filtresi ekleyin."
+                )
+            })
+
         return result
 
-    def _load_table_data(self, table_name: str, filters: Dict, max_rows: int = 5000) -> pd.DataFrame:
-        """Tablodan veri yükle."""
-        # Schema prefix varsa ayır
-        parts = table_name.split(".")
-        schema = parts[0] if len(parts) > 1 else "dbo"
-        table = parts[-1]
+    # ------------------------------------------------------------------
+    # Sema cozumleme
+    #
+    # LLM'in verdigi her tablo/kolon adi calistirilmadan once gercek semaya
+    # karsi dogrulanir. Iki isi birden yapiyor: adin SQL'e gomulmesini
+    # guvenli kiliyor (yalnizca semadan gelen ad yaziliyor) ve ad tutmadiginda
+    # "tabloda yok, mevcut kolonlar sunlar" diyebilmeyi sagliyor.
+    # ------------------------------------------------------------------
 
-        query = f"SELECT TOP {max_rows} * FROM [{schema}].[{table}]"
+    ANALYSIS_TYPES = (
+        "aggregation", "statistics", "correlation",
+        "regression", "classification", "anomaly", "clustering",
+    )
 
-        if filters:
-            conditions = []
-            for col, val in filters.items():
-                conditions.append(f"[{col}] = '{val}'")
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
+    # Bir olcum kolonu isteyen toplulastirmalar. SQL karsiliklari
+    # `query_spec.Aggregate` icinde; burada yalnizca "kolon sart mi" sorusu
+    # cevaplaniyor.
+    _NUMERIC_AGGS = frozenset({"sum", "avg", "min", "max"})
+
+    @staticmethod
+    def _split_table(table_name: str) -> tuple:
+        cleaned = table_name.replace("[", "").replace("]", "").strip()
+        parts = [p for p in cleaned.split(".") if p]
+        if not parts:
+            raise ValueError("Tablo adı boş.")
+        return (parts[0], parts[-1]) if len(parts) > 1 else ("dbo", parts[0])
+
+    @staticmethod
+    def _safe_limit(value: Any, default: int = 10) -> int:
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return default
+        return min(max(n, 1), 1000)
+
+    def _table_columns(self, schema: str, table: str) -> Dict[str, str]:
+        """
+        Tablonun gercek kolonlari: kucuk harfli ad -> gercek ad.
+
+        Kucuk harfli anahtar kasitli: LLM kolon adini farkli buyuk/kucuk
+        harfle yazdiginda sorgu bunun yuzunden dusmesin.
+        """
+        sql = sqlalchemy.text("""
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
+            ORDER BY ORDINAL_POSITION
+        """)
+
+        with self.engine.connect() as conn:
+            rows = conn.execute(sql, {"schema": schema, "table": table}).fetchall()
+
+        if not rows:
+            raise ValueError(
+                f"'{schema}.{table}' tablosu veritabanında bulunamadı.")
+
+        return {r[0].lower(): r[0] for r in rows}
+
+    @staticmethod
+    def _resolve_column(name: Optional[str], columns: Dict[str, str]) -> Optional[str]:
+        if not name:
+            return None
+        return columns.get(str(name).replace("[", "").replace("]", "").strip().lower())
+
+    @staticmethod
+    def _column_missing(name: str, columns: Dict[str, str]) -> str:
+        return (f"'{name}' kolonu tabloda yok. Mevcut kolonlar: "
+                f"{', '.join(list(columns.values())[:20])}")
+
+    # ------------------------------------------------------------------
+    # Filtreler
+    # ------------------------------------------------------------------
+
+    _RANGE_OPS = {"gte": ">=", "gt": ">", "lte": "<=", "lt": "<", "eq": "=", "ne": "<>"}
+
+    def _build_where(self, filters: Dict, columns: Dict[str, str],
+                     table_alias: str) -> tuple:
+        """
+        Filtreleri `Predicate` listesine cevirir.
+
+        Deger SQL metnine hicbir zaman girmez: onceden `[col] = 'val'` diye
+        birlestiriliyordu — hem enjeksiyon yuzeyi hem de tarih/sayi
+        kolonlarinda sessiz tip hatasi demekti. Artik yalnizca parametre adi
+        tasiniyor, degerler ayri sozlukte.
+
+        Cozulemeyen filtre sessizce atlanmaz, hata olur: "bu yil" diye sorup
+        tum zamanlarin sonucunu almak yanlis cevabin en fark edilmesi zor hali.
+
+        Kabul edilen bicimler:
+            "Ulke": "Almanya"                     -> esitlik
+            "Ulke": ["Almanya", "Hollanda"]       -> IN
+            "Tarih": {"gte": "2026-01-01", "lt": "2027-01-01"}  -> aralik
+        """
+        if not filters:
+            return [], {}, []
+
+        predicates: List[Predicate] = []
+        params: Dict[str, Any] = {}
+        notes: List[str] = []
+        idx = 0
+
+        for raw_col, value in filters.items():
+            real = self._resolve_column(raw_col, columns)
+            if real is None:
+                raise ValueError(
+                    f"Filtre uygulanamadı — {self._column_missing(str(raw_col), columns)}")
+
+            column = ColumnRef(table_alias, real)
+
+            if isinstance(value, dict):
+                for op, operand in value.items():
+                    sql_op = self._RANGE_OPS.get(str(op).lower())
+                    if sql_op is None:
+                        raise ValueError(
+                            f"'{real}' filtresinde tanınmayan karşılaştırma: '{op}'.")
+                    key = f"p{idx}"; idx += 1
+                    predicates.append(Predicate(column, sql_op, [key]))
+                    params[key] = operand
+                    notes.append(f"{real} {sql_op} {operand}")
+
+            elif isinstance(value, (list, tuple, set)):
+                items = list(value)
+                if not items:
+                    raise ValueError(f"'{real}' için boş filtre listesi verildi.")
+                keys = []
+                for operand in items:
+                    key = f"p{idx}"; idx += 1
+                    keys.append(key)
+                    params[key] = operand
+                predicates.append(Predicate(column, "IN", keys))
+                notes.append(f"{real} IN ({', '.join(str(i) for i in items)})")
+
+            elif value is None:
+                predicates.append(Predicate(column, "IS NULL"))
+                notes.append(f"{real} boş")
+
+            else:
+                key = f"p{idx}"; idx += 1
+                predicates.append(Predicate(column, "=", [key]))
+                params[key] = value
+                notes.append(f"{real} = {value}")
+
+        return predicates, params, notes
+
+    # ------------------------------------------------------------------
+    # SQL gruplama
+    # ------------------------------------------------------------------
+
+    def _sql_aggregation(self, base: TableRef, columns: Dict[str, str],
+                         target_col: Optional[str], group_by: List[str],
+                         aggregation: str, sort_order: str, limit: int,
+                         predicates: List[Predicate], where_params: Dict,
+                         chart_type: str, title: str, desc: str) -> Dict:
+        """
+        Gruplama ve toplama — veritabaninda.
+
+        Sonuc tablonun TAMAMI uzerinden hesaplanir. Bu metot pandas'taki
+        eskisinin yerini aliyor: orada once TOP 50000 satir cekiliyor, gruplama
+        o dilimde yapiliyordu. Tablo bundan buyukse "en cok gidilen 5 ulke"
+        sorusunun cevabi, tablonun siralamasi bile garanti olmayan keyfi bir
+        kesitinin siralamasi oluyordu — ve hicbir yerde bu yazmiyordu.
+        """
+        if not group_by:
+            return self._error_result(
+                "Sonucun hangi alana göre kırılacağı anlaşılamadı. Örneğin "
+                "\"ülkeye göre\", \"müşteriye göre\" diye belirtebilirsiniz.")
+
+        resolved_groups: List[str] = []
+        for col in group_by:
+            real = self._resolve_column(col, columns)
+            if real is None:
+                return self._error_result(
+                    f"Gruplama yapılamadı — {self._column_missing(str(col), columns)}")
+            resolved_groups.append(real)
+
+        agg_key = str(aggregation or "count").strip().lower()
+        real_target = self._resolve_column(target_col, columns)
+
+        if target_col and real_target is None:
+            return self._error_result(
+                f"Hesaplanacak alan bulunamadı — {self._column_missing(str(target_col), columns)}")
+
+        if agg_key in self._NUMERIC_AGGS:
+            if real_target is None:
+                return self._error_result(
+                    f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
+                    "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
+            value_label = f"{agg_key.upper()}({real_target})"
+        else:
+            # Sayma: belirli bir kolon verildiyse o kolonun dolu oldugu
+            # satirlar, verilmediyse tum satirlar sayilir.
+            agg_key = "count"
+            value_label = "Adet"
+
+        # Sonuc kolonunun adi tablodaki bir kolonla cakismamali; cakisirsa
+        # pandas iki ayni adli kolon gorur ve grafige yanlis seri girer.
+        alias = "value"
+        while alias.lower() in columns:
+            alias = "_" + alias
+
+        group_refs = [ColumnRef(base.alias, c) for c in resolved_groups]
+        direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+
+        # Siralama benzersiz olmali. "En cok gidilen 5 ulke" sorusunda iki ulke
+        # esit sayidaysa hangisinin listeye girecegi yalnizca toplulastirmaya
+        # gore siralandiginda belirsizdir — ayni soru iki farkli cevap verir.
+        # Kirilim kolonlari ikincil siralama olarak ekleniyor.
+        order: List[OrderBy] = [OrderBy(alias, direction)]
+        order.extend(OrderBy(ref, "asc") for ref in group_refs)
+
+        spec = QuerySpec(
+            base=base,
+            group_by=group_refs,
+            aggregate=Aggregate(
+                agg_key,
+                ColumnRef(base.alias, real_target) if real_target else None,
+                alias),
+            where=predicates,
+            order_by=order,
+            limit=limit,
+        )
+
+        try:
+            sql = render(spec)
+            count_sql = render_group_count(spec)
+        except QuerySpecError as e:
+            return self._error_result(str(e))
+
+        logger.info(f"SQL: {sql}")
+
+        with self.engine.connect() as conn:
+            grouped = pd.read_sql(sqlalchemy.text(sql), conn, params=where_params)
+            total_groups = conn.execute(
+                sqlalchemy.text(count_sql), where_params).scalar()
+
+        self.audit["executedSql"] = sql
+        self.audit["aggregationPerformedIn"] = "sql"
+        self.audit["rowsRead"] = None  # gruplama SQL'de: satir cekilmedi
+        self.audit["groupCount"] = int(total_groups or 0)
+        self.audit["resolvedGroupBy"] = resolved_groups
+        self.audit["resolvedTargetColumn"] = real_target
+
+        if grouped.empty:
+            return self._error_result(
+                "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
+
+        labels = [self._label(v) for v in grouped[resolved_groups[0]].tolist()]
+        values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
+
+        charts = [{
+            "type": chart_type,
+            "title": title or f"{resolved_groups[0]} bazında {value_label}",
+            "data": {
+                "labels": labels,
+                "datasets": [{"label": value_label, "data": values}]
+            }
+        }]
+
+        insights = [
+            {"type": "info", "title": "Grup Sayısı",
+             "description": f"{len(grouped)} grup gösteriliyor (toplam {total_groups})"},
+            {"type": "success", "title": "En Yüksek" if direction == "DESC" else "En Düşük",
+             "description": f"{labels[0]}: {values[0]}"},
+        ]
+
+        return {
+            "success": True,
+            "charts": charts,
+            "insights": insights,
+            "summary": desc or f"{resolved_groups[0]} bazında {value_label} hesaplandı.",
+        }
+
+    @staticmethod
+    def _label(value: Any) -> str:
+        # Bos grup etiketi "None"/"NaT" diye gorunmesin: grafikte bunlar
+        # kolon adi gibi okunuyor.
+        try:
+            if value is None or pd.isna(value):
+                return "(Boş)"
+        except (TypeError, ValueError):
+            pass
+        return str(value)
+
+    def _load_table_data(self, base: TableRef, predicates: List[Predicate],
+                         where_params: Dict, max_rows: int) -> pd.DataFrame:
+        """
+        Satir bazli veri yukler (model egitimi, korelasyon, ozet istatistik).
+
+        Buradaki tavan kacinilmaz — ama artik gizlenmiyor: tavana degildiyse
+        sonucun tablonun tamamini temsil etmedigi denetim izine ve kullaniciya
+        yaziliyor.
+
+        `unordered_sample` bilerek isaretli: TOP'un siralamasiz kullanildigi
+        tek mesru durum bu. Isaretlenmeseydi dogrulama reddederdi — amac,
+        belirsiz siralamanin bir daha kaza eseri olusmamasi.
+        """
+        spec = QuerySpec(
+            base=base,
+            where=predicates,
+            limit=max_rows,
+            select_all=True,
+            unordered_sample=True,
+        )
+        query = render(spec)
 
         logger.info(f"SQL: {query}")
 
-        df = pd.read_sql(query, self.engine)
+        with self.engine.connect() as conn:
+            df = pd.read_sql(sqlalchemy.text(query), conn, params=where_params)
 
-        # Denetim icin sakla: hangi sorgu calisti, kac satir okundu.
         self.audit["executedSql"] = query
+        self.audit["aggregationPerformedIn"] = "pandas"
         self.audit["rowsRead"] = len(df)
         self.audit["columnsRead"] = list(df.columns)
+        self.audit["truncated"] = len(df) >= max_rows
 
         return df
 
@@ -506,75 +866,16 @@ class AgentAnalyzer:
             logger.error(f"Clustering hatası: {e}")
             return self._error_result(str(e))
 
-    def _aggregation_analysis(self, df: pd.DataFrame, target_col: Optional[str],
-                              group_by: List[str], aggregation: str,
-                              sort_by: Optional[str], sort_order: str,
-                              limit: int, chart_type: str, title: str, desc: str) -> Dict:
-        """
-        Gruplama ve aggregation analizi.
-
-        Gruplama kolonu cozulemezse burada duruluyor. Onceden sessizce
-        `_statistics_analysis`'e dusuluyordu: kullanici "en cok gidilen 5
-        ulke" diye soruyor, ekrana kimlik kolonlarinin ortalamasi geliyor ve
-        hicbir yerde "sorunu anlayamadim" yazmiyordu. Yanlis cevap vermektense
-        neyin eksik oldugunu soylemek gerekiyor.
-        """
-        if not group_by:
-            cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
-            if not cat_cols:
-                return self._error_result(
-                    "Gruplama yapılacak bir kolon belirlenemedi ve tabloda "
-                    "kategorik kolon yok. Soruyu hangi alana göre kırmak "
-                    "istediğinizi belirtir misiniz?")
-            group_by = [cat_cols[0]]
-
-        valid_group = [c for c in group_by if c in df.columns]
-        if not valid_group:
-            return self._error_result(
-                f"Gruplama için istenen kolon(lar) tabloda yok: "
-                f"{', '.join(group_by)}. Mevcut kolonlar: "
-                f"{', '.join(list(df.columns)[:15])}")
-
-        try:
-            if target_col and target_col in df.columns:
-                agg_func = {"count": "count", "sum": "sum", "avg": "mean", "min": "min", "max": "max"}.get(aggregation, "count")
-                grouped = df.groupby(valid_group)[target_col].agg(agg_func).reset_index()
-                grouped.columns = valid_group + ["value"]
-            else:
-                grouped = df.groupby(valid_group).size().reset_index(name="value")
-
-            # Sıralama
-            ascending = sort_order != "desc"
-            grouped = grouped.sort_values("value", ascending=ascending).head(limit)
-
-            labels = grouped[valid_group[0]].astype(str).tolist()
-            values = grouped["value"].tolist()
-
-            charts = [{
-                "type": chart_type,
-                "title": title or f"{valid_group[0]} bazında {aggregation}",
-                "data": {
-                    "labels": labels,
-                    "datasets": [{"label": f"{aggregation.upper()}", "data": [round(float(v), 2) for v in values]}]
-                }
-            }]
-
-            insights = [
-                {"type": "info", "title": "Grup Sayısı", "description": f"{len(grouped)} grup gösteriliyor (toplam {df[valid_group[0]].nunique()})"},
-                {"type": "success", "title": "En Yüksek", "description": f"{labels[0] if labels else '-'}: {values[0] if values else 0}"},
-            ]
-
-            return {"success": True, "charts": charts, "insights": insights,
-                    "summary": desc or f"{valid_group[0]} bazında {aggregation} analizi tamamlandı."}
-
-        except Exception as e:
-            logger.error(f"Aggregation hatası: {e}")
-            return self._error_result(str(e))
-
     @staticmethod
     def _error_result(msg: str) -> Dict:
+        # `error` alani sart: main.py sonucu `result.get("error")` ile okuyor
+        # ve bu alan olmadigi icin butun basarisizliklar arayuze "Analysis
+        # failed" diye gidiyordu. Sebebi bilen tek yer burasiyken kullanicinin
+        # "kolon tabloda yok" gibi duzeltilebilir bir mesaji gormemesi icin
+        # bir neden yok.
         return {
             "success": False,
+            "error": msg,
             "charts": [],
             "insights": [{"type": "error", "title": "Hata", "description": msg}],
             "summary": f"Analiz başarısız: {msg}"

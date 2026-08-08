@@ -96,8 +96,10 @@ public class LlmAnalysisService
 
         try
         {
+            // Bugunun tarihi prompt'a giriyor: "bu yil", "gecen ay", "son 3
+            // ay" gibi ifadeler bu olmadan tarih araligina cevrilemez.
             var text = await _model.GenerateAsync(
-                BuildTranslationPrompt(question, dictionaryJson, schemaSummary),
+                BuildTranslationPrompt(question, dictionaryJson, schemaSummary, DateTime.UtcNow),
                 temperature: 0.1, maxTokens: 4000, cancellationToken: ct);
 
             return new LlmResult
@@ -219,11 +221,26 @@ public class LlmAnalysisService
     /// config'i vardi; model kolonun ne oldugunu bilmedigi icin ada bakip
     /// tahmin ediyordu.
     /// </summary>
-    private static string BuildTranslationPrompt(string question, string dictionaryJson, string schemaSummary)
+    private static string BuildTranslationPrompt(
+        string question, string dictionaryJson, string schemaSummary, DateTime today)
     {
         return $$"""
         Sen bir veri analizi asistanısın. Kullanıcının sorusunu, aşağıdaki
         sözlüğe bakarak analiz parametrelerine çevir.
+
+        ## Kullanıcı hakkında
+        Soruyu yazan kişi teknik değil ve gelişigüzel yazıyor: küçük harfle,
+        yazım hatasıyla, eksik kelimeyle, günlük konuşma diliyle. "en çok nereye
+        gidiyoruz", "musteri bazinda ciro", "gecen ay kac sevkiyat" gibi. Bu
+        normaldir; kullanıcının doğru terimi bulması beklenmiyor, doğru kolonu
+        bulmak SENİN işin. Yazım hatalarını ve eksik ekleri tolere et, Türkçe
+        karakter kullanılmamış olabilir (ulke = ülke, musteri = müşteri).
+
+        Bir soruyu ancak sözlükte karşılığı GERÇEKTEN yoksa çözemezsin;
+        "kullanıcı net yazmamış" bir gerekçe değildir.
+
+        ## Bugünün tarihi
+        {{today:yyyy-MM-dd}}
 
         ## Veritabanı özeti
         {{schemaSummary}}
@@ -274,9 +291,25 @@ public class LlmAnalysisService
            (`count`) için kullan.
         6. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
         7. Soruyu karşılayan kolonu sözlükte bulamıyorsan uydurma —
-           `target_table` alanını boş bırak ve `description` içinde hangi
-           bilginin eksik olduğunu yaz.
+           `target_table` alanını boş bırak ve `description` içinde kullanıcıya
+           SORULACAK cümleyi yaz. Bu cümle doğrudan kullanıcıya gösterilecek:
+           neyi çözemediğini söyle ve hangi alanı kastettiğini sor. Örnek:
+           "Hangi tutardan bahsettiğinizi çözemedim — navlun bedeli mi, sigorta
+           bedeli mi?" Teknik terim ve kolon adı kullanma.
         8. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe yaz.
+
+        ## Zaman ifadeleri
+
+        `filters` üç biçim kabul eder:
+
+        - Eşitlik   : `"Ulke": "Almanya"`
+        - Liste (IN): `"Ulke": ["Almanya", "Hollanda"]`
+        - Aralık    : `"SevkTarihi": { "gte": "2026-01-01", "lt": "2027-01-01" }`
+
+        "Bu yıl", "geçen ay", "son 3 ay", "2025'te" gibi ifadeleri yukarıdaki
+        tarihe göre hesaplayıp ARALIK biçiminde yaz ve `role: date` olan kolonu
+        kullan. Zaman ifadesini görmezden gelme: kullanıcı "bu yıl" diye sorup
+        tüm zamanların sonucunu görürse bunu anlamasının hiçbir yolu yok.
 
         ## Örnek
         Soru: "En çok gidilen 5 ülkeyi bana sütun grafiği yap"
@@ -294,7 +327,7 @@ public class LlmAnalysisService
           "target_table": "dbo.Shipments",
           "target_column": "kolon_adı veya null",
           "feature_columns": ["kolon1", "kolon2"],
-          "filters": { "kolon_adı": "filtre_değeri" },
+          "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
           "aggregation": "sum|avg|count|min|max|none",
           "group_by": ["kolon_adı"],
           "sort_by": "kolon_adı",

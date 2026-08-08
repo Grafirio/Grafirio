@@ -90,7 +90,7 @@ public class ConnectionAnalysisConsumer(
                 throw new InvalidOperationException(result.Error ?? "Sözlük üretilemedi.");
             }
 
-            var dictionary = AttachProfileStats(result.Json, profile);
+            var dictionary = AttachProfileFacts(result.Json, profile);
 
             config.ConfigJson = dictionary;
             config.SchemaSummary = result.Explanation;
@@ -128,7 +128,16 @@ public class ConnectionAnalysisConsumer(
         await db.SaveChangesAsync(ct);
     }
 
-    private static string AttachProfileStats(string dictionaryJson, DatabaseProfile profile)
+    /// <summary>
+    /// Modelin uretmedigi, ama olculmus olan gercekleri sozluge ekler.
+    ///
+    /// Iliskiler bilerek burada tasiniyor: bunlar LLM'in yorumu degil,
+    /// veritabanindan okunmus ve deger ortusmesiyle dogrulanmis olculerdir.
+    /// Onceden profil yalnizca prompt icinde gorunuyor, sonra atiliyordu —
+    /// yani hangi baglantilarin bulundugu hicbir yerde kalmiyordu. Sorgu
+    /// aninda yol takibi yapabilmenin on kosulu bunlarin kalici olmasi.
+    /// </summary>
+    private static string AttachProfileFacts(string dictionaryJson, DatabaseProfile profile)
     {
         try
         {
@@ -138,8 +147,12 @@ public class ConnectionAnalysisConsumer(
             {
                 ["tableCount"] = profile.Tables.Count,
                 ["columnCount"] = profile.Tables.Sum(t => t.Columns.Count),
-                ["sampledColumnCount"] = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0))
+                ["sampledColumnCount"] = profile.Tables.Sum(t => t.Columns.Count(c => c.SampleValues.Count > 0)),
+                ["relationshipCount"] = profile.Relationships.Count,
+                ["inferredRelationshipCount"] = profile.Relationships.Count(r => r.Source == "inferred")
             };
+
+            root["relationships"] = JsonSerializer.SerializeToNode(profile.Relationships, JsonOptions);
 
             return root.ToJsonString(JsonOptions);
         }

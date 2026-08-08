@@ -420,14 +420,24 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
                 "company_id": request.company_id,
                 "charts": result.get("charts", []),
                 "insights": result.get("insights", []),
-                "summary": result.get("summary", "")
+                "summary": result.get("summary", ""),
+                # Denetim izi: hangi SQL calisti, hangi kolona gidildi, sonuc
+                # tablonun tamamindan mi cikti. Analyzer bunu uretiyordu ama
+                # burada birakiliyordu; "grafik dogru mu" sorusu bu olmadan
+                # cevaplanamiyor.
+                "audit": result.get("audit", {}),
             }
         else:
             agent_analysis_status[query_id] = {
                 "status": "failed",
                 "progress": 0,
-                "message": result.get("error", "Analysis failed"),
-                "query_id": query_id
+                # Analyzer'in yazdigi gercek sebep ("X kolonu tabloda yok",
+                # "hangi alana gore kirilacagi anlasilamadi") buraya gelir.
+                # Onceden bu alan hic doldurulmadigi icin duzeltilebilir her
+                # hata kullaniciya "Analysis failed" diye gorunuyordu.
+                "message": result.get("error") or result.get("summary") or "Analysis failed",
+                "query_id": query_id,
+                "audit": result.get("audit", {}),
             }
 
         # Publish result to RabbitMQ if available

@@ -47,6 +47,7 @@ builder.Services.AddHttpClient(nameof(LlmClient), client =>
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<LlmAnalysisService>();
+builder.Services.AddSingleton<RelationshipDiscovery>();
 builder.Services.AddSingleton<SchemaProfiler>();
 
 // MongoDB — tablo secimi (kalici)

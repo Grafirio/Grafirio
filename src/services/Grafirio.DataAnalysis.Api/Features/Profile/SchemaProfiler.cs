@@ -16,7 +16,7 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// icinde "Almanya", "Hollanda" gorununce belli oluyor. Esleme kalitesini
 /// belirleyen asil sinyal bu.
 /// </summary>
-public class SchemaProfiler(ILogger<SchemaProfiler> logger)
+public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscovery relationships)
 {
     /// <summary>LLM'e gonderilecek ornek deger sayisi (kolon basina).</summary>
     private const int SampleSize = 20;
@@ -65,7 +65,9 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
             }
         }
 
-        profile.Relationships = await FetchRelationshipsAsync(connection, selectedTables, ct);
+        // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
+        // kolon adlarina, tiplerine ve benzersizligine bakiyor.
+        profile.Relationships = await relationships.DiscoverAsync(connection, profile.Tables, ct);
         return profile;
     }
 
@@ -112,7 +114,8 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
         // ornek sorgusu calistiriyordu: 30 kolonlu bir tabloda 60'tan fazla tam
         // tarama demekti ve gateway zaman asimina ugruyordu. Profil icin kesin
         // sayilara ihtiyac yok; amac kolonun ne oldugunu anlamak.
-        var sampleRows = await FetchSampleRowsAsync(connection, schema, table, ct);
+        var sampleRows = await FetchSampleRowsAsync(
+            connection, schema, table, result.ApproximateRowCount, ct);
         result.SampledRowCount = sampleRows.Rows.Count;
 
         foreach (var column in columns)
@@ -154,22 +157,62 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
     }
 
     /// <summary>
-    /// Tablodan ornek satirlari tek sorguyla ceker. ORDER BY yok: amac
-    /// temsili bir kesit, siralama garantisi degil — ve siralamak buyuk
-    /// tabloda taramayi geri getirirdi.
+    /// Tablodan ornek satirlari ceker.
     /// </summary>
-    private static async Task<DataTable> FetchSampleRowsAsync(
-        SqlConnection connection, string schema, string table, CancellationToken ct)
+    /// <remarks>
+    /// Duz <c>SELECT TOP n</c> tablonun <b>ilk</b> n satirini verir — yani
+    /// genellikle en eski kayitlari. Sevkiyat tablosunun ilk 1000 satiri tek
+    /// bir yila, tek bir musteriye ait olabiliyor; bu kesitten cikan
+    /// "distinct 3" gibi bir sayi kolonu oldugundan cok daha dar gosteriyor ve
+    /// ornek degerler de gercek dagilimi temsil etmiyor. Sozlugu bu sinyalden
+    /// uretince alan yanlis taniniyor.
+    ///
+    /// Bu yuzden tablo ornek boyutundan buyukse <c>TABLESAMPLE</c> ile
+    /// sayfalara dagilmis bir kesit alinir. TABLESAMPLE gorunumlerde
+    /// calismaz ve az sayfali tabloda bos donebilir; iki durumda da eski
+    /// davranisa donuluyor — temsili olmayan ornek, ornegin hic olmamasindan
+    /// iyidir.
+    /// </remarks>
+    private async Task<DataTable> FetchSampleRowsAsync(
+        SqlConnection connection, string schema, string table, long approximateRowCount, CancellationToken ct)
     {
-        var sql = $"SELECT TOP {SampleRowCount} * FROM {Quote(schema)}.{Quote(table)}";
-        var result = new DataTable();
+        var qualified = $"{Quote(schema)}.{Quote(table)}";
 
-        await using var command = new SqlCommand(sql, connection);
-        command.CommandTimeout = 60;
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        result.Load(reader);
+        if (approximateRowCount > SampleRowCount)
+        {
+            // Hedef: ornek boyutunun birkac kati aday satir. Sayfa bazli
+            // secim oldugu icin yuzde tam tutmaz, tavan TOP ile konuyor.
+            var percent = Math.Clamp(
+                (int)Math.Ceiling(SampleRowCount * 3.0 / approximateRowCount * 100), 1, 100);
 
-        return result;
+            try
+            {
+                var sampled = await ReadAsync(
+                    $"SELECT TOP {SampleRowCount} * FROM {qualified} TABLESAMPLE SYSTEM ({percent} PERCENT)");
+
+                if (sampled.Rows.Count > 0) return sampled;
+
+                logger.LogDebug(
+                    "TABLESAMPLE boş döndü, düz örneklemeye dönülüyor: {Schema}.{Table}", schema, table);
+            }
+            catch (SqlException ex)
+            {
+                logger.LogDebug(ex,
+                    "TABLESAMPLE kullanılamadı, düz örneklemeye dönülüyor: {Schema}.{Table}", schema, table);
+            }
+        }
+
+        return await ReadAsync($"SELECT TOP {SampleRowCount} * FROM {qualified}");
+
+        async Task<DataTable> ReadAsync(string sql)
+        {
+            var data = new DataTable();
+            await using var command = new SqlCommand(sql, connection);
+            command.CommandTimeout = 60;
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            data.Load(reader);
+            return data;
+        }
     }
 
     private static SampleStats ComputeStats(DataTable rows, string columnName)
@@ -179,28 +222,49 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
 
         var distinct = new HashSet<string>(StringComparer.Ordinal);
         long nullCount = 0;
-        string? min = null, max = null;
+
+        // Min/max kolonun KENDI tipiyle karsilastiriliyor.
+        //
+        // Onceden her deger once metne cevrilip `CompareOrdinal` ile
+        // kiyaslaniyordu: sayisal kolonda 100 < 99 cikiyor, tarih kolonunda
+        // "01.12.2024" ile "02.03.2019" metin sirasina gore siralaniyordu.
+        // Sozlugu ureten model bu araligi kolonun ne oldugunu anlamak icin
+        // kullaniyor — bozuk min/max, yanlis taninan alan demek.
+        object? min = null, max = null;
 
         foreach (DataRow row in rows.Rows)
         {
             var raw = row[columnName];
             if (raw is null || raw == DBNull.Value) { nullCount++; continue; }
 
-            var text = Convert.ToString(raw, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+            var text = Format(raw);
             if (text.Length > 200) text = text[..200];
-
             distinct.Add(text);
-            if (min is null || string.CompareOrdinal(text, min) < 0) min = text;
-            if (max is null || string.CompareOrdinal(text, max) > 0) max = text;
+
+            if (raw is not IComparable comparable) continue;
+
+            if (min is null || (min.GetType() == raw.GetType() && comparable.CompareTo(min) < 0)) min = raw;
+            if (max is null || (max.GetType() == raw.GetType() && comparable.CompareTo(max) > 0)) max = raw;
         }
 
         stats.DistinctCount = distinct.Count;
         stats.NullCount = nullCount;
-        stats.MinValue = min;
-        stats.MaxValue = max;
+        stats.MinValue = min is null ? null : Format(min);
+        stats.MaxValue = max is null ? null : Format(max);
         stats.DistinctValues = distinct.ToList();
         return stats;
     }
+
+    /// <summary>
+    /// Degeri LLM'in okuyacagi bicime cevirir. Tarihler ISO yaziliyor:
+    /// yerel bicimde "03.04.2026" gun mu ay mi belli olmuyor.
+    /// </summary>
+    private static string Format(object value) => value switch
+    {
+        DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+        DateTimeOffset dto => dto.ToString("yyyy-MM-dd HH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture),
+        _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "",
+    };
 
     private sealed class SampleStats
     {
@@ -211,29 +275,6 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger)
         public List<string> DistinctValues { get; set; } = [];
     }
 
-
-    private static async Task<List<RelationshipProfile>> FetchRelationshipsAsync(
-        SqlConnection connection, IReadOnlyList<string> selectedTables, CancellationToken ct)
-    {
-        var names = selectedTables.Select(t => SplitTableName(t).Table).Distinct().ToList();
-
-        var rows = await connection.QueryAsync<RelationshipProfile>(
-            new CommandDefinition(@"
-                SELECT
-                    OBJECT_NAME(fk.parent_object_id)     AS FromTable,
-                    pc.name                              AS FromColumn,
-                    OBJECT_NAME(fk.referenced_object_id) AS ToTable,
-                    rc.name                              AS ToColumn
-                FROM sys.foreign_keys fk
-                JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
-                JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
-                JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
-                WHERE OBJECT_NAME(fk.parent_object_id) IN @Names
-                  AND OBJECT_NAME(fk.referenced_object_id) IN @Names",
-                new { Names = names }, cancellationToken: ct));
-
-        return rows.ToList();
-    }
 
     private static (string Schema, string Table) SplitTableName(string qualified)
     {
@@ -273,6 +314,10 @@ public class TableProfile
 {
     public string Schema { get; set; } = "";
     public string TableName { get; set; } = "";
+
+    /// <summary>Sistemin her yerinde kullanilan tekil ad: <c>sema.tablo</c>.</summary>
+    public string Qualified => $"{Schema}.{TableName}";
+
     public long ApproximateRowCount { get; set; }
 
     /// <summary>Istatistiklerin hesaplandigi ornek satir sayisi.</summary>
@@ -306,10 +351,49 @@ public class ColumnProfile
     public string? SamplingNote { get; set; }
 }
 
+/// <summary>
+/// Iki tablo arasindaki tek bir baglanti.
+///
+/// Yon onemli: <see cref="FromTable"/> anahtari TASIYAN taraf,
+/// <see cref="ToTable"/> anahtarin AIT oldugu taraf. Bu yonde ilerlemek
+/// (cok -> bir) satir sayisini degistirmez; ters yon satirlari cogaltir ve
+/// toplulastirmayi bozar. Kardinalite bu yuzden kenarin uzerinde tasiniyor.
+/// </summary>
 public class RelationshipProfile
 {
+    public const string ManyToOne = "many-to-one";
+    public const string OneToOne = "one-to-one";
+
     public string FromTable { get; set; } = "";
-    public string FromColumn { get; set; } = "";
+    public List<string> FromColumns { get; set; } = [];
     public string ToTable { get; set; } = "";
-    public string ToColumn { get; set; } = "";
+    public List<string> ToColumns { get; set; } = [];
+
+    public string Cardinality { get; set; } = ManyToOne;
+
+    /// <summary>
+    /// Eslesmeyen satir mumkun mu. Mumkunse JOIN LEFT olmali; INNER, o
+    /// satirlari sessizce dusurup sayilari degistirir.
+    /// </summary>
+    public bool IsOptional { get; set; } = true;
+
+    /// <summary>
+    /// Veritabani kisiti dogruluyor mu (<c>is_not_trusted = 0</c>). Yalnizca
+    /// bu ve <see cref="IsOptional"/> false ise INNER JOIN guvenlidir.
+    /// </summary>
+    public bool IsTrusted { get; set; }
+
+    /// <summary>fk (bildirilmis) | inferred (cikarsanmis).</summary>
+    public string Source { get; set; } = "fk";
+
+    /// <summary>high | medium. medium olanlar kullaniciya dogrulatilir.</summary>
+    public string Confidence { get; set; } = "high";
+
+    /// <summary>Cikarsanmis kenarlarda deger ortusme orani (0-1).</summary>
+    public double? ValueOverlap { get; set; }
+
+    /// <summary>Hedef tabloda kodun okunabilir karsiligini tutan kolon.</summary>
+    public string? LabelColumn { get; set; }
+
+    public string? Note { get; set; }
 }

@@ -79,6 +79,9 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
       success: false,
       error: body?.error || body?.detail || body?.title || err.message,
       status: body?.status,
+      // Sunucu soruyu cozemedigini soyluyor ve ne sormasi gerektigini
+      // yaziyor. Bu bir hata degil, karsi soru — ekranda da oyle gorunmeli.
+      needsClarification: Boolean(body?.needsClarification),
     };
   }
 
@@ -297,11 +300,18 @@ export default function CanvasPage() {
         setCanvasEdges(p => [...p, ...newEdges]);
         nextPosRef.current = { x: qPos.x, y: nextPosRef.current.y };
       } else {
-        // Hata — loading node'u error insight'a dönüştür (silme)
+        // Netleştirme, hatadan farklı: sistem çalıştı ama soruyu çözemedi ve
+        // ne sorması gerektiğini biliyor. Kırmızı "Hata" göstermek kullanıcıya
+        // yanlış bir şey yaptığını düşündürüyor — oysa yapılacak tek şey
+        // soruyu biraz daha açık yazmak.
+        const asksBack = res.needsClarification;
+        const label = asksBack ? '💬 Bir sorum var' : '❌ Hata';
+        const body = res.error || 'Hata oluştu';
+
         if (loadingNodeId) {
           setCanvasNodes(p => p.map(n =>
             n.id === loadingNodeId
-              ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: res.error || 'Hata oluştu' } }
+              ? { ...n, type: 'biInsightNode', data: { type: asksBack ? 'warning' : 'error', title: label, description: body } }
               : n
           ));
           setCanvasEdges(p => p.map(e => e.target === loadingNodeId ? { ...e, animated: false } : e));
@@ -310,8 +320,8 @@ export default function CanvasPage() {
           const a = [...p];
           a[a.length - 1] = {
             role: 'ai',
-            content: `❌ ${res.error || 'Hata oluştu'}`,
-            error: true,
+            content: asksBack ? body : `❌ ${body}`,
+            error: !asksBack,
             ts: Date.now(),
             // On analiz tamamlanmadiysa kullaniciyi burada birakmayalim:
             // kanvastan cikis yolu olmadan "yapamazsin" demek, cikmaz sokak.

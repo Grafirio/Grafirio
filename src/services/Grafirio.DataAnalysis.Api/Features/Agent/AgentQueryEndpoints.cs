@@ -113,6 +113,27 @@ public static class AgentQueryEndpoints
                     statusCode: StatusCodes.Status502BadGateway);
         }
 
+        // Model soruyu cozemediginde `target_table`'i bilerek bos birakiyor —
+        // ceviri prompt'unun 7. kurali bu. Bu sinyal okunmuyordu: istek yine de
+        // PyCaret'e gidiyor, orada config'in ILK tablosu secilip analiz
+        // ediliyordu. Yani sistem "anlamadim" dedigi anda kullaniciya rastgele
+        // bir tablodan cikmis, dogru gorunen bir grafik gosteriyordu. Sorunun
+        // neresinin anlasilmadigini sormak, uydurma cevaptan iyidir.
+        if (!HasTargetTable(translation.Json, out var clarification))
+        {
+            logger.LogInformation(
+                "Soru çözümlenemedi, kullanıcıya soruluyor: {Question}", request.Question);
+
+            return Results.BadRequest(new
+            {
+                error = string.IsNullOrWhiteSpace(clarification)
+                    ? "Sorunuzun hangi alanla ilgili olduğunu çözemedim. Hangi tabloyu "
+                      + "ya da alanı kastettiğinizi yazar mısınız?"
+                    : clarification,
+                needsClarification = true
+            });
+        }
+
         // 4. QueryHistory kaydet
         var queryHistory = new QueryHistory
         {
@@ -186,6 +207,43 @@ public static class AgentQueryEndpoints
             explanation = translation.Explanation,
             message = "Sorgunuz analiz edilmeye başlandı"
         });
+    }
+
+    /// <summary>
+    /// Ceviri sonucunda hedef tablo secilmis mi. Secilmemisse modelin
+    /// <c>description</c> alanina yazdigi eksik bilgi <paramref name="clarification"/>
+    /// ile disari verilir — kullaniciya sorulacak sey odur.
+    /// </summary>
+    private static bool HasTargetTable(string translationJson, out string? clarification)
+    {
+        clarification = null;
+
+        try
+        {
+            var doc = JsonSerializer.Deserialize<JsonElement>(translationJson);
+            if (doc.ValueKind != JsonValueKind.Object) return false;
+
+            if (doc.TryGetProperty("target_table", out var table)
+                && table.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(table.GetString()))
+            {
+                return true;
+            }
+
+            if (doc.TryGetProperty("description", out var description)
+                && description.ValueKind == JsonValueKind.String)
+            {
+                clarification = description.GetString();
+            }
+
+            return false;
+        }
+        catch (JsonException)
+        {
+            clarification = "Soru analiz edilemedi — model geçerli bir yanıt üretmedi. "
+                          + "Sorunuzu biraz daha açık yazıp tekrar dener misiniz?";
+            return false;
+        }
     }
 
     private static async Task<IResult> GetQueryStatus(
