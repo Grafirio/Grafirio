@@ -175,33 +175,57 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         IReadOnlyList<TableProfile> tables,
         IReadOnlyDictionary<string, HashSet<string>> uniqueColumns)
     {
-        // Tablo adinin butun esdeger yazilislari -> tablo. "Companies" hem
-        // "companies" hem "company" anahtariyla bulunabiliyor; ilk kaydeden
-        // kazaniyor, cakisma olursa deger ortusmesi zaten eleyecek.
-        var byName = new Dictionary<string, TableProfile>(StringComparer.Ordinal);
-        foreach (var table in tables)
-            foreach (var variant in RelationshipNaming.Variants(table.TableName))
-                byName.TryAdd(variant, table);
+        // Her tablonun kuyruk parcalari onceden cikariliyor: sistem onekli
+        // adlar (L_INT_ExportReference) yalnizca tam adla eslesmiyor.
+        var tableSegments = tables
+            .Select(t => (Table: t, Segments: RelationshipNaming.NameSegments(t.TableName).ToList()))
+            .ToList();
 
         foreach (var table in tables)
         {
+            var sourceKeys = uniqueColumns.GetValueOrDefault(table.Qualified) ?? [];
+
             foreach (var column in table.Columns)
             {
                 var stem = RelationshipNaming.StripReferenceSuffix(column.ColumnName);
                 if (stem is null) continue;
 
+                // Tablonun KENDI anahtari bir referans degildir. Bu eleme
+                // olmadan L_INT_ExportReference.ReferenceId kolonu kendi
+                // tablosunu isaret eden anlamsiz bir kenar uretiyordu.
+                if (sourceKeys.Contains(column.ColumnName)) continue;
+
                 // "ReceiverCompanyId" -> once "ReceiverCompany", sonra "Company".
                 // Rol oneki tasiyan kolonlar (gonderici/alici) boyle cozuluyor.
                 foreach (var attempt in RelationshipNaming.TailSegments(stem))
                 {
-                    var target = RelationshipNaming.Variants(attempt)
-                        .Select(v => byName.GetValueOrDefault(v))
-                        .FirstOrDefault(t => t is not null);
+                    // En UZUN eslesen tablo parcasi kazanir: "ExportReference"
+                    // eslesmesi "Reference" eslesmesine tercih edilir, yoksa
+                    // birden fazla tablo ayni kisa ada indiginde secim rastgele
+                    // olurdu.
+                    var target = tableSegments
+                        .SelectMany(x => x.Segments.Select(s => (x.Table, Segment: s)))
+                        .Where(x => RelationshipNaming.NamesMatch(x.Segment, attempt))
+                        .OrderByDescending(x => x.Segment.Length)
+                        .Select(x => x.Table)
+                        .FirstOrDefault();
 
                     if (target is null) continue;
-                    if (ReferenceEquals(target, table) &&
-                        string.Equals(column.ColumnName, attempt, StringComparison.OrdinalIgnoreCase))
-                        continue;
+
+                    // Kendi tablosunu isaret eden aday uretilmiyor.
+                    //
+                    // Onceki koruma kolon adiyla ARANAN KOKU karsilastiriyordu
+                    // ("ReferenceId" ile "Reference") — hicbir zaman esit
+                    // olmadiklari icin hic devreye girmedi. Gercek semada bu,
+                    // ReferenceNo -> ReferenceId gibi kenarlar uretiyordu:
+                    // ikisi de ayni satirin kimligi, aralarinda gidilecek bir
+                    // yol yok.
+                    //
+                    // Gercek oz-referanslar (ParentId, UstReferenceId) boylece
+                    // kaciriliyor; bilincli bir tercih. Bildirilmis FK'ler
+                    // onlari zaten yakaliyor, cikarimla uretilen oz-referans
+                    // ise neredeyse her zaman yanlis pozitif.
+                    if (ReferenceEquals(target, table)) break;
 
                     if (!uniqueColumns.TryGetValue(target.Qualified, out var keys) || keys.Count == 0)
                         continue;

@@ -65,6 +65,42 @@ public static class RelationshipNaming
     }
 
     /// <summary>
+    /// Bir adin anlamli kuyruk parcalari, UZUNDAN KISAYA.
+    ///
+    /// "L_INT_ExportReference" -> ["L_INT_ExportReference", "INT_ExportReference",
+    ///                             "ExportReference", "Reference"]
+    ///
+    /// Gercek musteri semalarinda tablo adlari sistem oneki tasiyor:
+    /// <c>L_INT_ExportReference</c>, <c>L_ROD_ExportPosition</c>. Yalnizca tam
+    /// adi karsilastirmak, <c>ReferenceId</c> kolonunun <c>...ExportReference</c>
+    /// tablosuna isaret ettigini goremiyordu — normalize edilmis hali
+    /// "lintexportreference" iken kolonun koku "reference" kaliyordu.
+    ///
+    /// Alt cizgi VE PascalCase sinirlarindan bolunuyor; en uzun parca once
+    /// denensin diye sirali.
+    /// </summary>
+    public static IEnumerable<string> NameSegments(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) yield break;
+
+        var tokens = new List<string>();
+        foreach (var part in value.Split(['_', '-', ' ', '.'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var start = 0;
+            for (var i = 1; i < part.Length; i++)
+            {
+                if (!char.IsUpper(part[i]) || char.IsUpper(part[i - 1])) continue;
+                tokens.Add(part[start..i]);
+                start = i;
+            }
+            tokens.Add(part[start..]);
+        }
+
+        for (var i = 0; i < tokens.Count; i++)
+            yield return string.Concat(tokens.Skip(i));
+    }
+
+    /// <summary>
     /// Kucuk harfe indirir ve harf/rakam disi karakterleri atar. Cogul eki
     /// DOKUNULMAZ — bkz. <see cref="Variants"/>.
     /// </summary>
