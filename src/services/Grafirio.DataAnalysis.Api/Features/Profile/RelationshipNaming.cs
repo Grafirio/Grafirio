@@ -67,8 +67,12 @@ public static class RelationshipNaming
     /// <summary>
     /// Bir adin anlamli kuyruk parcalari, UZUNDAN KISAYA.
     ///
-    /// "L_INT_ExportReference" -> ["L_INT_ExportReference", "INT_ExportReference",
+    /// "L_INT_ExportReference" -> ["LINTExportReference", "INTExportReference",
     ///                             "ExportReference", "Reference"]
+    ///
+    /// Ayiricilar dusuyor; sorun degil, karsilastirma zaten
+    /// <see cref="Normalize"/> uzerinden yapiliyor ve o da harf disi her seyi
+    /// atiyor.
     ///
     /// Gercek musteri semalarinda tablo adlari sistem oneki tasiyor:
     /// <c>L_INT_ExportReference</c>, <c>L_ROD_ExportPosition</c>. Yalnizca tam
