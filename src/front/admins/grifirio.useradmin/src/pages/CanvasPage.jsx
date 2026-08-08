@@ -120,6 +120,42 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
   return { success: false, error: 'Zaman aşımı — analiz 5 dakikada tamamlanmadı.' };
 };
 
+/* Denetim panelinde filtreleri okunabilir yazar.
+
+   Analizör zaten okunabilir bir özet üretiyor (`appliedFilters`) — hangi
+   kolona hangi karşılaştırmanın uygulandığını orada yazıyor. Varsa o
+   kullanılıyor.
+
+   Yoksa ham `filters` biçimlendiriliyor. Bu nesne artık yalnızca düz değer
+   tutmuyor: tarih aralıkları `{gte, lt}`, çoklu seçim ise dizi olarak
+   geliyor. Şablon dizesiyle yazdırmak bunları `[object Object]` yapıyordu —
+   yani "bu yıl" diye sorulduğunda denetim panelinde filtrenin ne olduğu
+   okunamıyordu, ki panelin varlık sebebi tam olarak o. */
+const FILTER_OPS = { gte: '≥', gt: '>', lte: '≤', lt: '<', eq: '=', ne: '≠' };
+
+const describeFilters = (audit) => {
+  if (Array.isArray(audit?.appliedFilters) && audit.appliedFilters.length > 0) {
+    return audit.appliedFilters.join(' · ');
+  }
+
+  const filters = audit?.filters;
+  if (!filters || Object.keys(filters).length === 0) return '';
+
+  return Object.entries(filters)
+    .map(([column, value]) => {
+      if (value === null || value === undefined) return `${column} boş`;
+      if (Array.isArray(value)) return `${column} ∈ (${value.join(', ')})`;
+      if (typeof value === 'object') {
+        return Object.entries(value)
+          .map(([op, operand]) =>
+            `${column} ${FILTER_OPS[String(op).toLowerCase()] ?? op} ${operand}`)
+          .join(' ve ');
+      }
+      return `${column} = ${value}`;
+    })
+    .join(' · ');
+};
+
 /* ─────────────────────────────────────────────────────────────
    CanvasPage
 ───────────────────────────────────────────────────────────── */
@@ -476,11 +512,11 @@ export default function CanvasPage() {
                             {msg.audit.aggregation && (
                               <div><dt>İşlem</dt><dd>{msg.audit.aggregation}</dd></div>
                             )}
-                            {msg.audit.filters && Object.keys(msg.audit.filters).length > 0 && (
-                              <div>
-                                <dt>Filtre</dt>
-                                <dd>{Object.entries(msg.audit.filters).map(([k, v]) => `${k} = ${v}`).join(' · ')}</dd>
-                              </div>
+                            {describeFilters(msg.audit) && (
+                              <div><dt>Filtre</dt><dd>{describeFilters(msg.audit)}</dd></div>
+                            )}
+                            {typeof msg.audit.groupCount === 'number' && msg.audit.groupCount > 0 && (
+                              <div><dt>Toplam grup</dt><dd>{msg.audit.groupCount}</dd></div>
                             )}
                             {typeof msg.audit.rowsRead === 'number' && (
                               <div><dt>Okunan satır</dt><dd>{msg.audit.rowsRead}</dd></div>
@@ -499,6 +535,17 @@ export default function CanvasPage() {
                               ⚠ Gruplama ve toplama veritabanında değil, çekilen satırlar
                               üzerinde bellekte yapıldı. Tablo bu satır sayısından büyükse
                               sonuç <strong>kısmi veriye</strong> dayanır.
+                            </p>
+                          )}
+
+                          {/* Okuma tavanina degilmis: sonuc tablonun tamamini
+                              temsil etmiyor. Grafigin dogru gorunmesi bunu
+                              gizliyor, o yuzden acikca yaziliyor. */}
+                          {msg.audit.truncated && (
+                            <p className="cp-audit-warn">
+                              ⚠ Okuma tavanına ulaşıldı; tablodan yalnızca ilk{' '}
+                              {msg.audit.rowsRead} satır okundu. Sonucu daraltmak için
+                              tarih ya da kategori filtresi ekleyin.
                             </p>
                           )}
                         </details>
