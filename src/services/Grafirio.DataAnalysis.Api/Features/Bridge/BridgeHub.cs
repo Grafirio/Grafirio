@@ -15,10 +15,17 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// koddaki karsiligi burasi.
 /// </summary>
 [Authorize(AuthenticationSchemes = BridgeAuthentication.Scheme)]
+/// <remarks>
+/// <paramref name="connectionSync"/> varsayilan degerli: protokolu Mongo
+/// olmadan test edebilmek icin. Uretimde kayitli olmadigi bir durum yok —
+/// olsaydi bridge baglanir ama hicbir sorgu calistiramazdi, o yuzden
+/// eksikligi uyari olarak yaziliyor.
+/// </remarks>
 public class BridgeHub(
     BridgeRegistry registry,
     IBridgePresence presence,
-    ILogger<BridgeHub> logger) : Hub
+    ILogger<BridgeHub> logger,
+    BridgeConnectionSync? connectionSync = null) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -44,6 +51,34 @@ public class BridgeHub(
         registry.Attach(bridgeId, Context.ConnectionId, companyId, version);
         await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
 
+        // Baglanti tanimlarini gonder. Bunsuz bridge baglanir, kalp atisi
+        // gonderir ve her sorguyu "bu baglanti tanimli degil" diye reddeder.
+        //
+        // Her baglanista tekrarlaniyor: baglama aninda bridge cevrimdisi
+        // olabilir, ayrica sifre ya da tablo secimi sonradan degismis olabilir.
+        if (connectionSync is null)
+        {
+            logger.LogWarning(
+                "BridgeConnectionSync kayıtlı değil; bridge {BridgeId} bağlandı ama " +
+                "hiçbir bağlantı tanımı gönderilmeyecek.", bridgeId);
+        }
+        else
+        {
+            try
+            {
+                await connectionSync.SyncAllAsync(
+                    bridgeId, companyId, Context.ConnectionId, Context.ConnectionAborted);
+            }
+            catch (Exception ex)
+            {
+                // Gonderim basarisiz olsa bile baglanti ayakta kalsin:
+                // cevrimdisi gorunen bir bridge, tanimsiz baglantidan daha
+                // yaniltici olurdu.
+                logger.LogError(ex,
+                    "Bağlantı tanımları gönderilemedi. Bridge: {BridgeId}", bridgeId);
+            }
+        }
+
         await base.OnConnectedAsync();
     }
 
@@ -55,26 +90,30 @@ public class BridgeHub(
         await base.OnDisconnectedAsync(exception);
     }
 
+    // Asagidaki uc metot cevabi dogrudan teslim etmiyor, kayit defterine
+    // veriyor: bridge'in bagli oldugu replika ile sorguyu baslatan replika
+    // ayni olmayabilir. Yonlendirme <see cref="IBridgeResponseBus"/> isi.
+
     /// <summary>Bridge → sunucu: satir parcasi.</summary>
     public async Task PushChunk(QueryChunk chunk) =>
-        await registry.PushAsync(chunk.RequestId, chunk, Context.ConnectionAborted);
+        await registry.DispatchAsync(
+            new BridgeResponse(chunk.RequestId, Chunk: chunk), Context.ConnectionAborted);
 
     /// <summary>Bridge → sunucu: sorgu bitti.</summary>
-    public Task CompleteQuery(QueryCompleted completed)
-    {
-        registry.Complete(completed.RequestId, completed);
-        return Task.CompletedTask;
-    }
+    public async Task CompleteQuery(QueryCompleted completed) =>
+        await registry.DispatchAsync(
+            new BridgeResponse(completed.RequestId, Completed: completed),
+            Context.ConnectionAborted);
 
     /// <summary>Bridge → sunucu: sorgu calistirilamadi.</summary>
-    public Task FailQuery(QueryFailure failure)
+    public async Task FailQuery(QueryFailure failure)
     {
         logger.LogWarning(
             "Bridge sorguyu reddetti. Kod: {Code}, mesaj: {Message}",
             failure.Code, failure.Message);
 
-        registry.Fail(failure.RequestId, failure);
-        return Task.CompletedTask;
+        await registry.DispatchAsync(
+            new BridgeResponse(failure.RequestId, Failure: failure), Context.ConnectionAborted);
     }
 
     /// <summary>Bridge → sunucu: hayattayim. Paneldeki rozeti besleyen sey.</summary>

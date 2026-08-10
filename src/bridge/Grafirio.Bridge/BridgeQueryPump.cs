@@ -12,17 +12,71 @@ namespace Grafirio.Bridge;
 /// uretimde kosan kodun kendisi oluyor — testin icin yeniden yazilmis bir
 /// benzeri degil.
 /// </summary>
-public class BridgeQueryPump(QueryExecutor executor, ILogger<BridgeQueryPump> logger)
+public class BridgeQueryPump(
+    QueryExecutor executor,
+    BridgeState state,
+    ILogger<BridgeQueryPump> logger)
 {
     private int _activeQueries;
 
     public int ActiveQueryCount => _activeQueries;
 
     /// <summary>Kanali dinlemeye baslar.</summary>
-    public IDisposable Attach(HubConnection connection, CancellationToken ct) =>
-        connection.On<ExecuteQueryRequest>(
-            BridgeProtocol.ServerToBridge.ExecuteQuery,
-            async request => await HandleAsync(connection, request, ct));
+    public IDisposable Attach(HubConnection connection, CancellationToken ct)
+    {
+        var subscriptions = new List<IDisposable>
+        {
+            connection.On<ExecuteQueryRequest>(
+                BridgeProtocol.ServerToBridge.ExecuteQuery,
+                async request => await HandleAsync(connection, request, ct)),
+
+            // Baglanti tanimlari buradan geliyor. Bu olmadan bridge kayit
+            // olur, baglanir, kalp atisi gonderir — ve her sorguyu
+            // "bu baglanti tanimli degil" diye reddeder.
+            connection.On<ConfigureConnectionRequest>(
+                BridgeProtocol.ServerToBridge.ConfigureConnection, Configure),
+
+            connection.On<RemoveConnectionRequest>(
+                BridgeProtocol.ServerToBridge.RemoveConnection,
+                request => state.RemoveConnection(request.ConnectionId)),
+        };
+
+        return new Subscriptions(subscriptions);
+    }
+
+    /// <summary>
+    /// Buluttan inen baglanti tanimini yerele yazar.
+    ///
+    /// Sifre burada diske iniyor (DPAPI ile, makineye bagli). Loglanan tek sey
+    /// baglantinin adi ve kimligi — kullanici adi bile yazilmiyor.
+    /// </summary>
+    private void Configure(ConfigureConnectionRequest request)
+    {
+        state.UpsertConnection(new BridgeConnection
+        {
+            ConnectionId = request.ConnectionId,
+            Name = request.Name,
+            Host = request.Host,
+            Port = request.Port,
+            Database = request.Database,
+            Username = request.Username,
+            Password = request.Password,
+            TrustServerCertificate = request.TrustServerCertificate,
+            AllowedTables = request.AllowedTables.ToList(),
+        });
+
+        logger.LogInformation(
+            "Bağlantı tanımlandı: {Name} ({ConnectionId}), izin listesi {Count} tablo",
+            request.Name, request.ConnectionId, request.AllowedTables.Count);
+    }
+
+    private sealed class Subscriptions(List<IDisposable> items) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var item in items) item.Dispose();
+        }
+    }
 
     public async Task HandleAsync(
         HubConnection connection, ExecuteQueryRequest request, CancellationToken ct)

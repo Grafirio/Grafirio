@@ -5,6 +5,7 @@ using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.Authentication;
+using StackExchange.Redis;
 using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
@@ -62,12 +63,36 @@ builder.Services.AddSingleton<IDataSourceFactory, DataSourceFactory>();
 
 // Bridge: musteri agindan disari dogru kurulan kanal.
 builder.Services.AddSingleton<BridgeRegistry>();
-builder.Services.AddSignalR(options =>
+
+var signalR = builder.Services.AddSignalR(options =>
 {
     // Satirlar parcalar halinde geliyor; varsayilan 32 KB tavani genis
     // tablolarda tek bir parcaya bile yetmiyor.
     options.MaximumReceiveMessageSize = 4 * 1024 * 1024;
 });
+
+// Cok replikali calisma iki ayri seye ihtiyac duyuyor ve ikisi de Redis'e
+// bagli; Redis yapilandirilmamissa servis tek replika varsayimiyla calisir.
+//
+//   1. SignalR backplane — sorgu istegi, bridge hangi replikaya bagliysa
+//      oraya ulassin.
+//   2. Cevap otobüsü — bridge'in cevabi, sorguyu baslatan replikaya donsun.
+//      Backplane bunu tasimaz; yalnizca sunucudan istemciye gideni tasir.
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis")
+    ?? Environment.GetEnvironmentVariable("CONNECTIONSTRINGS__REDIS");
+
+if (!string.IsNullOrWhiteSpace(redisConnectionString))
+{
+    signalR.AddStackExchangeRedis(redisConnectionString);
+
+    builder.Services.AddSingleton<IConnectionMultiplexer>(
+        _ => ConnectionMultiplexer.Connect(redisConnectionString));
+    builder.Services.AddSingleton<IBridgeResponseBus, RedisBridgeResponseBus>();
+}
+else
+{
+    builder.Services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
+}
 
 // MongoDB — tablo secimi (kalici)
 // Postgres semasi EnsureCreated ile kuruluyor ve migration yok; secim de
@@ -109,6 +134,9 @@ if (!string.IsNullOrWhiteSpace(mongoConnectionString))
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
+    // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin
+    // yalnizca Mongo yapilandirilmissa kayitli.
+    builder.Services.AddSingleton<BridgeConnectionSync>();
 }
 else
 {
@@ -120,6 +148,9 @@ else
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
+    // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin
+    // yalnizca Mongo yapilandirilmissa kayitli.
+    builder.Services.AddSingleton<BridgeConnectionSync>();
 }
 
 // HttpClientFactory — PyCaret Engine çağrıları için
@@ -233,6 +264,10 @@ app.MapBridgeEndpoints();          // Bridge kaydi ve yonetimi
 // Musteri agindaki bridge'lerin bagli durdugu kanal. Baglantiyi bridge kurar;
 // sunucu hicbir zaman musteri agina baglanmaya calismaz.
 app.MapHub<BridgeHub>(BridgeProtocol.HubPath);
+
+// Cevap yolunu bagla: bu ornege yonlendirilen cevaplar bekleyen sorgulara
+// ulassin. Baglanmazsa sorgular sessizce zaman asimina ugrardi.
+app.Services.GetRequiredService<BridgeRegistry>().Start();
 
 // Health check
 // Onceki surum kosulsuz "Healthy" donuyordu — hicbir bagimliligi yoklamadigi

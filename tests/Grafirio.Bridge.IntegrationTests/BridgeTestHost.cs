@@ -46,7 +46,7 @@ public sealed class BridgeTestHost : IAsyncDisposable
     public BridgeState BridgeState { get; private set; } = null!;
 
     /// <summary>Sunucuyu ayaga kaldirir ve bridge'i baglar.</summary>
-    public async Task StartAsync(BridgeConnection connection)
+    public async Task StartAsync(BridgeConnection? connection = null)
     {
         var port = FreePort();
         Url = $"http://127.0.0.1:{port}";
@@ -55,6 +55,9 @@ public sealed class BridgeTestHost : IAsyncDisposable
         await _server.StartAsync();
 
         Registry = _server.Services.GetRequiredService<BridgeRegistry>();
+        // Cevap yolunu bağla — üretimde Program.cs bunu yapıyor. Bağlanmazsa
+        // sorgular sessizce zaman aşımına uğrardı.
+        Registry.Start();
         HubContext = _server.Services.GetRequiredService<IHubContext<BridgeHub>>();
 
         // Gercek durum nesnesi: sahte bir tane koymak yerine gecici bir dosya
@@ -65,10 +68,48 @@ public sealed class BridgeTestHost : IAsyncDisposable
                 .CreateLogger<BridgeState>(),
             Path.Combine(Path.GetTempPath(), $"bridge-state-{Guid.NewGuid():N}.dat"));
 
-        BridgeState.UpsertConnection(connection);
-        BridgeState.Load();
+        // `connection` null verilirse bridge BOŞ başlıyor: bağlantı tanımının
+        // buluttan inmesi gerektiğini ölçen testler bunu kullanıyor.
+        if (connection is not null)
+        {
+            BridgeState.UpsertConnection(connection);
+            BridgeState.Load();
+        }
 
         _bridgeConnection = await ConnectBridgeAsync(BridgeState);
+    }
+
+    /// <summary>
+    /// Bağlantı tanımını sunucudan bridge'e gönderir — üretimde
+    /// <c>BridgeConnectionSync</c> bunu yapıyor.
+    /// </summary>
+    public async Task PushConnectionAsync(BridgeConnection connection)
+    {
+        await HubContext.Clients.Client(Registry.ConnectionIdOf(BridgeId, CompanyId))
+            .SendAsync(
+                BridgeProtocol.ServerToBridge.ConfigureConnection,
+                new ConfigureConnectionRequest(
+                    connection.ConnectionId,
+                    connection.Name,
+                    connection.Host,
+                    connection.Port,
+                    connection.Database,
+                    connection.Username,
+                    connection.Password,
+                    connection.TrustServerCertificate,
+                    connection.AllowedTables));
+
+        // Mesaj tek yönlü; bridge'in yazmasını bekle.
+        //
+        // Koşul "kayıt var mı" değil "GÖNDERDİĞİMİZ kayıt var mı": güncelleme
+        // gönderiminde eski kayıt zaten duruyor ve basit bir varlık kontrolü
+        // hemen dönüp yarışı gizliyordu.
+        await WaitUntil(
+            () => BridgeState.FindConnection(connection.ConnectionId) is { } stored
+                  && stored.Name == connection.Name
+                  && stored.Password == connection.Password
+                  && stored.AllowedTables.Count == connection.AllowedTables.Count,
+            TimeSpan.FromSeconds(10));
     }
 
     private static IHost BuildServer(string url) =>
@@ -78,6 +119,9 @@ public sealed class BridgeTestHost : IAsyncDisposable
                 .ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Warning))
                 .ConfigureServices(services =>
                 {
+                    // Tek replika: cevap yolu süreç içi. Replikalar arası
+                    // yönlendirme ayrıca ölçülüyor (BridgeResponseRoutingTests).
+                    services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
                     services.AddSingleton<BridgeRegistry>();
                     services.AddSingleton<IBridgePresence, NoopPresence>();
                     services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
@@ -106,7 +150,8 @@ public sealed class BridgeTestHost : IAsyncDisposable
             Path.Combine(Path.GetTempPath(), $"bridge-audit-{Guid.NewGuid():N}.tsv"));
 
         var executor = new QueryExecutor(state, audit, loggerFactory.CreateLogger<QueryExecutor>());
-        var pump = new BridgeQueryPump(executor, loggerFactory.CreateLogger<BridgeQueryPump>());
+        var pump = new BridgeQueryPump(
+            executor, state, loggerFactory.CreateLogger<BridgeQueryPump>());
 
         var connection = new HubConnectionBuilder()
             .WithUrl(Url + BridgeProtocol.HubPath, HttpTransportType.WebSockets, http =>
@@ -138,7 +183,7 @@ public sealed class BridgeTestHost : IAsyncDisposable
         await WaitUntil(() => !Registry.IsOnline(BridgeId), TimeSpan.FromSeconds(10));
     }
 
-    private static async Task WaitUntil(Func<bool> condition, TimeSpan timeout)
+    internal static async Task WaitUntil(Func<bool> condition, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
 

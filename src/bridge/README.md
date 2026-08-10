@@ -60,11 +60,28 @@ yalnızca bağlantının adını görür.
 İzin listesi (`allowedTables`) doldurulursa, listede olmayan bir tabloya giden
 sorgu bridge tarafından reddedilir — bulut ne gönderirse göndersin.
 
+## Çok replikalı çalışma
+
+Bridge tek bir replikaya bağlanıyor. Sorgu isteği başka bir replikada doğduysa
+iki ayrı şey gerekiyor ve ikisi de Redis'e bağlı:
+
+1. **İstek bridge'e ulaşsın** — SignalR'ın Redis backplane'i.
+2. **Cevap sorguyu başlatan replikaya dönsün** — backplane bunu taşımaz,
+   yalnızca sunucudan istemciye gideni taşır. Bu yüzden ayrı bir cevap
+   otobüsü var (`IBridgeResponseBus`).
+
+Sahiplik sunucu tarafında tutuluyor: `requestId → instanceId` Redis'e yazılıyor
+ve cevap hangi replikaya düşerse düşsün oradan sahibine yönlendiriliyor.
+**Protokol değişmiyor — bridge hangi replikanın beklediğini bilmiyor.** Bunu
+bridge'e söylemek, müşteri makinesindeki bir yazılımı bizim ölçeklendirme
+kararlarımıza bağımlı kılardı.
+
+Devreye almak için `ConnectionStrings__Redis` tanımlamak yeterli. Tanımsızsa
+süreç içi uygulama kullanılıyor ve servis tek replika varsayımıyla çalışır.
+
 ## Sınırlar
 
-- **Tek replika.** Sunucu tarafındaki istek eşleştirmesi süreç içi çalışıyor;
-  bridge bir replikaya bağlanıp sorgu başka replikaya düşerse açık bir hata
-  döner (sessizce askıda kalmaz). `data-analysis-api` çok replikaya çıkmadan
-  önce cevap kanalının Redis üzerinden taşınması gerekiyor.
 - **Windows dışında DPAPI yok.** Linux'ta durum dosyası şifrelenmeden yazılır
   ve açılışta uyarı verilir; dosya izinlerini kendiniz kısıtlamanız gerekir.
+- **Redis yolu canlıda henüz koşmadı.** Yönlendirme mantığı iki replikayı
+  taklit eden testlerle doğrulandı; gerçek Redis'e karşı bir koşum yapılmadı.

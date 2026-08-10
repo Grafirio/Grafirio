@@ -184,6 +184,8 @@ public static class BridgeEndpoints
         [FromBody] BindConnectionRequest request,
         BridgeStore store,
         DataAnalysisDbContext db,
+        BridgeConnectionSync sync,
+        BridgeRegistry registry,
         IIdentityService identity,
         CancellationToken ct)
     {
@@ -204,7 +206,20 @@ public static class BridgeEndpoints
                 return Results.BadRequest(new { error = "Bridge bulunamadı." });
         }
 
+        // Onceki bridge'e "bu baglantiyi unut" demek gerekiyor: sifrenin
+        // artik kullanilmayan bir bridge'in diskinde kalmasi, moddan
+        // cikmanin yarim kalmis hali olurdu.
+        var previousBridgeId = await store.GetBoundBridgeAsync(connectionId, ct);
+
         await store.BindConnectionAsync(connectionId, companyId, request.BridgeId, ct);
+
+        if (previousBridgeId is { } previous && previous != request.BridgeId)
+            await sync.ForgetAsync(connectionId, previous, companyId, registry, ct);
+
+        // Tanimi yeni bridge'e gonder. Bridge cevrimdisiyse bu sessizce
+        // atlanir; baglandiginda hub zaten hepsini yolluyor.
+        if (request.BridgeId is { } target)
+            await sync.SyncOneAsync(connectionId, target, companyId, registry, ct);
 
         return Results.Ok(new
         {

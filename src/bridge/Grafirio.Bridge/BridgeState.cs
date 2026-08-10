@@ -82,6 +82,21 @@ public class BridgeState(ILogger<BridgeState> logger, string filePath)
     public BridgeConnection? FindConnection(Guid connectionId) =>
         _document.Connections.FirstOrDefault(c => c.ConnectionId == connectionId);
 
+    /// <summary>
+    /// Baglantiyi yerel depodan siler. Panelde bir baglanti dogrudan moda
+    /// alindiginda cagriliyor: sifrenin bridge'in diskinde gereksiz yere
+    /// kalmasi, "artik bu yoldan gitmiyoruz" demenin yarim kalmis hali olurdu.
+    /// </summary>
+    public bool RemoveConnection(Guid connectionId)
+    {
+        if (_document.Connections.RemoveAll(c => c.ConnectionId == connectionId) == 0)
+            return false;
+
+        Save();
+        logger.LogInformation("Bağlantı yerel depodan silindi: {ConnectionId}", connectionId);
+        return true;
+    }
+
     private void Save()
     {
         var json = JsonSerializer.Serialize(_document, JsonOptions);
