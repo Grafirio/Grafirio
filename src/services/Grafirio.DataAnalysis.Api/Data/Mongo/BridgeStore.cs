@@ -18,6 +18,7 @@ namespace Grafirio.DataAnalysis.Api.Data.Mongo;
 /// biliyor. Musteriye verilen sozun karsiligi bu.
 /// </summary>
 public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
+    : Features.Bridge.IBridgePresence
 {
     public const string BridgeCollectionName = "Bridges";
     public const string EnrollmentCollectionName = "BridgeEnrollments";
@@ -158,6 +159,7 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
         return documents.Select(Map).ToList();
     }
 
+    /// <inheritdoc cref="Features.Bridge.IBridgePresence.TouchAsync" />
     public async Task TouchAsync(Guid bridgeId, string version, CancellationToken ct = default) =>
         await Bridges.UpdateOneAsync(
             Builders<BsonDocument>.Filter.Eq("_id", bridgeId.ToString()),

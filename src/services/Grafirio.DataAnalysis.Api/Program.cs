@@ -85,6 +85,7 @@ if (!string.IsNullOrWhiteSpace(mongoConnectionString))
         sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDatabaseName));
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
+    builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
 }
 else
 {
@@ -95,6 +96,7 @@ else
         "Mongo__ConnectionString tanımlı değil; tablo seçimi ve şema profili kullanılamaz."));
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
+    builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
 }
 
 // HttpClientFactory — PyCaret Engine çağrıları için

@@ -16,15 +16,13 @@ public class BridgeWorker(
     IOptions<BridgeOptions> options,
     BridgeState state,
     BridgeEnrollment enrollment,
-    QueryExecutor executor,
+    BridgeQueryPump pump,
     ILogger<BridgeWorker> logger) : BackgroundService
 {
     private readonly BridgeOptions _options = options.Value;
 
     /// <summary>Kalp atisi araligi. Paneldeki "Çevrimiçi" rozetini besliyor.</summary>
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
-
-    private int _activeQueries;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -44,9 +42,7 @@ public class BridgeWorker(
 
         await using var connection = Build();
 
-        connection.On<ExecuteQueryRequest>(
-            BridgeProtocol.ServerToBridge.ExecuteQuery,
-            async request => await HandleQueryAsync(connection, request, stoppingToken));
+        using var subscription = pump.Attach(connection, stoppingToken);
 
         connection.Reconnecting += error =>
         {
@@ -71,7 +67,7 @@ public class BridgeWorker(
                 if (connection.State == HubConnectionState.Connected)
                     await connection.InvokeAsync(
                         BridgeProtocol.BridgeToServer.Heartbeat,
-                        new BridgeHeartbeat(_options.Version, _activeQueries),
+                        new BridgeHeartbeat(_options.Version, pump.ActiveQueryCount),
                         stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -142,58 +138,6 @@ public class BridgeWorker(
         }
     }
 
-    private async Task HandleQueryAsync(
-        HubConnection connection, ExecuteQueryRequest request, CancellationToken ct)
-    {
-        Interlocked.Increment(ref _activeQueries);
-
-        try
-        {
-            await foreach (var message in executor.ExecuteAsync(request, ct))
-            {
-                switch (message)
-                {
-                    case QueryChunk chunk:
-                        await connection.InvokeAsync(
-                            BridgeProtocol.BridgeToServer.PushChunk, chunk, ct);
-                        break;
-
-                    case QueryCompleted completed:
-                        await connection.InvokeAsync(
-                            BridgeProtocol.BridgeToServer.CompleteQuery, completed, ct);
-                        break;
-
-                    case QueryFailure failure:
-                        await connection.InvokeAsync(
-                            BridgeProtocol.BridgeToServer.FailQuery, failure, ct);
-                        break;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Buraya dusen sey beklenmeyen bir hata; sunucu tarafi sonsuza
-            // kadar beklemesin diye yine de bildiriliyor.
-            logger.LogError(ex, "Sorgu işlenirken beklenmeyen hata. İstek: {RequestId}",
-                request.RequestId);
-
-            try
-            {
-                await connection.InvokeAsync(
-                    BridgeProtocol.BridgeToServer.FailQuery,
-                    new QueryFailure(request.RequestId, QueryFailure.DatabaseError, ex.Message),
-                    ct);
-            }
-            catch (Exception reportFailure)
-            {
-                logger.LogError(reportFailure, "Hata sunucuya bildirilemedi.");
-            }
-        }
-        finally
-        {
-            Interlocked.Decrement(ref _activeQueries);
-        }
-    }
 }
 
 public class BridgeOptions

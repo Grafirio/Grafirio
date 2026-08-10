@@ -1,4 +1,5 @@
 using System.Data;
+using System.Data.Common;
 using Dapper;
 using Grafirio.Bridge.Contracts;
 using Microsoft.Data.SqlClient;
@@ -94,7 +95,11 @@ public class QueryExecutor(
 
         // Okuyucuyu acmak ile satirlari okumak ayri denemeler: `catch` icinde
         // `yield return` yazilamadigi icin hata once degiskene aliniyor.
-        SqlDataReader? reader = null;
+        //
+        // Tip `DbDataReader`, `SqlDataReader` DEGIL: Dapper okuyucuyu kendi
+        // `DbWrappedReader` sinifiyla sariyor ve somut tipe cevirmek her
+        // sorguda InvalidCastException veriyordu.
+        DbDataReader? reader = null;
         QueryFailure? openFailure = null;
 
         try
@@ -105,7 +110,7 @@ public class QueryExecutor(
                 request.Sql, ToDapperParameters(request.Parameters),
                 commandTimeout: timeout, flags: CommandFlags.None, cancellationToken: ct);
 
-            reader = (SqlDataReader)await sql.ExecuteReaderAsync(command);
+            reader = await sql.ExecuteReaderAsync(command);
         }
         catch (Exception ex)
         {

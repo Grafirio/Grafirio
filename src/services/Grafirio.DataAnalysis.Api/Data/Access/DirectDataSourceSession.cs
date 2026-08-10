@@ -17,7 +17,12 @@ public sealed class DirectDataSourceSession : IDataSourceSession
 
     private DirectDataSourceSession(SqlConnection connection) => _connection = connection;
 
-    internal static async Task<DirectDataSourceSession> OpenAsync(
+    /// <summary>
+    /// Uretimde <see cref="DataSourceFactory"/> cagiriyor. Public olmasinin
+    /// sebebi parite testi: dogrudan yol ile bridge yolunun ayni sonucu
+    /// verdigini olcmek icin ikisinin de disaridan kurulabilmesi gerekiyor.
+    /// </summary>
+    public static async Task<DirectDataSourceSession> OpenAsync(
         DataSourceTarget target, int connectTimeoutSeconds, CancellationToken ct)
     {
         var connection = new SqlConnection(target.ToConnectionString(connectTimeoutSeconds));

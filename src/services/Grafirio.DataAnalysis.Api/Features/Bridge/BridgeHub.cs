@@ -17,7 +17,7 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 [Authorize(AuthenticationSchemes = BridgeAuthentication.Scheme)]
 public class BridgeHub(
     BridgeRegistry registry,
-    BridgeStore store,
+    IBridgePresence presence,
     ILogger<BridgeHub> logger) : Hub
 {
     public override async Task OnConnectedAsync()
@@ -42,7 +42,7 @@ public class BridgeHub(
         }
 
         registry.Attach(bridgeId, Context.ConnectionId, companyId, version);
-        await store.TouchAsync(bridgeId, version, Context.ConnectionAborted);
+        await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
 
         await base.OnConnectedAsync();
     }
@@ -81,7 +81,7 @@ public class BridgeHub(
     public async Task Heartbeat(BridgeHeartbeat heartbeat)
     {
         var (bridgeId, _) = Identify();
-        await store.TouchAsync(bridgeId, heartbeat.BridgeVersion, Context.ConnectionAborted);
+        await presence.TouchAsync(bridgeId, heartbeat.BridgeVersion, Context.ConnectionAborted);
     }
 
     private (Guid BridgeId, string CompanyId) Identify()
@@ -97,6 +97,16 @@ public class BridgeHub(
 
         return (Guid.Parse(bridgeId), companyId);
     }
+}
+
+/// <summary>
+/// "Bu bridge hayatta." Hub'in <see cref="Data.Mongo.BridgeStore"/>'dan
+/// kullandigi tek sey bu; arayuz olarak ayrilmasinin sebebi, protokolun
+/// Mongo ayakta olmadan test edilebilmesi.
+/// </summary>
+public interface IBridgePresence
+{
+    Task TouchAsync(Guid bridgeId, string version, CancellationToken ct = default);
 }
 
 /// <summary>Bridge kimlik dogrulamasinin sabitleri.</summary>
