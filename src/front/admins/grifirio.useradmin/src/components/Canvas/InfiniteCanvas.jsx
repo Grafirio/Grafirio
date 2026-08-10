@@ -12,15 +12,111 @@ const NODE_COMPONENTS = {
   biMetricNode: BiMetricNode,
 };
 
+/* Kenar uçları düğümün gerçek boyutundan hesaplanıyor; ölçüm gelene kadar
+   (ilk kare) bu değerler kullanılıyor. Düğümler artık sabit yükseklikte
+   değil — soru düğümünde soru kutusu var, grafik düğümünde düzeltme
+   kutusu açılıp kapanıyor. */
+const DEFAULT_SIZE = {
+  biChartNode: { w: 400, h: 330 },
+  biTableNode: { w: 480, h: 300 },
+  biInsightNode: { w: 360, h: 150 },
+  biMetricNode: { w: 200, h: 140 },
+};
+const FALLBACK_SIZE = { w: 380, h: 160 };
+
 const SVG_SIZE = 20000;
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 3;
 
-export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) {
+/* Sürüklemeyi tıklamadan ayıran eşik (ekran pikseli). Bunun altındaki
+   hareket tıklama sayılır — fare basılıyken elin birkaç piksel kayması
+   düğümü yerinden oynatmasın. */
+const DRAG_THRESHOLD = 3;
+
+/* Bu öğelerin üzerinde basılan fare sürükleme başlatmaz: yazı seçmek,
+   düğmeye basmak ve grafiğin üzerinde gezinmek çalışmaya devam etmeli.
+   `canvas` Chart.js'in çizim yüzeyi — ipuçları oradan okunuyor. */
+const NO_DRAG_SELECTOR = 'input, textarea, button, select, a, canvas, summary, details';
+
+export default function InfiniteCanvas({
+  nodes = [], edges = [], onNodeClick,
+  onNodeMove, onNodeAsk, onNodeRefine, onNodeDelete,
+}) {
   const [transform, setTransform] = useState({ x: 60, y: 60, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const startPanRef = useRef({ x: 0, y: 0 });
   const canvasRef = useRef(null);
+
+  // Sürükleme sırasında güncel yakınlaşmayı okumak için: fare olayları
+  // pencereye bağlanıyor ve o kapanış `transform`u eskitirdi.
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+
+  /* ── Düğüm boyutları ──
+     Kenarların düğümün ortasından çıkması için gerçek yükseklik gerekiyor.
+     Düğümler artık sabit yükseklikte değil: soru kutusu, düzeltme kutusu ve
+     uzun metinler boyu değiştiriyor. Sabit sayı kullanılırsa oklar
+     düğümlerin ortasını değil, olmayan bir noktayı gösteriyor.
+
+     İki kaynak var. Yerleşim effect'i her çizimden sonra ölçüyor — düğüm
+     eklenip çıktığında bu yeterli. ResizeObserver ise düğümün KENDİ
+     durumundan doğan değişimi yakalıyor (düzeltme kutusunun açılması gibi);
+     o değişim InfiniteCanvas'ı yeniden çizdirmediği için effect kaçırırdı.
+     Gözlemcinin bulunmadığı ortamda ölçüm yine de çalışıyor. */
+  const [sizes, setSizes] = useState({});
+  const sizesRef = useRef({});
+  const elementsRef = useRef(new Map());
+
+  const measureAll = useCallback(() => {
+    const next = { ...sizesRef.current };
+    let changed = false;
+
+    for (const [id, el] of elementsRef.current) {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      if (!w && !h) continue; // henüz yerleşmemiş
+      const prev = next[id];
+      if (!prev || Math.abs(prev.w - w) > 0.5 || Math.abs(prev.h - h) > 0.5) {
+        next[id] = { w, h };
+        changed = true;
+      }
+    }
+    for (const id of Object.keys(next)) {
+      if (!elementsRef.current.has(id)) {
+        delete next[id];
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      sizesRef.current = next;
+      setSizes(next);
+    }
+  }, []);
+
+  const observerRef = useRef(null);
+  if (observerRef.current === null && typeof ResizeObserver !== 'undefined') {
+    observerRef.current = new ResizeObserver(measureAll);
+  }
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  const measureRef = useCallback((el) => {
+    if (!el) return undefined;
+    const id = el.dataset.nodeId;
+    elementsRef.current.set(id, el);
+    observerRef.current?.observe(el);
+    return () => {
+      elementsRef.current.delete(id);
+      observerRef.current?.unobserve(el);
+    };
+  }, []);
+
+  // Bilerek bağımlılıksız: her çizimden sonra ölçüyor. Boyut değişmediğinde
+  // state'e dokunulmadığı için döngü olmuyor.
+  useEffect(measureAll);
+
+  const sizeOf = (node) =>
+    sizes[node.id] || DEFAULT_SIZE[node.type] || FALLBACK_SIZE;
 
   /* ── Pan ── */
   const onMouseDown = useCallback((e) => {
@@ -42,31 +138,67 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
 
   const onMouseUp = useCallback(() => setIsPanning(false), []);
 
-  /* ── Zoom (mouse wheel) ── */
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
+  /* ── Düğüm sürükleme ──
+     Sonuçlar tuvale yukarıdan aşağıya diziliyor; bu dizilim bir öneri,
+     kural değil. Kullanıcı hangi grafiği hangisinin yanında görmek
+     istediğini kendi seçebilmeli.
 
-    const onWheel = (e) => {
-      e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      setTransform(prev => {
-        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.zoom * factor));
-        const rect = el.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const ratio = newZoom / prev.zoom;
-        return {
-          x: mx - (mx - prev.x) * ratio,
-          y: my - (my - prev.y) * ratio,
-          zoom: newZoom,
-        };
+     Fare olayları pencereye bağlanıyor: imleç düğümün dışına taştığında
+     sürükleme kopmasın. Yer değiştirme ekran pikselinden tuval birimine
+     çevriliyor — uzaklaşmış tuvalde 1 piksel fare hareketi daha fazla yol
+     demek. */
+  const dragRef = useRef(null);
+  const endDragRef = useRef(null);
+  const [draggingId, setDraggingId] = useState(null);
+
+  const startDrag = useCallback((e, node) => {
+    if (!onNodeMove || e.button !== 0) return;
+    if (e.target.closest(NO_DRAG_SELECTOR)) return;
+
+    e.stopPropagation();
+    e.preventDefault();
+
+    const drag = {
+      id: node.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: node.position.x,
+      originY: node.position.y,
+      moved: false,
+    };
+    dragRef.current = drag;
+
+    // Dinleyiciler bir effect'te değil, tam burada bağlanıyor: effect ancak
+    // React yeniden çizdikten sonra çalışır ve o ana kadar gelen fare
+    // hareketleri düşerdi — sürükleme ilk piksellerde takılmış görünürdü.
+    const onWindowMove = (ev) => {
+      const screenDx = ev.clientX - drag.startX;
+      const screenDy = ev.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(screenDx, screenDy) < DRAG_THRESHOLD) return;
+      drag.moved = true;
+
+      const zoom = transformRef.current.zoom || 1;
+      onNodeMove(drag.id, {
+        x: Math.round(drag.originX + screenDx / zoom),
+        y: Math.round(drag.originY + screenDy / zoom),
       });
     };
 
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+    const onWindowUp = () => {
+      window.removeEventListener('mousemove', onWindowMove);
+      window.removeEventListener('mouseup', onWindowUp);
+      endDragRef.current = null;
+      setDraggingId(null);
+    };
+
+    window.addEventListener('mousemove', onWindowMove);
+    window.addEventListener('mouseup', onWindowUp);
+    endDragRef.current = onWindowUp;
+    setDraggingId(node.id);
+  }, [onNodeMove]);
+
+  // Sürükleme sürerken bileşen sökülürse dinleyiciler pencerede kalmasın.
+  useEffect(() => () => endDragRef.current?.(), []);
 
   /* ── Fit-to-screen ── */
   const fitView = useCallback(() => {
@@ -95,6 +227,32 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
     });
   }, [nodes]);
 
+  /* ── Zoom (mouse wheel) ── */
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      setTransform(prev => {
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.zoom * factor));
+        const rect = el.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const ratio = newZoom / prev.zoom;
+        return {
+          x: mx - (mx - prev.x) * ratio,
+          y: my - (my - prev.y) * ratio,
+          zoom: newZoom,
+        };
+      });
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
   /* ── Edges ── */
   const renderEdges = () =>
     edges.map(edge => {
@@ -102,14 +260,13 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
       const tgt = nodes.find(n => n.id === edge.target);
       if (!src || !tgt) return null;
 
-      const srcW = src.width || 380;
-      const srcH = src.height || 160;
-      const tgtH = tgt.height || 160;
+      const srcSize = sizeOf(src);
+      const tgtSize = sizeOf(tgt);
 
-      const sx = src.position.x + srcW;
-      const sy = src.position.y + srcH / 2;
+      const sx = src.position.x + srcSize.w;
+      const sy = src.position.y + srcSize.h / 2;
       const tx = tgt.position.x;
-      const ty = tgt.position.y + tgtH / 2;
+      const ty = tgt.position.y + tgtSize.h / 2;
       const mx = (sx + tx) / 2;
 
       const color = edge.style?.stroke || 'var(--accent)';
@@ -181,14 +338,31 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
         {nodes.map(node => {
           const Comp = NODE_COMPONENTS[node.type];
           if (!Comp) return null;
+          const isDragging = draggingId === node.id;
           return (
             <div
               key={node.id}
-              className="canvas-node"
+              ref={measureRef}
+              data-node-id={node.id}
+              className={`canvas-node${onNodeMove ? ' is-draggable' : ''}${isDragging ? ' is-dragging' : ''}`}
               style={{ left: node.position.x, top: node.position.y }}
-              onClick={(e) => { e.stopPropagation(); onNodeClick?.(node); }}
+              onMouseDown={(e) => startDrag(e, node)}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Sürükleme bittiğinde gelen tıklama düğümü seçmesin.
+                if (dragRef.current?.id === node.id && dragRef.current.moved) {
+                  dragRef.current = null;
+                  return;
+                }
+                onNodeClick?.(node);
+              }}
             >
-              <Comp data={node.data} />
+              <Comp
+                data={node.data}
+                onAsk={onNodeAsk ? (text) => onNodeAsk(node, text) : undefined}
+                onRefine={onNodeRefine ? (text) => onNodeRefine(node, text) : undefined}
+                onDelete={onNodeDelete ? () => onNodeDelete(node) : undefined}
+              />
             </div>
           );
         })}
@@ -221,6 +395,7 @@ export default function InfiniteCanvas({ nodes = [], edges = [], onNodeClick }) 
           <div className="canvas-empty-hints">
             <span>🖱 Sürükle: Tuval kaydır</span>
             <span>⚲ Tekerlek: Yakınlaş / Uzaklaş</span>
+            <span>✥ Düğümü tut: Yerini değiştir</span>
           </div>
         </div>
       )}

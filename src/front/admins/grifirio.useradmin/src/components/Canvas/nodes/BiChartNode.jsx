@@ -9,6 +9,7 @@ import { Bar, Line, Pie, Doughnut, Radar, Scatter } from 'react-chartjs-2';
 import {
   resolveTheme, BAR_RADIUS, BAR_PERCENTAGE, CATEGORY_PERCENTAGE,
 } from './chartTheme';
+import NodeComposer from './NodeComposer';
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -102,8 +103,49 @@ const truncate = (value, max = 18) => {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 };
 
-export default function BiChartNode({ data }) {
+/**
+ * Düğüm başlığındaki eylemler.
+ *
+ * Ayrı bir bileşen: hem grafik hem yükleme durumunda aynı satır çiziliyor,
+ * yükleme sırasında da silinebilmeli — takılı kalmış bir analiz kutusunun
+ * tuvalde kalıcı olması için bir sebep yok.
+ */
+function ChartActions({ onToggleRefine, refineOpen, onDelete }) {
+  return (
+    <>
+      {onToggleRefine && (
+        <button
+          type="button"
+          className={`bi-node-action${refineOpen ? ' is-active' : ''}`}
+          title="Bu grafiği yeniden sor"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onToggleRefine(); }}
+        >
+          ✎
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          className="bi-node-action bi-node-action--danger"
+          title="Bu grafiği sil"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        >
+          🗑
+        </button>
+      )}
+    </>
+  );
+}
+
+export default function BiChartNode({ data, onRefine, onDelete }) {
   const rootRef = useRef(null);
+
+  // Düzeltme kutusu: yanlış anlaşılmış bir soru için yeni bir grafik
+  // üretmek yerine bu grafiğin yerine geçen bir sonuç istenir. Yeni düğüm
+  // açmak, tuvalde aynı sorunun iki cevabını yan yana bırakıyordu.
+  const [refineOpen, setRefineOpen] = useState(false);
 
   // Zeminin gerçekten koyu olup olmadığı hesaplanmış arka plandan okunuyor;
   // tema adına güvenmek yetmiyor (bkz. chartTheme.resolveTheme).
@@ -169,6 +211,7 @@ export default function BiChartNode({ data }) {
         <div className="bi-node-header">
           <span className="bi-node-icon">📊</span>
           <span className="bi-node-title">{data?.title || 'Grafik Hazırlanıyor...'}</span>
+          <ChartActions onDelete={onDelete} />
           <span className="bi-node-type-badge">Chart</span>
         </div>
         <div className="bi-chart-loading-body">
@@ -314,11 +357,30 @@ export default function BiChartNode({ data }) {
       <div className="bi-node-header">
         <span className="bi-node-icon">📊</span>
         <span className="bi-node-title">{data?.title || 'Grafik'}</span>
+        <ChartActions
+          refineOpen={refineOpen}
+          onToggleRefine={onRefine ? () => setRefineOpen((o) => !o) : undefined}
+          onDelete={onDelete}
+        />
         <span className="bi-node-type-badge">Chart</span>
       </div>
       <div className="bi-chart-body">
         {renderChart()}
       </div>
+
+      {refineOpen && onRefine && (
+        <div className="bi-node-footer">
+          <div className="bi-node-footer-hint">
+            Yanıt bu grafiğin yerine geçer — yeni bir grafik eklenmez.
+          </div>
+          <NodeComposer
+            placeholder="Ne değişsin? Örn. son 12 ayı çizgi grafik yap"
+            autoFocus
+            onSubmit={(text) => { setRefineOpen(false); onRefine(text); }}
+            onCancel={() => setRefineOpen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }
