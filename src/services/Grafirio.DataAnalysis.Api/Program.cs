@@ -134,6 +134,9 @@ if (!string.IsNullOrWhiteSpace(mongoConnectionString))
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
+    // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin
+    // yalnizca Mongo yapilandirilmissa kayitli.
+    builder.Services.AddSingleton<BridgeConnectionSync>();
 }
 else
 {
@@ -145,6 +148,9 @@ else
     builder.Services.AddSingleton<ConnectionProfileStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
+    // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin
+    // yalnizca Mongo yapilandirilmissa kayitli.
+    builder.Services.AddSingleton<BridgeConnectionSync>();
 }
 
 // HttpClientFactory — PyCaret Engine çağrıları için

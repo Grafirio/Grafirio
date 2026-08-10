@@ -15,10 +15,17 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// koddaki karsiligi burasi.
 /// </summary>
 [Authorize(AuthenticationSchemes = BridgeAuthentication.Scheme)]
+/// <remarks>
+/// <paramref name="connectionSync"/> varsayilan degerli: protokolu Mongo
+/// olmadan test edebilmek icin. Uretimde kayitli olmadigi bir durum yok —
+/// olsaydi bridge baglanir ama hicbir sorgu calistiramazdi, o yuzden
+/// eksikligi uyari olarak yaziliyor.
+/// </remarks>
 public class BridgeHub(
     BridgeRegistry registry,
     IBridgePresence presence,
-    ILogger<BridgeHub> logger) : Hub
+    ILogger<BridgeHub> logger,
+    BridgeConnectionSync? connectionSync = null) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -43,6 +50,34 @@ public class BridgeHub(
 
         registry.Attach(bridgeId, Context.ConnectionId, companyId, version);
         await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
+
+        // Baglanti tanimlarini gonder. Bunsuz bridge baglanir, kalp atisi
+        // gonderir ve her sorguyu "bu baglanti tanimli degil" diye reddeder.
+        //
+        // Her baglanista tekrarlaniyor: baglama aninda bridge cevrimdisi
+        // olabilir, ayrica sifre ya da tablo secimi sonradan degismis olabilir.
+        if (connectionSync is null)
+        {
+            logger.LogWarning(
+                "BridgeConnectionSync kayıtlı değil; bridge {BridgeId} bağlandı ama " +
+                "hiçbir bağlantı tanımı gönderilmeyecek.", bridgeId);
+        }
+        else
+        {
+            try
+            {
+                await connectionSync.SyncAllAsync(
+                    bridgeId, companyId, Context.ConnectionId, Context.ConnectionAborted);
+            }
+            catch (Exception ex)
+            {
+                // Gonderim basarisiz olsa bile baglanti ayakta kalsin:
+                // cevrimdisi gorunen bir bridge, tanimsiz baglantidan daha
+                // yaniltici olurdu.
+                logger.LogError(ex,
+                    "Bağlantı tanımları gönderilemedi. Bridge: {BridgeId}", bridgeId);
+            }
+        }
 
         await base.OnConnectedAsync();
     }

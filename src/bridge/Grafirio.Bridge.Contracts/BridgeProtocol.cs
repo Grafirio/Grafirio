@@ -24,6 +24,8 @@ public static class BridgeProtocol
     {
         public const string ExecuteQuery = nameof(ExecuteQuery);
         public const string CancelQuery = nameof(CancelQuery);
+        public const string ConfigureConnection = nameof(ConfigureConnection);
+        public const string RemoveConnection = nameof(RemoveConnection);
     }
 
     /// <summary>Bridge'in sunucuya cagirdigi metotlar.</summary>
@@ -35,6 +37,35 @@ public static class BridgeProtocol
         public const string Heartbeat = nameof(Heartbeat);
     }
 }
+
+/// <summary>
+/// Sunucu → bridge: bu baglantiyi tanı.
+///
+/// Bridge yalnizca kendi yerel deposunda tanimli baglantilara sorgu
+/// calistiriyor. Panelden bir baglanti bridge'e baglandiginda ve bridge her
+/// baglandiginda bu mesaj gonderiliyor — ikincisi sart, cunku baglama aninda
+/// bridge cevrimdisi olabilir.
+///
+/// <b>Sifre bu mesajla iniyor ve bridge'in diskinde kaliyor.</b> Bulut kalici
+/// bir kopya tutmuyor; musteriye verilen "sifreniz sizde durur" sozunun
+/// karsiligi bu. Kanal TLS; sifre bulutun belleginden bir kez geciyor.
+///
+/// <paramref name="AllowedTables"/> bos degilse bridge listede olmayan bir
+/// tabloya giden sorguyu reddeder — bulut ne gonderirse gondersin.
+/// </summary>
+public sealed record ConfigureConnectionRequest(
+    Guid ConnectionId,
+    string Name,
+    string Host,
+    int Port,
+    string Database,
+    string Username,
+    string Password,
+    bool TrustServerCertificate,
+    IReadOnlyList<string> AllowedTables);
+
+/// <summary>Sunucu → bridge: bu baglantiyi unut.</summary>
+public sealed record RemoveConnectionRequest(Guid ConnectionId);
 
 /// <summary>Sunucu → bridge: su sorguyu calistir.</summary>
 public sealed record ExecuteQueryRequest(
