@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Grafirio.DataAnalysis.Api.Data.Access;
 
 /// <summary>
@@ -32,8 +34,22 @@ public static class ReadOnlySqlPolicy
 
         // Sondaki noktali virgul zararsiz; arada olan, ikinci bir ifade demek.
         var trimmed = stripped.TrimEnd().TrimEnd(';');
-        return !trimmed.Contains(';');
+        if (trimmed.Contains(';')) return false;
+
+        // Okuma gibi baslayip yazmaya donen bicimler. `SELECT ... INTO yedek`
+        // yeni bir tablo OLUSTURUR ama ilk kelimesi SELECT oldugu icin naif bir
+        // kontrolden gecer.
+        return !ForbiddenInsideRead.IsMatch(trimmed);
     }
+
+    /// <summary>
+    /// <b>CultureInvariant sart.</b> Turkce kulturde 'i' harfinin buyugu 'İ',
+    /// 'I' harfinin kucugu 'ı'; <c>IgnoreCase</c> tek basina "into" ile "INTO"yu
+    /// eslestirmiyor. Sunucular tr-TR ise koruma tam da orada calismaz.
+    /// </summary>
+    private static readonly Regex ForbiddenInsideRead = new(
+        @"\b(INTO\s+(?!\s*\()|EXEC(UTE)?\s|MERGE\s|INSERT\s|UPDATE\s|DELETE\s|DROP\s|ALTER\s|CREATE\s|TRUNCATE\s|GRANT\s|REVOKE\s)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
     /// Bastaki bosluk ve yorumlari atar. Yorum kapanmiyorsa sorgunun geri

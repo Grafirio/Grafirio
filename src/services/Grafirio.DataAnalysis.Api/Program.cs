@@ -1,7 +1,10 @@
 using System.Text.Json;
+using Grafirio.Bridge.Contracts;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Grafirio.DataAnalysis.Api.Features.Bridge;
+using Microsoft.AspNetCore.Authentication;
 using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
@@ -52,11 +55,19 @@ builder.Services.AddSingleton<LlmAnalysisService>();
 builder.Services.AddSingleton<RelationshipDiscovery>();
 builder.Services.AddSingleton<SchemaProfiler>();
 
-// Musteri veritabanina giden tek kapi. Bugun tek uygulamasi var: buluttan
-// dogrudan TCP. Firewall arkasindaki musteriler icin agent uzerinden giden
-// ikinci uygulama ayni arayuze oturacak ve burasi disinda hicbir yer
-// degismeyecek.
-builder.Services.AddSingleton<IDataSourceFactory, DirectDataSourceFactory>();
+// Musteri veritabanina giden tek kapi. Iki yol var: buluttan dogrudan TCP,
+// ya da musteri agindaki bridge uzerinden. Secimi fabrika yapiyor; cagri
+// noktalarinin hicbiri farki gormuyor.
+builder.Services.AddSingleton<IDataSourceFactory, DataSourceFactory>();
+
+// Bridge: musteri agindan disari dogru kurulan kanal.
+builder.Services.AddSingleton<BridgeRegistry>();
+builder.Services.AddSignalR(options =>
+{
+    // Satirlar parcalar halinde geliyor; varsayilan 32 KB tavani genis
+    // tablolarda tek bir parcaya bile yetmiyor.
+    options.MaximumReceiveMessageSize = 4 * 1024 * 1024;
+});
 
 // MongoDB — tablo secimi (kalici)
 // Postgres semasi EnsureCreated ile kuruluyor ve migration yok; secim de
@@ -67,12 +78,37 @@ var mongoDatabaseName = builder.Configuration.GetValue<string>("Mongo:DatabaseNa
     ?? Environment.GetEnvironmentVariable("MONGO__DATABASENAME")
     ?? "GrafirioDataAnalysisDb";
 
+// Kullanici adi ve sifre AYRI verilebiliyor.
+//
+// Sebebi somut: baglanti dizesi bir URI ve sifre '@', '/', ':' gibi bir
+// karakter iceriyorsa dize gecersiz oluyor — "The connection string ... is not
+// valid" hatasi, sifrenin yanlis oldugunu degil URI'nin bozuk oldugunu
+// soyluyor ve bu ayrim loglardan anlasilmiyor. Yerel compose tam da bu yuzden
+// hic calismamisti. Ayri alanlar verildiginde kaciş isi surucunun kendisine
+// birakiliyor ve sifre secimi bir yapilandirma tuzagi olmaktan cikiyor.
+var mongoUsername = builder.Configuration.GetValue<string>("Mongo:Username")
+    ?? Environment.GetEnvironmentVariable("MONGO__USERNAME");
+var mongoPassword = builder.Configuration.GetValue<string>("Mongo:Password")
+    ?? Environment.GetEnvironmentVariable("MONGO__PASSWORD");
+
 if (!string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient(mongoConnectionString));
+    builder.Services.AddSingleton<IMongoClient>(_ =>
+    {
+        if (string.IsNullOrEmpty(mongoUsername) || string.IsNullOrEmpty(mongoPassword))
+            return new MongoClient(mongoConnectionString);
+
+        var settings = MongoClientSettings.FromConnectionString(mongoConnectionString);
+        settings.Credential = MongoCredential.CreateCredential(
+            databaseName: "admin", mongoUsername, mongoPassword);
+
+        return new MongoClient(settings);
+    });
     builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDatabaseName));
     builder.Services.AddSingleton<ConnectionProfileStore>();
+    builder.Services.AddSingleton<BridgeStore>();
+    builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
 }
 else
 {
@@ -82,6 +118,8 @@ else
     builder.Services.AddSingleton<IMongoDatabase>(_ => throw new InvalidOperationException(
         "Mongo__ConnectionString tanımlı değil; tablo seçimi ve şema profili kullanılamaz."));
     builder.Services.AddSingleton<ConnectionProfileStore>();
+    builder.Services.AddSingleton<BridgeStore>();
+    builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
 }
 
 // HttpClientFactory — PyCaret Engine çağrıları için
@@ -121,6 +159,15 @@ builder.Services.AddGrafirioMassTransit(
 // ve kullanici kimligini sorgu dizesinden aliyordu, yani isteyen istedigi
 // userId ile baskasinin kayitli baglantilarini okuyabiliyordu.
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
+
+// Bridge'ler kullanici token'i tasimiyor: arkalarinda oturum acmis kimse yok,
+// kayit sirasinda aldiklari uzun omurlu sirri kullaniyorlar. Sema, varsayilan
+// semayi degistirmeden EKLENIYOR — kullanici uclari Keycloak token'iyla
+// calismaya devam ediyor.
+builder.Services
+    .AddAuthentication()
+    .AddScheme<AuthenticationSchemeOptions, BridgeAuthenticationHandler>(
+        BridgeAuthentication.Scheme, _ => { });
 
 // IIdentityService (token'daki company_id / userId'yi okuyan servis) burada
 // kayitli degildi; Commerce ve Identity servisleri bunu yapiyor, bu servis
@@ -181,6 +228,11 @@ app.MapAnalysisEndpoints();        // Veri kalitesi / istatistik / iliskiler
 app.MapAgentAnalyzeEndpoints();    // Analiz Et: profil + semantik sozluk + sorular
 app.MapAgentQueryEndpoints();      // Sorgu: soru -> parametre -> PyCaret
 app.MapInternalDataEndpoints();    // PyCaret'in veri okudugu ic uc (gateway'e tanimlanmaz)
+app.MapBridgeEndpoints();          // Bridge kaydi ve yonetimi
+
+// Musteri agindaki bridge'lerin bagli durdugu kanal. Baglantiyi bridge kurar;
+// sunucu hicbir zaman musteri agina baglanmaya calismaz.
+app.MapHub<BridgeHub>(BridgeProtocol.HubPath);
 
 // Health check
 // Onceki surum kosulsuz "Healthy" donuyordu — hicbir bagimliligi yoklamadigi

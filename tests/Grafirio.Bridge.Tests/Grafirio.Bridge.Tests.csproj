@@ -19,8 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\services\Grafirio.DataAnalysis.Api\Grafirio.DataAnalysis.Api.csproj" />
-    <ProjectReference Include="..\..\src\bridge\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\bridge\Grafirio.Bridge\Grafirio.Bridge.csproj" />
   </ItemGroup>
 
 </Project>

@@ -2,24 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "grifirio-vitrin",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "src/front/grifirio.front"],
-      "port": 5173,
-      "autoPort": true
-    },
-    {
-      "name": "grifirio-useradmin",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "vite",
-        "src/front/admins/grifirio.useradmin",
-        "--port",
-        "59264",
-        "--strictPort"
-      ],
-      "port": 59264,
-      "autoPort": false
+      "name": "useradmin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "src/front/admins/grifirio.useradmin"],
+      "port": 59264
     }
   ]
 }

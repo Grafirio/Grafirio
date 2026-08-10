@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   testConnection, saveConnection, getSavedConnections, getConnectionById,
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables,
+  getBridges, getBridgeBindings, bindConnectionToBridge,
+  createBridgeEnrollmentToken, revokeBridge,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -37,6 +39,17 @@ const SqlConnectionSettings = () => {
   // Notification Modal
   const [notification, setNotification] = useState({ show: false, type: '', title: '', message: '', details: '' });
 
+  /* ── Bridge ────────────────────────────────────────────────────────
+     Kurumsal veritabanlarının çoğu firewall arkasında ve buluttan
+     erişilemiyor. Bridge yönü çeviriyor: bağlantıyı müşterinin kendi
+     sunucusu dışarı doğru kurar. Panelin buradaki işi, hangi bağlantının
+     hangi bridge üzerinden okunacağını seçtirmek.                        */
+  const [bridges, setBridges] = useState([]);
+  const [bridgeBindings, setBridgeBindings] = useState({});
+  const [bridgeError, setBridgeError] = useState('');
+  const [enrollment, setEnrollment] = useState(null);
+  const [isCreatingToken, setIsCreatingToken] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -44,11 +57,82 @@ const SqlConnectionSettings = () => {
     database: '',
     username: '',
     password: '',
-    trustServerCertificate: true
+    trustServerCertificate: true,
+    // Boş string = doğrudan bağlantı (bugünkü davranış).
+    bridgeId: ''
   });
 
   const [testStatus, setTestStatus] = useState({ type: '', message: '' });
   const [isTesting, setIsTesting] = useState(false);
+
+  /**
+   * Bridge listesi ve bağlantı eşlemeleri.
+   *
+   * Hata sayfayı düşürmüyor: bridge kullanmayan bir şirkette bu uçların
+   * çalışmaması, bağlantı yönetimini engellememeli. Sebep ayrı bir satırda
+   * gösteriliyor — sessizce boş bir liste, "hiç bridge'im yok" ile
+   * "listeyi alamadım"ı ayırt edilemez yapardı.
+   */
+  const loadBridges = async () => {
+    setBridgeError('');
+    try {
+      const [list, bindings] = await Promise.all([getBridges(), getBridgeBindings()]);
+
+      setBridges(Array.isArray(list) ? list : []);
+      setBridgeBindings(
+        Object.fromEntries((bindings ?? []).map((b) => [b.connectionId, b.bridgeId]))
+      );
+    } catch (error) {
+      console.error('Bridge bilgileri alınamadı:', error);
+      setBridges([]);
+      setBridgeError(
+        error?.response?.data?.error ?? 'Bridge bilgileri alınamadı.'
+      );
+    }
+  };
+
+  useEffect(() => {
+    loadBridges();
+  }, []);
+
+  /** Bir bağlantının hangi bridge üzerinden okunduğu; yoksa null (doğrudan). */
+  const bridgeOf = (connectionId) => {
+    const bridgeId = bridgeBindings[connectionId];
+    return bridgeId ? bridges.find((b) => b.id === bridgeId) ?? { id: bridgeId } : null;
+  };
+
+  /**
+   * Bağlantının okunma yolunu kaydeder.
+   *
+   * Başarısızlık kaydı geri almıyor ama sessizce de geçilmiyor: bağlantı
+   * kaydedilmiş ama bridge'e bağlanmamışsa, sorgular buluttan doğrudan
+   * gitmeye çalışır ve firewall arkasındaki bir veritabanında bu, sebebi
+   * anlaşılmayan bir zaman aşımı olarak görünür.
+   */
+  const applyBridgeBinding = async (connectionId, bridgeId) => {
+    if (!connectionId) return;
+
+    try {
+      await bindConnectionToBridge(connectionId, bridgeId || null);
+      setBridgeBindings((current) => {
+        const next = { ...current };
+        if (bridgeId) next[connectionId] = bridgeId;
+        else delete next[connectionId];
+        return next;
+      });
+    } catch (error) {
+      console.error('Bridge eşlemesi kaydedilemedi:', error);
+      setNotification({
+        show: true,
+        type: 'warning',
+        title: 'Bağlantı kaydedildi, bridge seçimi kaydedilemedi',
+        message:
+          'Bağlantı şimdilik doğrudan mod ile çalışacak. Veritabanınız ' +
+          'firewall arkasındaysa sorgular zaman aşımına uğrayabilir.',
+        details: error?.response?.data?.error ?? error.message,
+      });
+    }
+  };
 
   // Load connections from database
   const loadConnections = async () => {
@@ -168,11 +252,15 @@ const SqlConnectionSettings = () => {
           if (saveResult.success) {
             setSavedConnectionId(saveResult.connectionId);
             const message = saveResult.message || 'Bağlantı kaydedildi!';
-            setTestStatus({ 
-              type: 'success', 
-              message: `✅ Bağlantı başarılı ve güvenli şekilde ${message.toLowerCase()}` 
+            setTestStatus({
+              type: 'success',
+              message: `✅ Bağlantı başarılı ve güvenli şekilde ${message.toLowerCase()}`
             });
-            
+
+            // Hangi yoldan okunacağı ayrı bir kayıt: bağlantının kendisi
+            // Postgres'te, eşleme Mongo'da duruyor.
+            await applyBridgeBinding(saveResult.connectionId, formData.bridgeId);
+
             // Bağlantılar listesini yeniden yükle
             await loadConnections();
           }
@@ -250,7 +338,10 @@ const SqlConnectionSettings = () => {
       database: connection.database,
       username: connection.username,
       password: decryptedPassword, // Decrypt edilmiş şifre
-      trustServerCertificate: connection.trustServerCertificate
+      trustServerCertificate: connection.trustServerCertificate,
+      // Mevcut yol seçili gelmeli: düzenlerken sessizce doğrudan moda
+      // düşmek, firewall arkasındaki bir bağlantıyı bozar.
+      bridgeId: bridgeBindings[connection.savedConnectionId || connection.id] ?? ''
     });
     setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
     setIsFormOpen(true);
@@ -275,7 +366,8 @@ const SqlConnectionSettings = () => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true
+      trustServerCertificate: true,
+      bridgeId: ''
     });
     setTestStatus({ type: '', message: '' });
   };
@@ -469,9 +561,56 @@ const SqlConnectionSettings = () => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true
+      trustServerCertificate: true,
+      bridgeId: ''
     });
     setTestStatus({ type: '', message: '' });
+  };
+
+  /**
+   * Yeni bir bridge kurulumu başlatır: tek kullanımlık token üretir.
+   *
+   * Token ekranda BİR KEZ gösteriliyor çünkü sunucuda yalnızca özeti
+   * saklanıyor — veritabanını okuyabilen biri bridge kaydedememeli.
+   */
+  const handleCreateEnrollmentToken = async () => {
+    setIsCreatingToken(true);
+    try {
+      setEnrollment(await createBridgeEnrollmentToken());
+    } catch (error) {
+      console.error('Kayıt token’ı üretilemedi:', error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Kayıt token’ı üretilemedi',
+        message: 'Bridge kurulumu başlatılamadı.',
+        details: error?.response?.data?.error ?? error.message,
+      });
+    } finally {
+      setIsCreatingToken(false);
+    }
+  };
+
+  const handleRevokeBridge = async (bridge) => {
+    const label = bridge.name || bridge.machineName;
+    if (!window.confirm(
+      `“${label}” bridge’inin erişimi iptal edilsin mi? ` +
+      'Bu bridge üzerinden okunan bağlantılar çalışmayı durdurur.'
+    )) return;
+
+    try {
+      await revokeBridge(bridge.id);
+      await loadBridges();
+    } catch (error) {
+      console.error('Bridge iptal edilemedi:', error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Bridge iptal edilemedi',
+        message: '',
+        details: error?.response?.data?.error ?? error.message,
+      });
+    }
   };
 
 
@@ -502,6 +641,104 @@ const SqlConnectionSettings = () => {
           {testStatus.message}
         </div>
       )}
+
+      {/* ── Bridge'ler ────────────────────────────────────────────────
+          Veritabanı firewall arkasındaysa buluttan doğrudan bağlantı
+          kurulamıyor. Bridge yönü çeviriyor: bağlantıyı müşterinin kendi
+          sunucusu dışarı doğru kurar, firewall'da hiçbir port açılmaz.
+
+          Bölüm bilerek bağlantı listesinin ÜSTÜNDE: bir bağlantı bridge
+          üzerinden okunacaksa bridge'in önce kurulmuş olması gerekiyor. */}
+      <div className="bridge-section">
+        <div className="bridge-section__head">
+          <div>
+            <h3>Bridge’ler</h3>
+            <p className="st-lead" style={{ marginTop: 4 }}>
+              Veritabanınız firewall arkasındaysa, kendi sunucunuza kurduğunuz
+              bridge bağlantıyı dışarı doğru kurar. Firewall’da hiçbir port
+              açmanız gerekmez.
+            </p>
+          </div>
+          <button
+            className="st-btn"
+            onClick={handleCreateEnrollmentToken}
+            disabled={isCreatingToken}
+          >
+            {isCreatingToken ? 'Hazırlanıyor…' : '+ Bridge Ekle'}
+          </button>
+        </div>
+
+        {bridgeError && (
+          <div className="gf-alert gf-alert--warning">{bridgeError}</div>
+        )}
+
+        {enrollment && (
+          <div className="gf-alert gf-alert--info bridge-enrollment">
+            <p>
+              <strong>Kurulum token’ı hazır.</strong> Bu token{' '}
+              {enrollment.expiresInMinutes} dakika geçerli ve <strong>bir kez</strong>{' '}
+              kullanılabilir. Ekranı kapattığınızda tekrar gösterilemez.
+            </p>
+            <code className="bridge-enrollment__token">{enrollment.token}</code>
+            <ol className="bridge-enrollment__steps">
+              <li>Grafirio Bridge kurulum dosyasını hedef sunucuya kopyalayın.</li>
+              <li>
+                <code>appsettings.json</code> içindeki <code>EnrollmentToken</code>{' '}
+                alanına yukarıdaki değeri yazın.
+              </li>
+              <li>Servisi başlatın; bridge kendini tanıtacak ve listede görünecek.</li>
+            </ol>
+            <div className="bridge-enrollment__actions">
+              <button
+                className="gf-btn gf-btn--sm"
+                onClick={() => navigator.clipboard?.writeText(enrollment.token)}
+              >
+                <i className="ti ti-copy"></i> Kopyala
+              </button>
+              <button
+                className="gf-btn gf-btn--sm"
+                onClick={async () => { setEnrollment(null); await loadBridges(); }}
+              >
+                Kapat ve listeyi yenile
+              </button>
+            </div>
+          </div>
+        )}
+
+        {bridges.length === 0 ? (
+          !bridgeError && (
+            <p className="bridge-empty">
+              Tanımlı bridge yok. Bağlantılarınız buluttan doğrudan kuruluyor.
+            </p>
+          )
+        ) : (
+          <div className="bridge-list">
+            {bridges.map((bridge) => (
+              <div key={bridge.id} className="bridge-row">
+                <span className={`bridge-dot ${bridge.online ? 'is-online' : 'is-offline'}`} />
+                <div className="bridge-row__info">
+                  <strong>{bridge.name || bridge.machineName}</strong>
+                  <small>
+                    {bridge.machineName} · sürüm {bridge.version || '—'} ·{' '}
+                    {bridge.lastSeenAt
+                      ? `son görülme ${new Date(bridge.lastSeenAt).toLocaleString('tr-TR')}`
+                      : 'henüz hiç bağlanmadı'}
+                  </small>
+                </div>
+                <span className={`badge ${bridge.online ? 'badge-success' : 'badge-danger'}`}>
+                  {bridge.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+                </span>
+                <button
+                  className="gf-btn gf-btn--sm gf-btn--danger"
+                  onClick={() => handleRevokeBridge(bridge)}
+                >
+                  İptal Et
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {isFormOpen && (
         <div className="connection-form-card">
@@ -616,6 +853,38 @@ const SqlConnectionSettings = () => {
                 <span>Trust Server Certificate (Self-signed sertifikalar için)</span>
               </label>
             </div>
+
+            {/* Bağlantı yolu. Varsayılan doğrudan: bugünkü davranış değişmiyor. */}
+            <div className="form-group">
+              <label htmlFor="bridgeId">Bağlantı yolu</label>
+              <select
+                id="bridgeId"
+                name="bridgeId"
+                value={formData.bridgeId}
+                onChange={handleChange}
+              >
+                <option value="">Doğrudan — Grafirio sunucudan bağlanır</option>
+                {bridges.map((bridge) => (
+                  <option key={bridge.id} value={bridge.id}>
+                    {bridge.name || bridge.machineName}
+                    {bridge.online ? ' — çevrimiçi' : ' — çevrimdışı'}
+                  </option>
+                ))}
+              </select>
+              <small className="form-hint">
+                {formData.bridgeId
+                  ? 'Sorgular sizin sunucunuzdaki bridge üzerinden çalışır; ' +
+                    'veritabanı şifreniz orada kalır.'
+                  : 'Veritabanınız firewall arkasındaysa doğrudan bağlantı kurulamaz. ' +
+                    'Bu durumda bir bridge kurun.'}
+              </small>
+              {bridges.length === 0 && !bridgeError && (
+                <small className="form-hint">
+                  Tanımlı bridge yok. Aşağıdaki “Bridge Ekle” ile kurulum
+                  başlatabilirsiniz.
+                </small>
+              )}
+            </div>
           </div>
 
           <div className="card-footer">
@@ -726,6 +995,38 @@ const SqlConnectionSettings = () => {
                       </span>
                     </div>
                   )}
+
+                  {/* Bağlantının hangi yoldan okunduğu. Bridge çevrimdışıyken
+                      analiz başlamıyor; kullanıcının sebebi görebileceği tek
+                      yer burası. */}
+                  {(() => {
+                    const bridge = bridgeOf(connection.savedConnectionId || connection.id);
+                    if (!bridge) {
+                      return (
+                        <div className="detail-item">
+                          <i className="ti ti-cloud"></i>
+                          <span>Doğrudan bağlantı</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="detail-item">
+                        <i className="ti ti-transfer"></i>
+                        <span>{bridge.name || bridge.machineName || 'Bridge'}</span>
+                        <span
+                          className={`badge ${bridge.online ? 'badge-success' : 'badge-danger'}`}
+                          title={
+                            bridge.lastSeenAt
+                              ? `Son görülme: ${new Date(bridge.lastSeenAt).toLocaleString('tr-TR')}`
+                              : 'Henüz hiç bağlanmadı'
+                          }
+                        >
+                          {bridge.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="connection-actions">

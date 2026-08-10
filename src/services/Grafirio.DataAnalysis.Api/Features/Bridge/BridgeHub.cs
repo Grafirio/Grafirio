@@ -1,0 +1,131 @@
+using System.Security.Claims;
+using Grafirio.Bridge.Contracts;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
+
+namespace Grafirio.DataAnalysis.Api.Features.Bridge;
+
+/// <summary>
+/// Musteri agindaki bridge'lerin bagli durdugu kanal.
+///
+/// Yon: baglantiyi <b>bridge kurar</b>. Sunucu hicbir zaman musteri agina
+/// baglanmaya calismaz; acik duran bu kanaldan sorgu gonderir. Musterinin
+/// firewall'inda hicbir giris portu acilmaz — satista soylenen cumlenin
+/// koddaki karsiligi burasi.
+/// </summary>
+[Authorize(AuthenticationSchemes = BridgeAuthentication.Scheme)]
+public class BridgeHub(
+    BridgeRegistry registry,
+    IBridgePresence presence,
+    ILogger<BridgeHub> logger) : Hub
+{
+    public override async Task OnConnectedAsync()
+    {
+        var (bridgeId, companyId) = Identify();
+
+        // Protokol surumu baslikta geliyor. Bridge'ler musteri sunucularinda
+        // yasiyor ve kendiliginden guncellenmiyor; uyumsuz surumu sessizce
+        // kabul etmek, anlasilmaz hatalar uretir.
+        var version = Context.GetHttpContext()?.Request.Headers[BridgeAuthentication.VersionHeader]
+            .ToString() ?? "";
+
+        if (!version.StartsWith(BridgeProtocol.Version + ".", StringComparison.Ordinal)
+            && version != BridgeProtocol.Version)
+        {
+            logger.LogWarning(
+                "Uyumsuz bridge sürümü reddedildi. Id: {BridgeId}, sürüm: {Version}",
+                bridgeId, version);
+
+            Context.Abort();
+            return;
+        }
+
+        registry.Attach(bridgeId, Context.ConnectionId, companyId, version);
+        await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
+
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var (bridgeId, _) = Identify();
+        registry.Detach(bridgeId, Context.ConnectionId);
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>Bridge → sunucu: satir parcasi.</summary>
+    public async Task PushChunk(QueryChunk chunk) =>
+        await registry.PushAsync(chunk.RequestId, chunk, Context.ConnectionAborted);
+
+    /// <summary>Bridge → sunucu: sorgu bitti.</summary>
+    public Task CompleteQuery(QueryCompleted completed)
+    {
+        registry.Complete(completed.RequestId, completed);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Bridge → sunucu: sorgu calistirilamadi.</summary>
+    public Task FailQuery(QueryFailure failure)
+    {
+        logger.LogWarning(
+            "Bridge sorguyu reddetti. Kod: {Code}, mesaj: {Message}",
+            failure.Code, failure.Message);
+
+        registry.Fail(failure.RequestId, failure);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Bridge → sunucu: hayattayim. Paneldeki rozeti besleyen sey.</summary>
+    public async Task Heartbeat(BridgeHeartbeat heartbeat)
+    {
+        var (bridgeId, _) = Identify();
+        await presence.TouchAsync(bridgeId, heartbeat.BridgeVersion, Context.ConnectionAborted);
+    }
+
+    private (Guid BridgeId, string CompanyId) Identify()
+    {
+        var bridgeId = Context.User?.FindFirst(BridgeAuthentication.BridgeIdClaim)?.Value;
+        var companyId = Context.User?.FindFirst(BridgeAuthentication.CompanyIdClaim)?.Value;
+
+        // Kimlik dogrulama zaten gecmis olmali; buraya duserse yapilandirma
+        // hatasi var demektir ve sessizce devam etmek yanlis bridge'e sorgu
+        // gondermeye yol acar.
+        if (bridgeId is null || companyId is null)
+            throw new HubException("Bridge kimliği çözülemedi.");
+
+        return (Guid.Parse(bridgeId), companyId);
+    }
+}
+
+/// <summary>
+/// "Bu bridge hayatta." Hub'in <see cref="Data.Mongo.BridgeStore"/>'dan
+/// kullandigi tek sey bu; arayuz olarak ayrilmasinin sebebi, protokolun
+/// Mongo ayakta olmadan test edilebilmesi.
+/// </summary>
+public interface IBridgePresence
+{
+    Task TouchAsync(Guid bridgeId, string version, CancellationToken ct = default);
+}
+
+/// <summary>Bridge kimlik dogrulamasinin sabitleri.</summary>
+public static class BridgeAuthentication
+{
+    public const string Scheme = "Bridge";
+    public const string BridgeIdClaim = "bridge_id";
+    public const string CompanyIdClaim = "bridge_company_id";
+    public const string VersionHeader = "X-Grafirio-Bridge-Version";
+}
+
+public static class BridgeClaimsExtensions
+{
+    public static ClaimsPrincipal ToPrincipal(this RegisteredBridge bridge) =>
+        new(new ClaimsIdentity(
+            [
+                new Claim(BridgeAuthentication.BridgeIdClaim, bridge.Id.ToString()),
+                new Claim(BridgeAuthentication.CompanyIdClaim, bridge.CompanyId),
+                new Claim(ClaimTypes.Name, bridge.Name),
+            ],
+            BridgeAuthentication.Scheme));
+}

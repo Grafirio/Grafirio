@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>grafirio-bridge</UserSecretsId>
+
+    <!--
+      Musteri sunucusuna tek dosya kuruluyor: BT ekipleri .NET runtime kurmayi
+      ayri bir onay sureci sayiyor. Kendi kendine yeten yayin varsayilan.
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <AssemblyName>GrafirioBridge</AssemblyName>
+    <RootNamespace>Grafirio.Bridge</RootNamespace>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
+    <!-- Yerel sirlar DPAPI ile korunuyor; paket Windows disinda yuklenmiyor. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.4" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

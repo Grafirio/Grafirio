@@ -25,6 +25,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Bridge protokolu: sunucu ile musteri agindaki servis arasindaki sozlesme. -->
+    <ProjectReference Include="..\..\bridge\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Grafirio.Shared.Infrastructure" Version="1.0.0" />
     <PackageReference Include="Grafirio.Shared.Identity" Version="1.0.0" />
   </ItemGroup>
