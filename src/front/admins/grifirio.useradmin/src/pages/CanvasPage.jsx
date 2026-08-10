@@ -1,23 +1,32 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconX, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
+import { loadLayout, saveLayout, applyLayout, emptyLayout } from '../components/Canvas/canvasLayout';
+import { nodeIds, collectSubtree } from '../components/Canvas/canvasGraph';
+import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
 import {
   getConnectionById, getSelectedTables,
   submitAgentQuery, getAgentQueryStatus, getAgentQueryResult, getAgentQueryHistory,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
 
+/* Kaba yükseklikler — yalnızca yeni düğümün nereye konacağını kestirmek
+   için. Kenarların çizimi gerçek ölçüme bakıyor (bkz. InfiniteCanvas). */
+const NODE_HEIGHT = {
+  biChartNode: 340,
+  biTableNode: 310,
+  biInsightNode: 180,
+  biMetricNode: 150,
+};
+const heightOf = (node) => NODE_HEIGHT[node.type] ?? 200;
+
 /* ─────────────────────────────────────────────────────────────
    Canvas-node builder helpers
    Render tamamen sonuç odaklıdır: backend'in döndürdüğü composite
    payload'daki answer + charts[] + insights[] neyse o çizilir.
 ───────────────────────────────────────────────────────────── */
-/* `key` düğüm kimliklerini sabitler.
-   Önceden `Date.now()` kullanılıyordu; aynı tuval iki kez kurulduğunda
-   (örneğin geçmiş geri yüklenirken) her seferinde başka kimlikler çıkıyordu.
-   Sorgu kimliğinden türetince aynı soru hep aynı düğümleri üretiyor. */
-const buildCanvasNodes = (report, parentId, posRef, key = Date.now()) => {
+const buildCanvasNodes = (report, parentId, posRef, queryId, sourceQuestion = '') => {
   const newNodes = [];
   const newEdges = [];
   const { x: sx, y: sy } = posRef.current;
@@ -32,21 +41,28 @@ const buildCanvasNodes = (report, parentId, posRef, key = Date.now()) => {
   };
 
   if (report.answer) {
-    const id = `ins-ans-${key}`;
+    const id = nodeIds.answer(queryId);
     newNodes.push({ id, type: 'biInsightNode', position: { x: sx, y: curY }, data: { type: 'info', title: '🤖 AI Yanıtı', description: report.answer } });
     edge(id);
     curY += ROW_H_INSIGHT + 24;
   }
 
   (report.charts || []).forEach((chart, i) => {
-    const id = `chart-${key}-${i}`;
-    newNodes.push({ id, type: 'biChartNode', position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_CHART + 32) }, data: chart });
+    const id = nodeIds.chart(queryId, i);
+    newNodes.push({
+      id,
+      type: 'biChartNode',
+      position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_CHART + 32) },
+      // Grafiği doğuran soru düğümde duruyor: "bunu düzelt" dendiğinde
+      // düzeltmenin neyin üzerine bindiğini bilmek gerekiyor.
+      data: { ...chart, sourceQuestion },
+    });
     edge(id);
   });
   if (report.charts?.length) curY += Math.ceil(report.charts.length / 2) * (ROW_H_CHART + 32);
 
   (report.insights || []).forEach((insight, i) => {
-    const id = `ins-${key}-${i}`;
+    const id = nodeIds.insight(queryId, i);
     newNodes.push({ id, type: 'biInsightNode', position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_INSIGHT + 20) }, data: insight });
     edge(id);
   });
@@ -63,18 +79,20 @@ const buildCanvasNodes = (report, parentId, posRef, key = Date.now()) => {
  * test edilebilirlik — kanvasın geri yüklenmesi gözle kolay doğrulanan bir şey
  * değil ve yanlış çalıştığında kullanıcı geçmişini kaybetmiş sanıyor.
  *
- * Canlı akışla aynı yerleşimi üretir: soru solda, cevap ve grafikler sağında,
- * her soru bir öncekine bağlı.
+ * Her soru kendi dalını açar: soru solda, cevap ve grafikler sağında.
+ * Sorular birbirine BAĞLANMAZ. Önceden her soru bir öncekine ok ile
+ * bağlanıyordu; bu, aralarında olmayan bir ilişkiyi çiziyordu — sol
+ * panelden sorulan iki soru birbirinden bağımsız. İlişki kurmanın yolu
+ * soru düğümünün üzerindeki kutudan devam etmek.
  */
 export const restoreFromHistory = (queries = []) => {
   const messages = [];
   const nodes = [];
   const edges = [];
   const posRef = { current: { x: 80, y: 80 } };
-  let lastGroupId = null;
 
   for (const item of queries) {
-    const qNodeId = `q-${item.queryId}`;
+    const qNodeId = nodeIds.question(item.queryId);
     const qPos = { ...posRef.current };
     const ts = new Date(item.createdAt).getTime();
 
@@ -82,14 +100,6 @@ export const restoreFromHistory = (queries = []) => {
       id: qNodeId, type: 'biInsightNode', position: qPos,
       data: { type: 'question', title: '💬 Soru', description: item.question },
     });
-    if (lastGroupId) {
-      edges.push({
-        id: `e-${lastGroupId}-${qNodeId}`,
-        source: lastGroupId, target: qNodeId,
-        animated: false, style: { stroke: 'var(--slate-400)' },
-      });
-    }
-    lastGroupId = qNodeId;
 
     messages.push({ role: 'user', content: item.question, ts });
 
@@ -106,7 +116,7 @@ export const restoreFromHistory = (queries = []) => {
       posRef.current = { x: qPos.x + 460, y: qPos.y };
       const built = buildCanvasNodes(
         { answer, charts: result.charts || [], insights: [] },
-        qNodeId, posRef, item.queryId);
+        qNodeId, posRef, item.queryId, item.question);
       nodes.push(...built.newNodes);
       edges.push(...built.newEdges);
       posRef.current = { x: qPos.x, y: posRef.current.y };
@@ -120,7 +130,7 @@ export const restoreFromHistory = (queries = []) => {
     }
   }
 
-  return { messages, nodes, edges, lastGroupId, nextPos: { ...posRef.current } };
+  return { messages, nodes, edges, nextPos: { ...posRef.current } };
 };
 
 /**
@@ -173,6 +183,9 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
       const result = payload?.result ?? {};
       return {
         success: true,
+        // Kimlik disari veriliyor: tuvaldeki gecici dugum kimlikleri bununla
+        // kalicilariyla degistiriliyor, yerlesim de o kimliklere yazilıyor.
+        queryId,
         answer: result.summary || result.answer || 'Analiz tamamlandı.',
         charts: result.charts || [],
         failedTasks: [],
@@ -182,13 +195,13 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
     }
 
     if (status.status === 'failed') {
-      return { success: false, error: status.message || status.error || 'Analiz başarısız oldu.' };
+      return { success: false, queryId, error: status.message || status.error || 'Analiz başarısız oldu.' };
     }
 
     onProgress?.('Analiz ediliyor…');
   }
 
-  return { success: false, error: 'Zaman aşımı — analiz 5 dakikada tamamlanmadı.' };
+  return { success: false, queryId, error: 'Zaman aşımı — analiz 5 dakikada tamamlanmadı.' };
 };
 
 /* Denetim panelinde filtreleri okunabilir yazar.
@@ -227,6 +240,7 @@ const describeFilters = (audit) => {
     .join(' · ');
 };
 
+
 /* ─────────────────────────────────────────────────────────────
    CanvasPage
 ───────────────────────────────────────────────────────────── */
@@ -249,7 +263,9 @@ export default function CanvasPage() {
   const [canvasNodes, setCanvasNodes] = useState([]);
   const [canvasEdges, setCanvasEdges] = useState([]);
   const nextPosRef = useRef({ x: 80, y: 80 });
-  const lastGroupIdRef = useRef(null);
+
+  // Silme onayı bekleyen düğüm
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   /* Kanvas bir bağlantıdan açılıyor: /canvas?connectionId=...
      Veritabanı adı ve seçili tablolar sunucudan okunuyor. Bağlantı
@@ -259,6 +275,28 @@ export default function CanvasPage() {
 
   // Kanvas bir baglantidan aciliyor: /canvas?connectionId=...
   const connectionId = new URLSearchParams(location.search).get('connectionId');
+
+  /* ── Yerleşim kaydı ──
+     Konum, silme ve dal bilgisi burada; sunucu bunları bilmiyor.
+     Yazma sıklığı sürükleme hızına bağlı olduğu için geciktiriliyor. */
+  const layoutRef = useRef(emptyLayout());
+  const saveTimerRef = useRef(null);
+
+  const persistLayout = useCallback(() => {
+    if (!connectionId) return;
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(
+      () => saveLayout(connectionId, layoutRef.current), 250);
+  }, [connectionId]);
+
+  useEffect(() => () => clearTimeout(saveTimerRef.current), []);
+
+  const rememberPositions = useCallback((nodes) => {
+    for (const node of nodes) {
+      layoutRef.current.positions[node.id] = { ...node.position };
+    }
+    persistLayout();
+  }, [persistLayout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -309,23 +347,28 @@ export default function CanvasPage() {
      sonuçlar sunucuda `QueryHistory` içinde duruyordu — ama hiçbir yerden
      geri okunmuyordu.
 
-     Tek istekle geliyor: geçmiş ucu artık sonuç gövdesini de döndürüyor. */
+     Sunucudan gelen tuval "ham" hâl; üzerine kullanıcının kendi yerleşimi
+     (sürüklediği konumlar, sildikleri, tuval üzerinden açtığı dallar,
+     düzelttiği grafikler) uygulanıyor. */
   useEffect(() => {
     if (!connectionId) return undefined;
     let cancelled = false;
 
     (async () => {
+      const layout = loadLayout(connectionId);
+      layoutRef.current = layout;
+
       try {
         const { queries = [] } = await getAgentQueryHistory(connectionId);
         if (cancelled || queries.length === 0) return;
 
         const restored = restoreFromHistory(queries);
+        const laidOut = applyLayout(restored, layout);
 
         setMessages(restored.messages);
-        setCanvasNodes(restored.nodes);
-        setCanvasEdges(restored.edges);
+        setCanvasNodes(laidOut.nodes);
+        setCanvasEdges(laidOut.edges);
         nextPosRef.current = restored.nextPos;
-        lastGroupIdRef.current = restored.lastGroupId;
       } catch {
         // Geçmiş okunamazsa kanvas boş açılır ve yeni soru sorulabilir.
         // Eski sohbeti gösterememek, ekranı tamamen kilitlemekten iyidir.
@@ -340,73 +383,110 @@ export default function CanvasPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  /* ── Ask AI question ── */
-  const handleAsk = async (q) => {
-    const text = (q || question).trim();
-    if (!text) return;
+  /* ── Düğüm sürükleme ── */
+  const handleNodeMove = useCallback((nodeId, position) => {
+    setCanvasNodes(prev => prev.map(n => (n.id === nodeId ? { ...n, position } : n)));
+    layoutRef.current.positions[nodeId] = position;
+    persistLayout();
+  }, [persistLayout]);
 
-    const userMsg = { role: 'user', content: text, ts: Date.now() };
-    setMessages(p => [...p, userMsg]);
-    setQuestion('');
-    if (inputRef.current) inputRef.current.style.height = 'auto';
+  /* ── Geçici kimliği kalıcısıyla değiştir ──
+     Soru düğümü sorgu kimliği gelmeden önce çiziliyor (kullanıcı sorusunun
+     tuvale düştüğünü hemen görmeli). Kimlik gelince düğüm, kenarları ve
+     yerleşim kaydı yeni kimliğe taşınıyor; yoksa yerleşim yeniden
+     yüklemede eşleşmezdi. */
+  const renameNode = useCallback((oldId, newId) => {
+    if (!oldId || !newId || oldId === newId) return;
+
+    setCanvasNodes(prev => prev.map(n => (n.id === oldId ? { ...n, id: newId } : n)));
+    setCanvasEdges(prev => prev.map(e => (
+      e.source === oldId || e.target === oldId
+        ? {
+            ...e,
+            id: e.id.split(oldId).join(newId),
+            source: e.source === oldId ? newId : e.source,
+            target: e.target === oldId ? newId : e.target,
+          }
+        : e
+    )));
+
+    const layout = layoutRef.current;
+    if (layout.positions[oldId]) {
+      layout.positions[newId] = layout.positions[oldId];
+      delete layout.positions[oldId];
+    }
+    if (layout.parents[oldId]) {
+      layout.parents[newId] = layout.parents[oldId];
+      delete layout.parents[oldId];
+    }
+    for (const [child, parent] of Object.entries(layout.parents)) {
+      if (parent === oldId) layout.parents[child] = newId;
+    }
+    persistLayout();
+  }, [persistLayout]);
+
+  /* ── Soruyu çalıştır ──
+     Üç giriş noktası da buraya geliyor: sol panel, soru düğümündeki kutu
+     ve hızlı sorular. Tek fark bağlanacağı ebeveyn ve konum. */
+  const runAsk = useCallback(async ({ text, parentId = null, anchor, origin = 'panel' }) => {
+    const connId = analysis?.connectionId || analysis?.requestId;
+    const stamp = Date.now();
+
+    setMessages(p => [
+      ...p,
+      { role: 'user', content: text, ts: stamp, origin },
+      { role: 'ai', content: '', loading: true, ts: stamp },
+    ]);
     setQueryCount(c => c + 1);
-    setMessages(p => [...p, { role: 'ai', content: '', loading: true, ts: Date.now() }]);
 
-    // Build history from existing messages (exclude the loading placeholder we just added)
-    // Not: ajan hatti su an sohbet gecmisini almiyor; her soru bagimsiz
-    // degerlendiriliyor. "Onu su kolona gore ver" gibi takip sorulari bu
-    // yuzden calismaz — hattin gecmis destegi eklenene kadar boyle.
+    let qNodeId = `q:pending-${stamp}`;
+    const loadingNodeId = `chart:pending-${stamp}:0`;
+    const qPos = { ...anchor };
 
-    // ── Her soru için tuvale hemen soru + loading node ekle ──
-    // (grafik gelip gelmeyeceğine keyword değil, backend'in sonucu karar verir)
-    const qNodeId       = `q-${Date.now()}`;
-    const loadingNodeId = `chart-loading-${Date.now()}`;
-    const qPos          = { ...nextPosRef.current };
-
-    const qNode = {
-      id: qNodeId, type: 'biInsightNode',
-      position: qPos,
-      data: { type: 'question', title: '💬 Soru', description: text },
-    };
-    const loadingNode = {
-      id: loadingNodeId, type: 'biChartNode',
-      position: { x: qPos.x + 460, y: qPos.y },
-      data: { loading: true, title: 'Analiz ediliyor…' },
-    };
-    const qEdge = lastGroupIdRef.current ? {
-      id: `e-${lastGroupIdRef.current}-${qNodeId}`,
-      source: lastGroupIdRef.current, target: qNodeId,
-      animated: true, style: { stroke: 'var(--slate-400)' },
-    } : null;
-    const loadEdge = {
-      id: `e-${qNodeId}-${loadingNodeId}`,
-      source: qNodeId, target: loadingNodeId,
-      animated: true, style: { stroke: 'var(--accent)' },
-    };
-
-    setCanvasNodes(p => [...p, qNode, loadingNode]);
-    setCanvasEdges(p => [...p, ...(qEdge ? [qEdge] : []), loadEdge]);
-    lastGroupIdRef.current = qNodeId;
+    setCanvasNodes(p => [
+      ...p,
+      {
+        id: qNodeId, type: 'biInsightNode', position: qPos,
+        data: { type: 'question', title: '💬 Soru', description: text },
+      },
+      {
+        id: loadingNodeId, type: 'biChartNode',
+        position: { x: qPos.x + 460, y: qPos.y },
+        data: { loading: true, title: 'Analiz ediliyor…' },
+      },
+    ]);
+    setCanvasEdges(p => [
+      ...p,
+      // Sol panelden gelen soru bir öncekine bağlanmıyor; yalnızca tuval
+      // üzerinden sorulan takip sorusunun ebeveyni var.
+      ...(parentId ? [{
+        id: `e-${parentId}-${qNodeId}`, source: parentId, target: qNodeId,
+        animated: false, style: { stroke: 'var(--accent)' },
+      }] : []),
+      {
+        id: `e-${qNodeId}-${loadingNodeId}`, source: qNodeId, target: loadingNodeId,
+        animated: true, style: { stroke: 'var(--accent)' },
+      },
+    ]);
 
     try {
-      // Kanvas artik ajan hattini kullaniyor (/api/agent/query).
-      //
-      // Onceden Django/RabbitMQ hattina gidiyordu; o hat on analiz kapisini,
-      // semantik sozlugu ve denetim izini tanimiyor. Yani kanvastan sorulan
-      // soru, kolon adlarini ogrendigimiz butun altyapiyi atliyordu. Ayni
-      // isi yapan iki paralel hat vardi; kanvas ekrani korunup alttaki
-      // hat tekillestirildi.
       const res = await askViaAgent(text, {
-        connectionId: analysis?.connectionId || analysis?.requestId,
+        connectionId: connId,
         onProgress: (message) => {
           if (!message) return;
           setCanvasNodes(p => p.map(n =>
-            n.id === loadingNodeId
-              ? { ...n, data: { ...n.data, title: message } }
-              : n
-          ));
+            n.id === loadingNodeId ? { ...n, data: { ...n.data, title: message } } : n));
         },
       });
+
+      if (res.queryId) {
+        const finalId = nodeIds.question(res.queryId);
+        renameNode(qNodeId, finalId);
+        qNodeId = finalId;
+      }
+      if (parentId) {
+        layoutRef.current.parents[qNodeId] = parentId;
+      }
 
       if (res.success) {
         const answer = res.answer || '';
@@ -435,11 +515,19 @@ export default function CanvasPage() {
           })),
         };
 
-        nextPosRef.current = { x: qPos.x + 460, y: qPos.y };
-        const { newNodes, newEdges } = buildCanvasNodes(report, qNodeId, nextPosRef);
+        const posRef = { current: { x: qPos.x + 460, y: qPos.y } };
+        const { newNodes, newEdges } = buildCanvasNodes(report, qNodeId, posRef, res.queryId, text);
         setCanvasNodes(p => [...p, ...newNodes]);
         setCanvasEdges(p => [...p, ...newEdges]);
-        nextPosRef.current = { x: qPos.x, y: nextPosRef.current.y };
+
+        rememberPositions([{ id: qNodeId, position: qPos }, ...newNodes]);
+
+        // Sol panelden gelen sorular yukarıdan aşağıya diziliyor; tuval
+        // üzerinden açılan dal kendi yerini kendisi seçtiği için sıradaki
+        // boş satırı kaydırmıyor.
+        if (origin === 'panel') {
+          nextPosRef.current = { x: qPos.x, y: posRef.current.y };
+        }
       } else {
         // Netleştirme, hatadan farklı: sistem çalıştı ama soruyu çözemedi ve
         // ne sorması gerektiğini biliyor. Kırmızı "Hata" göstermek kullanıcıya
@@ -449,14 +537,14 @@ export default function CanvasPage() {
         const label = asksBack ? '💬 Bir sorum var' : '❌ Hata';
         const body = res.error || 'Hata oluştu';
 
-        if (loadingNodeId) {
-          setCanvasNodes(p => p.map(n =>
-            n.id === loadingNodeId
-              ? { ...n, type: 'biInsightNode', data: { type: asksBack ? 'warning' : 'error', title: label, description: body } }
-              : n
-          ));
-          setCanvasEdges(p => p.map(e => e.target === loadingNodeId ? { ...e, animated: false } : e));
-        }
+        setCanvasNodes(p => p.map(n =>
+          n.id === loadingNodeId
+            ? { ...n, type: 'biInsightNode', data: { type: asksBack ? 'warning' : 'error', title: label, description: body } }
+            : n
+        ));
+        setCanvasEdges(p => p.map(e => (e.target === loadingNodeId ? { ...e, animated: false } : e)));
+        rememberPositions([{ id: qNodeId, position: qPos }]);
+
         setMessages(p => {
           const a = [...p];
           a[a.length - 1] = {
@@ -470,16 +558,18 @@ export default function CanvasPage() {
           };
           return a;
         });
+
+        if (origin === 'panel') {
+          nextPosRef.current = { x: qPos.x, y: qPos.y + 400 };
+        }
       }
     } catch (e) {
-      if (loadingNodeId) {
-        setCanvasNodes(p => p.map(n =>
-          n.id === loadingNodeId
-            ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: e.message } }
-            : n
-        ));
-        setCanvasEdges(p => p.map(e => e.target === loadingNodeId ? { ...e, animated: false } : e));
-      }
+      setCanvasNodes(p => p.map(n =>
+        n.id === loadingNodeId
+          ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: e.message } }
+          : n
+      ));
+      setCanvasEdges(p => p.map(e2 => (e2.target === loadingNodeId ? { ...e2, animated: false } : e2)));
       setMessages(p => {
         const a = [...p];
         a[a.length - 1] = { role: 'ai', content: `❌ ${e.message}`, error: true, ts: Date.now() };
@@ -488,9 +578,187 @@ export default function CanvasPage() {
     } finally {
       setQueryCount(c => Math.max(0, c - 1));
     }
+  }, [analysis, renameNode, rememberPositions]);
+
+  /* ── Sol panelden soru ── */
+  const handleAsk = (q) => {
+    const text = (q || question).trim();
+    if (!text) return;
+
+    setQuestion('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+
+    runAsk({ text, anchor: { ...nextPosRef.current }, origin: 'panel' });
   };
 
+  /* ── Soru düğümünün üzerinden devam ──
+     Yeni dal, ebeveynin altındaki ilk boş yere kuruluyor: dalın tamamı
+     (soru + cevabı + grafikleri) hesaba katılıyor, yoksa üstüne biniyordu. */
+  const handleNodeAsk = useCallback((node, text) => {
+    const ids = collectSubtree(canvasNodes, canvasEdges, node.id);
+    const members = canvasNodes.filter(n => ids.has(n.id));
+    const bottom = members.length > 0
+      ? Math.max(...members.map(n => n.position.y + heightOf(n)))
+      : node.position.y + heightOf(node);
+
+    runAsk({
+      text,
+      parentId: node.id,
+      anchor: { x: node.position.x + 60, y: bottom + 60 },
+      origin: 'canvas',
+    });
+  }, [canvasNodes, canvasEdges, runAsk]);
+
+  /* ── Grafiği yerinde düzelt ──
+     Yanlış anlaşılmış bir soru için ikinci bir grafik eklemek, tuvalde aynı
+     sorunun iki cevabını yan yana bırakıyor ve hangisinin geçerli olduğu
+     kaybolyor. Düzeltme sonucu bu düğümün yerine geçiyor.
+
+     Ajan hattı sohbet geçmişi almıyor; bağlam soruya gömülerek veriliyor. */
+  const handleNodeRefine = useCallback(async (node, text) => {
+    const connId = analysis?.connectionId || analysis?.requestId;
+    const original = node.data?.sourceQuestion;
+    const composed = original ? `${original}\n\nDüzeltme isteği: ${text}` : text;
+    const previousData = node.data;
+    const stamp = Date.now();
+
+    setMessages(p => [
+      ...p,
+      { role: 'user', content: text, ts: stamp, origin: 'refine' },
+      { role: 'ai', content: '', loading: true, ts: stamp },
+    ]);
+    setQueryCount(c => c + 1);
+    setCanvasNodes(p => p.map(n => (
+      n.id === node.id
+        ? { ...n, data: { loading: true, title: 'Grafik yeniden hesaplanıyor…' } }
+        : n
+    )));
+
+    try {
+      const res = await askViaAgent(composed, {
+        connectionId: connId,
+        onProgress: (message) => {
+          if (!message) return;
+          setCanvasNodes(p => p.map(n =>
+            n.id === node.id ? { ...n, data: { ...n.data, title: message } } : n));
+        },
+      });
+
+      if (!res.success || (res.charts || []).length === 0) {
+        // Düzeltme başarısızsa eski grafik geri geliyor: kullanıcıyı elinde
+        // olan sonuçtan da etmek, yanlış grafikten kötü.
+        setCanvasNodes(p => p.map(n => (n.id === node.id ? { ...n, data: previousData } : n)));
+        const body = res.success
+          ? 'Düzeltme bir grafik üretmedi; grafik olduğu gibi bırakıldı.'
+          : (res.error || 'Düzeltme başarısız oldu.');
+        setMessages(p => {
+          const a = [...p];
+          a[a.length - 1] = { role: 'ai', content: `❌ ${body}`, error: true, ts: Date.now() };
+          return a;
+        });
+        return;
+      }
+
+      const [first, ...extras] = res.charts;
+      const answer = res.answer || '';
+
+      setCanvasNodes(p => p.map(n => (
+        n.id === node.id ? { ...n, data: { ...first, sourceQuestion: composed } } : n
+      )));
+
+      // Bu grafiğin bağlı olduğu soru düğümü ve o dalın yorum düğümü.
+      const parentId = canvasEdges.find(e => e.target === node.id)?.source ?? null;
+
+      // Yorum düğümü eski grafiği anlatıyordu; grafik değişince o cümle de
+      // yanlış oluyor. Aynı dalda duran yorum güncelleniyor.
+      if (parentId && answer) {
+        setCanvasNodes(p => p.map(n => (
+          n.id.startsWith('ans:') && canvasEdges.some(e => e.source === parentId && e.target === n.id)
+            ? { ...n, data: { ...n.data, description: answer } }
+            : n
+        )));
+      }
+
+      // Düzeltme birden fazla grafik döndürürse fazlası aynı dala ekleniyor.
+      if (extras.length > 0) {
+        const extraNodes = extras.map((chart, i) => ({
+          id: nodeIds.chart(res.queryId, i + 1),
+          type: 'biChartNode',
+          position: { x: node.position.x, y: node.position.y + (i + 1) * 370 },
+          data: { ...chart, sourceQuestion: composed },
+        }));
+        setCanvasNodes(p => [...p, ...extraNodes]);
+        if (parentId) {
+          setCanvasEdges(p => [...p, ...extraNodes.map(n => ({
+            id: `e-${parentId}-${n.id}`, source: parentId, target: n.id,
+            animated: true, style: { stroke: 'var(--accent)' },
+          }))]);
+        }
+        rememberPositions(extraNodes);
+      }
+
+      // Yeniden yüklemede: düzeltmenin kendi soru dalı gizleniyor, bu düğüm
+      // ise düzeltme sorgusunun grafiğiyle dolduruluyor.
+      layoutRef.current.replacements[node.id] = res.queryId;
+      layoutRef.current.hiddenQueries = [
+        ...new Set([...(layoutRef.current.hiddenQueries ?? []), res.queryId]),
+      ];
+      persistLayout();
+
+      setMessages(p => {
+        const a = [...p];
+        a[a.length - 1] = {
+          role: 'ai', content: answer, ts: Date.now(),
+          result: { charts: res.charts }, audit: res.audit || null, replaced: true,
+        };
+        return a;
+      });
+    } catch (e) {
+      setCanvasNodes(p => p.map(n => (n.id === node.id ? { ...n, data: previousData } : n)));
+      setMessages(p => {
+        const a = [...p];
+        a[a.length - 1] = { role: 'ai', content: `❌ ${e.message}`, error: true, ts: Date.now() };
+        return a;
+      });
+    } finally {
+      setQueryCount(c => Math.max(0, c - 1));
+    }
+  }, [analysis, canvasEdges, persistLayout, rememberPositions]);
+
+  /* ── Silme ── */
+  const handleNodeDelete = useCallback((node) => setPendingDelete(node), []);
+
+  const confirmDelete = useCallback(() => {
+    const node = pendingDelete;
+    if (!node) return;
+
+    // Soru düğümü silinince dalın tamamı gidiyor: cevabı ve grafikleri
+    // tuvalde bırakmak, neyin sorulduğu bilinmeyen kutular demek.
+    const doomed = node.data?.type === 'question'
+      ? collectSubtree(canvasNodes, canvasEdges, node.id)
+      : new Set([node.id]);
+
+    setCanvasNodes(p => p.filter(n => !doomed.has(n.id)));
+    setCanvasEdges(p => p.filter(e => !doomed.has(e.source) && !doomed.has(e.target)));
+
+    const layout = layoutRef.current;
+    layout.hidden = [...new Set([...layout.hidden, ...doomed])];
+    for (const id of doomed) {
+      delete layout.positions[id];
+      delete layout.parents[id];
+      delete layout.replacements[id];
+    }
+    persistLayout();
+
+    setPendingDelete(null);
+  }, [pendingDelete, canvasNodes, canvasEdges, persistLayout]);
+
   const QUICK_Q = ['En aktif kullanıcılar?', 'Aylık veri artışı?', 'En büyük tablo?'];
+
+  const ORIGIN_LABEL = {
+    canvas: '🧵 Tuvalde bir sorunun devamı',
+    refine: '✎ Bir grafiğin düzeltmesi',
+  };
 
   return (
     <div className="cp-root">
@@ -584,7 +852,18 @@ export default function CanvasPage() {
                       ) : (
                         msg.content
                       )}
-                      {msg.result?.charts?.length > 0 && (
+
+                      {/* Sohbet, tuvalde olan biteni de kaydediyor: aynı soru
+                          listesinde hangi sorunun tuval üzerinden sorulduğu
+                          görünmezse geçmiş yanıltıcı olur. */}
+                      {ORIGIN_LABEL[msg.origin] && (
+                        <div className="cp-msg-origin">{ORIGIN_LABEL[msg.origin]}</div>
+                      )}
+
+                      {msg.replaced && (
+                        <div className="cp-msg-meta">✎ Grafik tuvalde güncellendi</div>
+                      )}
+                      {!msg.replaced && msg.result?.charts?.length > 0 && (
                         <div className="cp-msg-meta">📊 {msg.result.charts.length} grafik tuvale eklendi</div>
                       )}
 
@@ -693,9 +972,24 @@ export default function CanvasPage() {
 
         {/* ── Sağ: Sonsuz Tuval ── */}
         <main className="cp-canvas-area">
-          <InfiniteCanvas nodes={canvasNodes} edges={canvasEdges} />
+          <InfiniteCanvas
+            nodes={canvasNodes}
+            edges={canvasEdges}
+            onNodeMove={handleNodeMove}
+            onNodeAsk={handleNodeAsk}
+            onNodeRefine={handleNodeRefine}
+            onNodeDelete={handleNodeDelete}
+          />
         </main>
       </div>
+
+      {pendingDelete && (
+        <DeleteConfirmDialog
+          node={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={confirmDelete}
+        />
+      )}
     </div>
   );
 }

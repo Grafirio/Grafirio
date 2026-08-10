@@ -48,6 +48,23 @@
   z-index: 10;
 }
 
+/* Sürüklenebilir düğüm: imleç bunu söylemezse taşınabildiği görünmüyor. */
+.canvas-node.is-draggable { cursor: grab; }
+.canvas-node.is-draggable:active { cursor: grabbing; }
+.canvas-node.is-dragging {
+  cursor: grabbing;
+  z-index: 40;
+  filter: drop-shadow(0 12px 28px rgba(34, 44, 51, 0.22));
+}
+/* Sürüklenen düğüm geçiş efektiyle fareyi geriden takip etmesin. */
+.canvas-node.is-dragging,
+.canvas-node.is-dragging * { transition: none !important; }
+
+/* Yazı ve düğmeler sürükleme kolu değil — üzerlerinde normal imleç. */
+.canvas-node input,
+.canvas-node textarea { cursor: text; }
+.canvas-node button { cursor: pointer; }
+
 /* ── Controls overlay ── */
 .canvas-controls {
   position: absolute;
@@ -168,6 +185,102 @@
   color: var(--accent);
   flex-shrink: 0;
 }
+
+/* ── Başlıktaki düğüm eylemleri (düzelt / sil) ──
+   Sürekli görünür değiller: on grafiğin üzerinde duran yirmi düğme
+   tuvali gürültüye çeviriyor. Düğümün üzerine gelince beliriyorlar,
+   klavyeyle gezerken de odak aldıklarında. */
+.bi-node-action {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.canvas-node:hover .bi-node-action,
+.bi-node-action:focus-visible,
+.bi-node-action.is-active { opacity: 1; }
+
+.bi-node-action:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bi-node-action.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bi-node-action--danger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── Düğüm üzerindeki soru kutusu ── */
+.bi-node-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+  padding: 8px 10px;
+}
+.bi-node-footer-hint {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-subtle);
+  margin-bottom: 6px;
+}
+.bi-node-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.bi-node-composer-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 30px;
+  max-height: 96px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: white;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.bi-node-composer-input:focus { border-color: var(--accent); }
+.bi-node-composer-input::placeholder { color: var(--text-subtle); }
+.bi-node-composer-input:disabled { opacity: 0.6; }
+
+.bi-node-composer-send {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+.bi-node-composer-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Chart node ── */
 .bi-chart-node { width: 400px; }

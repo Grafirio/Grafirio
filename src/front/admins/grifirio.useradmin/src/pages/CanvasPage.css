@@ -287,6 +287,13 @@
 .cp-msg--error .cp-msg-body { background: var(--danger-soft); border-color: var(--danger-soft); color: var(--danger); }
 .cp-msg-meta { font-size: 11px; color: var(--accent); margin-top: 4px; font-weight: 500; }
 
+/* Sorunun nereden sorulduğu — sol panel mi, tuvaldeki bir düğüm mü. */
+.cp-msg-origin {
+  font-size: 10.5px;
+  color: var(--text-subtle);
+  margin-top: 4px;
+}
+
 /* Typing dots */
 .cp-typing { display: flex; gap: 4px; padding: 2px 0; }
 .cp-typing span {
@@ -433,4 +440,106 @@
   background: var(--warning-soft);
   color: var(--text);
   line-height: 1.5;
+}
+
+/* ── Silme onayı ──────────────────────────────────────────────
+   Onay kutusu tuvalin dışında duruyor: tuval ölçeklenip kaydırılıyor,
+   içine konan bir pencere de onunla birlikte kayardı. */
+.cp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(34, 44, 51, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.cp-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(34, 44, 51, 0.28);
+}
+
+.cp-modal-title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.cp-modal-body {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.cp-modal-body strong { color: var(--text); }
+
+.cp-modal-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.cp-modal-label code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.cp-modal-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.cp-modal-input:focus { border-color: var(--danger); background: white; }
+
+.cp-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cp-modal-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cp-modal-btn:hover:not(:disabled) { background: var(--surface-sunken); }
+
+.cp-modal-btn--danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: white;
+}
+.cp-modal-btn--danger:hover:not(:disabled) { opacity: 0.9; }
+.cp-modal-btn--danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  /* Kapalıyken de kırmızı: hangi düğmenin sildiğini gizlememek gerek. */
 }
