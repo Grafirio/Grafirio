@@ -45,6 +45,9 @@ public static class BridgeEndpoints
 
         managed.MapPut("/connections/{connectionId:guid}", BindConnection)
             .WithDescription("Bağlantının hangi bridge üzerinden okunacağını belirler");
+
+        managed.MapGet("/connections", ListBindings)
+            .WithDescription("Hangi bağlantının hangi bridge'e bağlı olduğunu listeler");
     }
 
     /// <summary>
@@ -143,6 +146,23 @@ public static class BridgeEndpoints
             // "Çevrimiçi" bu ornege bagli olmak demek. Cok replikali calismada
             // bu bilgi eksik kalir; BridgeRegistry'deki nota bakin.
             online = registry.IsOnline(bridge.Id)
+        }));
+    }
+
+    private static async Task<IResult> ListBindings(
+        BridgeStore store,
+        IIdentityService identity,
+        CancellationToken ct)
+    {
+        if (CompanyOf(identity) is not { } companyId)
+            return Results.BadRequest(new { error = "Token'da şirket bilgisi yok." });
+
+        var bindings = await store.GetBindingsAsync(companyId, ct);
+
+        return Results.Ok(bindings.Select(kv => new
+        {
+            connectionId = kv.Key,
+            bridgeId = kv.Value
         }));
     }
 

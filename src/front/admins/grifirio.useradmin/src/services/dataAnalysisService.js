@@ -376,3 +376,62 @@ export const getSelectedTables = async (connectionId) => {
   );
   return response.data;
 };
+
+/* ─────────────────────────────────────────────────────────────
+   Bridge — müşterinin kendi ağında çalışan bağlantı servisi.
+
+   Neden var: kurumsal veritabanları firewall arkasında ve buluttan
+   erişilemiyor. Bridge yönü çeviriyor — bağlantıyı müşterinin sunucusu
+   dışarı doğru kurar, firewall'da hiçbir port açılmaz.
+
+   Panelin bu uçlarla tek işi var: hangi bağlantının hangi bridge
+   üzerinden okunacağını belirlemek ve kurulum token'ı üretmek.
+───────────────────────────────────────────────────────────── */
+
+/** Şirketin bridge'leri ve çevrimiçi durumları. */
+export const getBridges = async () => {
+  const response = await axios.get(`${API_BASE_URL}/api/bridges`, { timeout: 15000 });
+  return response.data;
+};
+
+/**
+ * Yeni bir bridge kurulumu için tek kullanımlık token üretir.
+ *
+ * Token kısa ömürlü ve bir kez harcanıyor: bir bridge'i şirkete bağlayan
+ * tek şey bu, dolaşımda kalırsa başkası kendi bridge'ini kaydettirebilir.
+ */
+export const createBridgeEnrollmentToken = async () => {
+  const response = await axios.post(
+    `${API_BASE_URL}/api/bridges/enrollment-tokens`, {}, { timeout: 15000 }
+  );
+  return response.data;
+};
+
+/** Bridge'in erişimini iptal eder. */
+export const revokeBridge = async (bridgeId) => {
+  const response = await axios.delete(
+    `${API_BASE_URL}/api/bridges/${bridgeId}`, { timeout: 15000 }
+  );
+  return response.data;
+};
+
+/**
+ * Bağlantının hangi yoldan okunacağını belirler.
+ * `bridgeId` null verilirse bağlantı doğrudan moda döner.
+ */
+export const bindConnectionToBridge = async (connectionId, bridgeId) => {
+  const response = await axios.put(
+    `${API_BASE_URL}/api/bridges/connections/${connectionId}`,
+    { bridgeId: bridgeId ?? null },
+    { timeout: 15000 }
+  );
+  return response.data;
+};
+
+/** Hangi bağlantının hangi bridge'e bağlı olduğu. Tek çağrı — kart başına değil. */
+export const getBridgeBindings = async () => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/bridges/connections`, { timeout: 15000 }
+  );
+  return response.data;
+};

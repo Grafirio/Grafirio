@@ -217,6 +217,27 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
         return value is null || value == BsonNull.Value ? null : Guid.Parse(value.AsString);
     }
 
+    /// <summary>
+    /// Sirketin butun baglanti eslemeleri, tek okumada.
+    ///
+    /// Panel her baglanti karti icin ayri bir istek atmasin diye toplu:
+    /// yirmi baglantisi olan bir sirkette bu, ekran acilisinda yirmi cagri
+    /// demek olurdu.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, Guid>> GetBindingsAsync(
+        string companyId, CancellationToken ct = default)
+    {
+        var documents = await Bindings
+            .Find(Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("companyId", companyId),
+                Builders<BsonDocument>.Filter.Ne("bridgeId", BsonNull.Value)))
+            .ToListAsync(ct);
+
+        return documents.ToDictionary(
+            d => Guid.Parse(d["_id"].AsString),
+            d => Guid.Parse(d["bridgeId"].AsString));
+    }
+
     private static RegisteredBridge Map(BsonDocument document) => new(
         Guid.Parse(document["_id"].AsString),
         document.GetValue("companyId", "").AsString,
