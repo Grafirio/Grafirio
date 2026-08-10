@@ -55,26 +55,30 @@ public class BridgeHub(
         await base.OnDisconnectedAsync(exception);
     }
 
+    // Asagidaki uc metot cevabi dogrudan teslim etmiyor, kayit defterine
+    // veriyor: bridge'in bagli oldugu replika ile sorguyu baslatan replika
+    // ayni olmayabilir. Yonlendirme <see cref="IBridgeResponseBus"/> isi.
+
     /// <summary>Bridge → sunucu: satir parcasi.</summary>
     public async Task PushChunk(QueryChunk chunk) =>
-        await registry.PushAsync(chunk.RequestId, chunk, Context.ConnectionAborted);
+        await registry.DispatchAsync(
+            new BridgeResponse(chunk.RequestId, Chunk: chunk), Context.ConnectionAborted);
 
     /// <summary>Bridge → sunucu: sorgu bitti.</summary>
-    public Task CompleteQuery(QueryCompleted completed)
-    {
-        registry.Complete(completed.RequestId, completed);
-        return Task.CompletedTask;
-    }
+    public async Task CompleteQuery(QueryCompleted completed) =>
+        await registry.DispatchAsync(
+            new BridgeResponse(completed.RequestId, Completed: completed),
+            Context.ConnectionAborted);
 
     /// <summary>Bridge → sunucu: sorgu calistirilamadi.</summary>
-    public Task FailQuery(QueryFailure failure)
+    public async Task FailQuery(QueryFailure failure)
     {
         logger.LogWarning(
             "Bridge sorguyu reddetti. Kod: {Code}, mesaj: {Message}",
             failure.Code, failure.Message);
 
-        registry.Fail(failure.RequestId, failure);
-        return Task.CompletedTask;
+        await registry.DispatchAsync(
+            new BridgeResponse(failure.RequestId, Failure: failure), Context.ConnectionAborted);
     }
 
     /// <summary>Bridge → sunucu: hayattayim. Paneldeki rozeti besleyen sey.</summary>

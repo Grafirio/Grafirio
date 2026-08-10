@@ -5,21 +5,23 @@ using Grafirio.Bridge.Contracts;
 namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 
 /// <summary>
-/// Bu sunucu ornegine bagli bridge'ler ve suren sorgular.
+/// Bagli bridge'ler ve suren sorgular.
 ///
-/// <b>Bu defter sureclere ozel.</b> Bridge tek bir replikaya baglaniyor; sorgu
-/// istegi baska bir replikaya duserse o replika bridge'i bulamaz. Bugun bunun
-/// karsiligi acik bir hata (<see cref="BridgeUnavailableException"/>), sessizce
-/// bekleyen bir istek degil — teshis edilemeyen bir askida kalma, gorulebilen
-/// bir hatadan cok daha kotudur.
+/// Iki ayri sorumluluk var ve ikisi farkli yerlerde yasiyor:
 ///
-/// Cok replikali calisma icin cevap kanalinin da replikalar arasi tasinmasi
-/// gerekiyor (Redis pub/sub). SignalR'in Redis backplane'i tek basina yetmez:
-/// o yalnizca sunucudan istemciye gideni tasir, bridge'in cevabi yine
-/// baglandigi replikaya duser. O gelene kadar data-analysis-api tek replika
-/// calismali.
+///   * <b>Hangi bridge nereye bagli</b> — sureclere ozel. Bridge tek bir
+///     replikaya baglaniyor. Sorgu istegi baska bir replikada dogduysa
+///     SignalR'in Redis backplane'i istegi yine de ulastirir.
+///   * <b>Cevabi kim bekliyor</b> — <see cref="IBridgeResponseBus"/>. Backplane
+///     yalnizca sunucudan istemciye gideni tasidigi icin cevap yolu ayrica
+///     kuruluyor.
+///
+/// Bridge'e ulasilamadiginda acik bir hata firlatiliyor
+/// (<see cref="BridgeUnavailableException"/>), sessizce bekleyen bir istek
+/// degil — teshis edilemeyen bir askida kalma, gorulebilen bir hatadan cok
+/// daha kotudur.
 /// </summary>
-public class BridgeRegistry(ILogger<BridgeRegistry> logger)
+public class BridgeRegistry(IBridgeResponseBus responses, ILogger<BridgeRegistry> logger)
 {
     /// <summary>Bridge kimligi → SignalR baglanti kimligi.</summary>
     private readonly ConcurrentDictionary<Guid, BridgeConnection> _connected = new();
@@ -86,37 +88,63 @@ public class BridgeRegistry(ILogger<BridgeRegistry> logger)
 
     /* ── Suren sorgular ───────────────────────────────────────────────── */
 
-    public PendingQuery Register(string requestId, Guid bridgeId)
+    /// <summary>
+    /// Bu ornege yonlendirilen cevaplari bagla. Program acilista bir kez cagirir.
+    /// </summary>
+    public void Start() => responses.OnLocalDelivery(Deliver);
+
+    public async Task<PendingQuery> RegisterAsync(
+        string requestId, Guid bridgeId, CancellationToken ct = default)
     {
         var pending = new PendingQuery(bridgeId);
         _pending[requestId] = pending;
+
+        // Sahiplik kaydi sorgu GONDERILMEDEN once yaziliyor: cevap, istek
+        // gonderildikten hemen sonra baska bir replikaya dusebilir.
+        await responses.ClaimAsync(requestId, ct);
         return pending;
     }
 
-    public void Release(string requestId) => _pending.TryRemove(requestId, out _);
+    public async Task ReleaseAsync(string requestId)
+    {
+        _pending.TryRemove(requestId, out _);
+        await responses.ReleaseAsync(requestId);
+    }
 
     /// <summary>
-    /// Bridge'ten gelen parcayi bekleyen tarafa aktarir.
+    /// Bridge'ten gelen cevabi sahibine yollar.
+    ///
+    /// Hub bunu cagiriyor ve cagiran replika sahibi OLMAYABILIR: bridge hangi
+    /// replikaya bagliysa cevap oraya duser. Yonlendirmeyi otobüs yapiyor.
+    /// </summary>
+    public Task DispatchAsync(BridgeResponse response, CancellationToken ct = default) =>
+        responses.DispatchAsync(response, ct);
+
+    /// <summary>
+    /// Cevabi bekleyen kanala yazar.
     ///
     /// Bilinmeyen istek kimligi sessizce atiliyor: iptal edilmis ya da zaman
     /// asimina ugramis bir sorgunun gec gelen parcasi normal bir durum.
     /// </summary>
-    public async Task PushAsync(string requestId, QueryChunk chunk, CancellationToken ct)
+    private async Task Deliver(BridgeResponse response, CancellationToken ct)
     {
-        if (_pending.TryGetValue(requestId, out var pending))
-            await pending.WriteAsync(chunk, ct);
-    }
+        if (!_pending.TryGetValue(response.RequestId, out var pending)) return;
 
-    public void Complete(string requestId, QueryCompleted completed)
-    {
-        if (_pending.TryGetValue(requestId, out var pending))
-            pending.Complete(completed);
-    }
-
-    public void Fail(string requestId, QueryFailure failure)
-    {
-        if (_pending.TryGetValue(requestId, out var pending))
+        if (response.Failure is { } failure)
+        {
             pending.Fail(new BridgeQueryException(failure.Code, failure.Message));
+            return;
+        }
+
+        if (response.Completed is { } completed)
+        {
+            pending.Complete(completed);
+            return;
+        }
+
+        // Kanal sinirli; dolu oldugunda yazma bekler. Beklemek burada DOGRU
+        // davranis: bridge'in sunucudan hizli satir uretmesi boyle freniyor.
+        if (response.Chunk is { } chunk) await pending.WriteAsync(chunk, ct);
     }
 
     private sealed record BridgeConnection(string ConnectionId, string CompanyId, string Version);

@@ -55,6 +55,9 @@ public sealed class BridgeTestHost : IAsyncDisposable
         await _server.StartAsync();
 
         Registry = _server.Services.GetRequiredService<BridgeRegistry>();
+        // Cevap yolunu bağla — üretimde Program.cs bunu yapıyor. Bağlanmazsa
+        // sorgular sessizce zaman aşımına uğrardı.
+        Registry.Start();
         HubContext = _server.Services.GetRequiredService<IHubContext<BridgeHub>>();
 
         // Gercek durum nesnesi: sahte bir tane koymak yerine gecici bir dosya
@@ -78,6 +81,9 @@ public sealed class BridgeTestHost : IAsyncDisposable
                 .ConfigureLogging(logging => logging.SetMinimumLevel(LogLevel.Warning))
                 .ConfigureServices(services =>
                 {
+                    // Tek replika: cevap yolu süreç içi. Replikalar arası
+                    // yönlendirme ayrıca ölçülüyor (BridgeResponseRoutingTests).
+                    services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
                     services.AddSingleton<BridgeRegistry>();
                     services.AddSingleton<IBridgePresence, NoopPresence>();
                     services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);

@@ -74,7 +74,7 @@ public sealed class BridgeDataSourceSession(
 
         var requestId = Guid.NewGuid().ToString("N");
         var connectionIdOfBridge = Resolve();
-        var pending = registry.Register(requestId, bridgeId);
+        var pending = await registry.RegisterAsync(requestId, bridgeId, ct);
 
         try
         {
@@ -108,7 +108,7 @@ public sealed class BridgeDataSourceSession(
         }
         finally
         {
-            registry.Release(requestId);
+            await registry.ReleaseAsync(requestId);
         }
     }
 

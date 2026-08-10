@@ -34,6 +34,7 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
                     services.AddSingleton<BridgeStore>();
                     services.AddSingleton<IBridgePresence>(
                         sp => sp.GetRequiredService<BridgeStore>());
+                    services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
                     services.AddSingleton<BridgeRegistry>();
                     services.AddSignalR();
 
