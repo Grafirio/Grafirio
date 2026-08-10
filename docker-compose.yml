@@ -166,6 +166,10 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASS: ${RABBITMQ_PASSWORD}
+      # Veri artik bu servise kimlik bilgisiyle gelmiyor: sorgu
+      # DataAnalysis.Api'nin ic ucuna gonderiliyor, satirlar oradan aliniyor.
+      DATA_ANALYSIS_API_URL: http://data-analysis.api.container:5221
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
     ports:
       - "8002:8002"
     volumes:
@@ -248,6 +252,10 @@ services:
       RabbitMQ__Username: ${RABBITMQ_USER}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD}
       PyCaret__BaseUrl: http://pycaret.engine.container:8002
+      # PyCaret'in veri okudugu ic ucun anahtari. Tanimsizsa uc kapalidir:
+      # ic aga erisen herkese musteri veritabaninda sorgu calistirma yetkisi
+      # vermek yerine hicbir seyin calismamasi tercih ediliyor.
+      Internal__ApiKey: ${INTERNAL_API_KEY}
     ports:
       - "5221:5221"
     depends_on:

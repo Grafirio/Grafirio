@@ -1,5 +1,5 @@
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Models;
-using Microsoft.Data.SqlClient;
 
 namespace Grafirio.DataAnalysis.Api.Features.Connections;
 
@@ -12,6 +12,9 @@ namespace Grafirio.DataAnalysis.Api.Features.Connections;
 /// bir harf farkli iki klasor, hangi dosyanin hangi ucu kurdugunu okunamaz
 /// yapiyordu; ayrica baglanti dizesini kuran yardimcilar da burada oldugu icin
 /// "endpoint dosyasi" olmayan yerlerden cagriliyordu.
+///
+/// Baglanti dizesini kurma isi artik burada degil: <see cref="DataSourceTarget"/>
+/// ve <see cref="IDataSourceFactory"/>. Bu dosya yalnizca ucu kuruyor.
 /// </summary>
 public static class ConnectionTestEndpoints
 {
@@ -32,87 +35,16 @@ public static class ConnectionTestEndpoints
 
     private static async Task<IResult> TestConnection(
         SqlConnectionRequest request,
-        ILogger<SqlConnectionRequest> logger)
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
-        try
-        {
-            var connectionString = BuildConnectionString(request);
+        var result = await dataSources.ProbeAsync(DataSourceTarget.From(request), ct);
 
-            logger.LogInformation(
-                "Bağlantı deneniyor: {Host},{Port} / {Database} / {User}",
-                request.Host, request.Port, request.Database, request.Username);
-
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
-
-            return Results.Ok(new TestConnectionResponse(
-                Success: true,
-                Message: "Bağlantı başarılı",
-                ConnectionId: Guid.NewGuid().ToString()
-            ));
-        }
-        catch (SqlException ex)
-        {
-            logger.LogWarning(ex, "SQL bağlantı hatası. Numara: {Number}", ex.Number);
-
-            return Results.Ok(new TestConnectionResponse(
-                Success: false,
-                Message: $"SQL hatası: {ex.Message} (hata no: {ex.Number})"
-            ));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Bağlantı kurulamadı");
-
-            return Results.Ok(new TestConnectionResponse(
-                Success: false,
-                Message: $"Bağlantı kurulamadı: {ex.Message}"
-            ));
-        }
-    }
-
-    /// <summary>
-    /// Host alanına "sunucu,1433" veya "sunucu:1433" biçiminde port yapıştırmak yaygın;
-    /// ayrı Port alanıyla birleşince "tcp:sunucu,1433,1433" gibi geçersiz bir adres çıkıyordu.
-    /// Host'a gömülü portu ayıklayıp, ayrı bir port verilmemişse onu kullan.
-    /// </summary>
-    internal static (string Host, int Port) NormalizeHostAndPort(string? host, int port)
-    {
-        var trimmed = (host ?? string.Empty).Trim();
-        var separator = trimmed.LastIndexOfAny([',', ':']);
-
-        if (separator > 0 && int.TryParse(trimmed[(separator + 1)..].Trim(), out var embeddedPort))
-        {
-            var bareHost = trimmed[..separator].Trim();
-            // IPv6 adreslerinde ':' zaten adresin parçası — yalnızca tek ayraç varsa güvenli.
-            if (bareHost.Length > 0 && !bareHost.Contains(':'))
-            {
-                return (bareHost, port > 0 ? port : embeddedPort);
-            }
-        }
-
-        return (trimmed, port > 0 ? port : 1433);
-    }
-
-    internal static string BuildConnectionString(SqlConnectionRequest request)
-    {
-        var (host, port) = NormalizeHostAndPort(request.Host, request.Port);
-
-        var builder = new SqlConnectionStringBuilder
-        {
-            // tcp: prefix ile Named Pipes yerine TCP zorla (Docker container'lar için gerekli)
-            DataSource = $"tcp:{host},{port}",
-            InitialCatalog = request.Database,
-            UserID = request.Username,
-            Password = request.Password,
-            IntegratedSecurity = false,  // SQL Server Authentication kullan
-            TrustServerCertificate = request.TrustServerCertificate,
-            ConnectTimeout = 10,
-            Encrypt = true,
-            MultipleActiveResultSets = true,
-            Pooling = true
-        };
-
-        return builder.ConnectionString;
+        return Results.Ok(new TestConnectionResponse(
+            Success: result.Success,
+            Message: result.Message,
+            // Kaydedilmemis bir denemenin kimligi yok; eski davranis korunuyor.
+            ConnectionId: result.Success ? Guid.NewGuid().ToString() : null
+        ));
     }
 }

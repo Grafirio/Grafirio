@@ -1,11 +1,13 @@
 using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.DataAnalysis.Api.Features.Internal;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Infrastructure.Extensions;
@@ -49,6 +51,12 @@ builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<LlmAnalysisService>();
 builder.Services.AddSingleton<RelationshipDiscovery>();
 builder.Services.AddSingleton<SchemaProfiler>();
+
+// Musteri veritabanina giden tek kapi. Bugun tek uygulamasi var: buluttan
+// dogrudan TCP. Firewall arkasindaki musteriler icin agent uzerinden giden
+// ikinci uygulama ayni arayuze oturacak ve burasi disinda hicbir yer
+// degismeyecek.
+builder.Services.AddSingleton<IDataSourceFactory, DirectDataSourceFactory>();
 
 // MongoDB — tablo secimi (kalici)
 // Postgres semasi EnsureCreated ile kuruluyor ve migration yok; secim de
@@ -172,6 +180,7 @@ app.MapSchemaEndpoints();          // Tablo ve kolon listesi
 app.MapAnalysisEndpoints();        // Veri kalitesi / istatistik / iliskiler
 app.MapAgentAnalyzeEndpoints();    // Analiz Et: profil + semantik sozluk + sorular
 app.MapAgentQueryEndpoints();      // Sorgu: soru -> parametre -> PyCaret
+app.MapInternalDataEndpoints();    // PyCaret'in veri okudugu ic uc (gateway'e tanimlanmaz)
 
 // Health check
 // Onceki surum kosulsuz "Healthy" donuyordu — hicbir bagimliligi yoklamadigi

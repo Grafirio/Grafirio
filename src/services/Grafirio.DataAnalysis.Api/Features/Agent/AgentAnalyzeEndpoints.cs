@@ -437,10 +437,6 @@ public static class AgentAnalyzeEndpoints
         catch (JsonException) { return null; }
     }
 
-    private static string BuildConnectionString(SavedConnection c, string password) =>
-        $"Server={c.Host},{c.Port};Database={c.Database};User Id={c.Username};Password={password};" +
-        $"TrustServerCertificate={(c.TrustServerCertificate ? "True" : "False")};Encrypt=True;Connection Timeout=30";
-
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

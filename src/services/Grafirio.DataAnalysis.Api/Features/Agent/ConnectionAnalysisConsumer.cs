@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Data;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using MassTransit;
@@ -35,6 +36,7 @@ public class ConnectionAnalysisConsumer(
     DataAnalysisDbContext db,
     LlmAnalysisService llm,
     SchemaProfiler profiler,
+    IDataSourceFactory dataSources,
     ILogger<ConnectionAnalysisConsumer> logger)
     : IConsumer<AnalyzeConnectionRequested>
 {
@@ -68,11 +70,10 @@ public class ConnectionAnalysisConsumer(
 
         try
         {
-            var connectionString = BuildConnectionString(
-                connection, EncryptionHelper.Decrypt(connection.EncryptedPassword));
+            await using var session = await dataSources.OpenAsync(connection, ct);
 
             var profile = await profiler.ProfileAsync(
-                connectionString, connection.Database, selectedTables, message.SamplingConsentGiven, ct);
+                session, connection.Database, selectedTables, message.SamplingConsentGiven, ct);
 
             var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
             var result = await llm.BuildSchemaDictionaryAsync(profileJson, ct);
@@ -161,10 +162,6 @@ public class ConnectionAnalysisConsumer(
             return dictionaryJson;
         }
     }
-
-    private static string BuildConnectionString(Data.Entities.SavedConnection c, string password) =>
-        $"Server={c.Host},{c.Port};Database={c.Database};User Id={c.Username};Password={password};" +
-        $"TrustServerCertificate={(c.TrustServerCertificate ? "True" : "False")};Encrypt=True;Connection Timeout=30";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

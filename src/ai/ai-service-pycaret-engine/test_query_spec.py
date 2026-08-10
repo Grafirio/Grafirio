@@ -192,28 +192,33 @@ if "[Bad]]Name]" not in render(QuerySpec(
 
 # ── Bolum 2: AgentAnalyzer'in DB gerektirmeyen mantigi ────────────────────
 #
-# pandas ve sqlalchemy sahteleniyor: burada test edilen sey veri okumak degil,
-# LLM ciktisinin sorgu agacina nasil cevrildigi. Agir bagimliliklari kurmadan
+# pandas sahteleniyor: burada test edilen sey veri okumak degil, LLM
+# ciktisinin sorgu agacina nasil cevrildigi. Agir bagimliligi kurmadan
 # calisabilmesi icin.
-
-# Her iki bagimlilik da kosulsuz sahteleniyor. Gercek sqlalchemy kurulu olsa
-# bile `create_engine("stub://")` bilinmeyen lehce diye duserdi; testin amaci
-# baglanmak degil, uretilen sorgu agacini gormek. Kosulsuz sahtelemek testi
-# her makinede ayni sekilde calistirir.
+#
+# sqlalchemy artik sahtelenmiyor cunku AgentAnalyzer ona hic dokunmuyor:
+# veriye `DataPort` uzerinden gidiyor ve o kapinin dogrudan-baglanti
+# uygulamasi sqlalchemy'yi ancak kendi kurucusunda iceri aliyor.
 _pandas = types.ModuleType("pandas")
 _pandas.DataFrame = type("DataFrame", (), {})
 _pandas.isna = lambda v: v is None
 _pandas.read_sql = lambda *a, **k: None
 sys.modules["pandas"] = _pandas
 
-_sqlalchemy = types.ModuleType("sqlalchemy")
-_sqlalchemy.create_engine = lambda *a, **k: object()
-_sqlalchemy.text = lambda s: s
-sys.modules["sqlalchemy"] = _sqlalchemy
-
 from agent_analyzer import AgentAnalyzer  # noqa: E402
 
-analyzer = AgentAnalyzer("stub://")
+
+class _StubDataPort:
+    """Sorgu calistirmayan kapi: bu bolumde veriye hic gidilmiyor."""
+
+    def read_sql(self, sql, params=None, max_rows=None):
+        raise AssertionError(f"beklenmeyen sorgu: {sql}")
+
+    def scalar(self, sql, params=None):
+        raise AssertionError(f"beklenmeyen sorgu: {sql}")
+
+
+analyzer = AgentAnalyzer(_StubDataPort())
 
 check("şemalı tablo adı", analyzer._split_table("dbo.Shipments"), ("dbo", "Shipments"))
 check("şemasız tablo adı dbo sayılır", analyzer._split_table("Shipments"), ("dbo", "Shipments"))

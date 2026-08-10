@@ -1,6 +1,4 @@
-using System.Data;
-using Dapper;
-using Microsoft.Data.SqlClient;
+using Grafirio.DataAnalysis.Api.Data.Access;
 
 namespace Grafirio.DataAnalysis.Api.Features.Profile;
 
@@ -26,8 +24,11 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
     private const int LowCardinalityThreshold = 50;
 
+    /// <summary>Ornek satir cekme sorgusunun zaman asimi (saniye).</summary>
+    private const int SampleTimeoutSeconds = 60;
+
     public async Task<DatabaseProfile> ProfileAsync(
-        string connectionString,
+        IDataSourceSession session,
         string databaseName,
         IReadOnlyList<string> selectedTables,
         bool samplingConsentGiven,
@@ -35,9 +36,6 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
     {
         if (selectedTables.Count == 0)
             throw new InvalidOperationException("Tablo seçimi boş; profil çıkarılamaz.");
-
-        await using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(ct);
 
         var profile = new DatabaseProfile
         {
@@ -51,7 +49,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
             try
             {
                 profile.Tables.Add(await ProfileTableAsync(
-                    connection, schema, table, samplingConsentGiven, ct));
+                    session, schema, table, samplingConsentGiven, ct));
             }
             catch (Exception ex)
             {
@@ -67,45 +65,42 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
         // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
         // kolon adlarina, tiplerine ve benzersizligine bakiyor.
-        profile.Relationships = await relationships.DiscoverAsync(connection, profile.Tables, ct);
+        profile.Relationships = await relationships.DiscoverAsync(session, profile.Tables, ct);
         return profile;
     }
 
     private async Task<TableProfile> ProfileTableAsync(
-        SqlConnection connection, string schema, string table, bool consent, CancellationToken ct)
+        IDataSourceSession session, string schema, string table, bool consent, CancellationToken ct)
     {
         var result = new TableProfile { Schema = schema, TableName = table };
 
         // Yaklasik satir sayisi. COUNT(*) her tabloda tam tarama demekti;
         // profil icin kesin sayiya ihtiyac yok.
-        result.ApproximateRowCount = await connection.ExecuteScalarAsync<long?>(
-            new CommandDefinition(@"
+        result.ApproximateRowCount = await session.ScalarAsync<long?>(@"
                 SELECT SUM(p.rows)
                 FROM sys.partitions p
                 JOIN sys.objects o ON o.object_id = p.object_id
                 JOIN sys.schemas s ON s.schema_id = o.schema_id
                 WHERE s.name = @Schema AND o.name = @Table AND p.index_id IN (0, 1)",
-                new { Schema = schema, Table = table }, cancellationToken: ct)) ?? 0;
+            new { Schema = schema, Table = table }, ct: ct) ?? 0;
 
-        var columns = (await connection.QueryAsync<ColumnRow>(
-            new CommandDefinition(@"
+        var columns = await session.QueryAsync<ColumnRow>(@"
                 SELECT c.COLUMN_NAME AS ColumnName, c.DATA_TYPE AS DataType,
                        CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS IsNullable,
                        c.CHARACTER_MAXIMUM_LENGTH AS MaxLength
                 FROM INFORMATION_SCHEMA.COLUMNS c
                 WHERE c.TABLE_SCHEMA = @Schema AND c.TABLE_NAME = @Table
                 ORDER BY c.ORDINAL_POSITION",
-                new { Schema = schema, Table = table }, cancellationToken: ct))).ToList();
+            new { Schema = schema, Table = table }, ct: ct);
 
-        var primaryKeys = (await connection.QueryAsync<string>(
-            new CommandDefinition(@"
+        var primaryKeys = (await session.QueryAsync<string>(@"
                 SELECT k.COLUMN_NAME
                 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS t
                 JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
                   ON k.CONSTRAINT_NAME = t.CONSTRAINT_NAME AND k.TABLE_SCHEMA = t.TABLE_SCHEMA
                 WHERE t.CONSTRAINT_TYPE = 'PRIMARY KEY'
                   AND t.TABLE_SCHEMA = @Schema AND t.TABLE_NAME = @Table",
-                new { Schema = schema, Table = table }, cancellationToken: ct))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            new { Schema = schema, Table = table }, ct: ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Tablodan TEK sorguyla ornek satir kumesi cekilir ve butun kolon
         // istatistikleri bu kume uzerinden bellekte hesaplanir.
@@ -115,8 +110,8 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         // tarama demekti ve gateway zaman asimina ugruyordu. Profil icin kesin
         // sayilara ihtiyac yok; amac kolonun ne oldugunu anlamak.
         var sampleRows = await FetchSampleRowsAsync(
-            connection, schema, table, result.ApproximateRowCount, ct);
-        result.SampledRowCount = sampleRows.Rows.Count;
+            session, schema, table, result.ApproximateRowCount, ct);
+        result.SampledRowCount = sampleRows.Count;
 
         foreach (var column in columns)
         {
@@ -173,8 +168,8 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
     /// davranisa donuluyor — temsili olmayan ornek, ornegin hic olmamasindan
     /// iyidir.
     /// </remarks>
-    private async Task<DataTable> FetchSampleRowsAsync(
-        SqlConnection connection, string schema, string table, long approximateRowCount, CancellationToken ct)
+    private async Task<IReadOnlyList<QueryRow>> FetchSampleRowsAsync(
+        IDataSourceSession session, string schema, string table, long approximateRowCount, CancellationToken ct)
     {
         var qualified = $"{Quote(schema)}.{Quote(table)}";
 
@@ -187,38 +182,31 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
             try
             {
-                var sampled = await ReadAsync(
-                    $"SELECT TOP {SampleRowCount} * FROM {qualified} TABLESAMPLE SYSTEM ({percent} PERCENT)");
+                var sampled = await session.QueryRowsAsync(
+                    $"SELECT TOP {SampleRowCount} * FROM {qualified} TABLESAMPLE SYSTEM ({percent} PERCENT)",
+                    timeoutSeconds: SampleTimeoutSeconds, ct: ct);
 
-                if (sampled.Rows.Count > 0) return sampled;
+                if (sampled.Count > 0) return sampled;
 
                 logger.LogDebug(
                     "TABLESAMPLE boş döndü, düz örneklemeye dönülüyor: {Schema}.{Table}", schema, table);
             }
-            catch (SqlException ex)
+            catch (DataSourceException ex)
             {
                 logger.LogDebug(ex,
                     "TABLESAMPLE kullanılamadı, düz örneklemeye dönülüyor: {Schema}.{Table}", schema, table);
             }
         }
 
-        return await ReadAsync($"SELECT TOP {SampleRowCount} * FROM {qualified}");
-
-        async Task<DataTable> ReadAsync(string sql)
-        {
-            var data = new DataTable();
-            await using var command = new SqlCommand(sql, connection);
-            command.CommandTimeout = 60;
-            await using var reader = await command.ExecuteReaderAsync(ct);
-            data.Load(reader);
-            return data;
-        }
+        return await session.QueryRowsAsync(
+            $"SELECT TOP {SampleRowCount} * FROM {qualified}",
+            timeoutSeconds: SampleTimeoutSeconds, ct: ct);
     }
 
-    private static SampleStats ComputeStats(DataTable rows, string columnName)
+    private static SampleStats ComputeStats(IReadOnlyList<QueryRow> rows, string columnName)
     {
         var stats = new SampleStats();
-        if (!rows.Columns.Contains(columnName)) return stats;
+        if (rows.Count == 0 || !rows[0].Values.ContainsKey(columnName)) return stats;
 
         var distinct = new HashSet<string>(StringComparer.Ordinal);
         long nullCount = 0;
@@ -232,7 +220,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         // kullaniyor — bozuk min/max, yanlis taninan alan demek.
         object? min = null, max = null;
 
-        foreach (DataRow row in rows.Rows)
+        foreach (var row in rows)
         {
             var raw = row[columnName];
             if (raw is null || raw == DBNull.Value) { nullCount++; continue; }

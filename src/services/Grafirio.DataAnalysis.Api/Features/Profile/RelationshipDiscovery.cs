@@ -1,7 +1,4 @@
-using System.Data;
-
-using Dapper;
-using Microsoft.Data.SqlClient;
+using Grafirio.DataAnalysis.Api.Data.Access;
 
 namespace Grafirio.DataAnalysis.Api.Features.Profile;
 
@@ -39,8 +36,14 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// <summary>Bu oranin ustunde baglanti kullaniciya sorulmadan kabul edilir.</summary>
     private const double HighConfidenceOverlap = 0.90;
 
+    /// <summary>Sistem katalogu sorgulari genis semalarda yavaslayabiliyor.</summary>
+    private const int SchemaQueryTimeoutSeconds = 60;
+
+    /// <summary>Ortusme olcumu kisa tutulur; takilan aday elenir.</summary>
+    private const int OverlapQueryTimeoutSeconds = 30;
+
     public async Task<List<RelationshipProfile>> DiscoverAsync(
-        SqlConnection connection,
+        IDataSourceSession session,
         IReadOnlyList<TableProfile> tables,
         CancellationToken ct = default)
     {
@@ -53,9 +56,9 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         // olabilmesi icin benzersiz olmasi sart. Bu hem dogruluk kosulu
         // (benzersiz olmayan hedefe join satirlari cogaltir) hem de hiz kosulu
         // — ortusme olcumu ancak indeksli bir kolonda seek olur.
-        var uniqueColumns = await FetchUniqueColumnsAsync(connection, names, ct);
+        var uniqueColumns = await FetchUniqueColumnsAsync(session, names, ct);
 
-        var declared = await FetchDeclaredForeignKeysAsync(connection, names, ct);
+        var declared = await FetchDeclaredForeignKeysAsync(session, names, ct);
         logger.LogInformation("Bildirilmiş yabancı anahtar: {Count}", declared.Count);
 
         var edges = new List<RelationshipProfile>(declared);
@@ -65,7 +68,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         {
             if (!seen.Add(Key(candidate))) continue;
 
-            var overlap = await MeasureOverlapAsync(connection, candidate, ct);
+            var overlap = await MeasureOverlapAsync(session, candidate, ct);
             if (overlap is null) continue;
 
             candidate.ValueOverlap = Math.Round(overlap.Value, 3);
@@ -106,10 +109,9 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// guvenilir ve zorunlu bir FK'de INNER JOIN satir kaybettirmez.
     /// </summary>
     private static async Task<List<RelationshipProfile>> FetchDeclaredForeignKeysAsync(
-        SqlConnection connection, List<string> names, CancellationToken ct)
+        IDataSourceSession session, List<string> names, CancellationToken ct)
     {
-        var rows = await connection.QueryAsync<ForeignKeyRow>(
-            new CommandDefinition(@"
+        var rows = await session.QueryAsync<ForeignKeyRow>(@"
                 SELECT
                     fk.object_id                        AS ConstraintId,
                     ps.name + '.' + po.name             AS FromTable,
@@ -132,7 +134,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 WHERE ps.name + '.' + po.name IN @Names
                   AND rs.name + '.' + ro.name IN @Names
                 ORDER BY fk.object_id, fkc.constraint_column_id",
-                new { Names = names }, commandTimeout: 60, cancellationToken: ct));
+            new { Names = names }, timeoutSeconds: SchemaQueryTimeoutSeconds, ct: ct);
 
         // Bilesik anahtarlar birden fazla satir doner; tek kenara toplaniyor.
         return rows
@@ -293,7 +295,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// <c>EXISTS</c> indeks aramasina duser; tam tarama olmaz.
     /// </summary>
     private async Task<double?> MeasureOverlapAsync(
-        SqlConnection connection, RelationshipProfile candidate, CancellationToken ct)
+        IDataSourceSession session, RelationshipProfile candidate, CancellationToken ct)
     {
         var (fromSchema, fromTable) = Split(candidate.FromTable);
         var (toSchema, toTable) = Split(candidate.ToTable);
@@ -311,13 +313,13 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
         try
         {
-            var result = await connection.QuerySingleOrDefaultAsync<OverlapRow>(
-                new CommandDefinition(sql, commandTimeout: 30, cancellationToken: ct));
+            var result = await session.QueryFirstOrDefaultAsync<OverlapRow>(
+                sql, timeoutSeconds: OverlapQueryTimeoutSeconds, ct: ct);
 
             if (result is null || result.Total == 0) return null;
             return (double)result.Matched / result.Total;
         }
-        catch (SqlException ex)
+        catch (DataSourceException ex)
         {
             // Tip donusumu tutmayan aday burada patlar; bu bir hata degil,
             // adayin elenmesidir.
@@ -368,12 +370,11 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /* ── Yardimcilar ──────────────────────────────────────────────────── */
 
     private static async Task<Dictionary<string, HashSet<string>>> FetchUniqueColumnsAsync(
-        SqlConnection connection, List<string> names, CancellationToken ct)
+        IDataSourceSession session, List<string> names, CancellationToken ct)
     {
         // Yalnizca TEK kolonlu benzersiz indeksler: arama hedefi olabilmesi
         // icin kolonun kendi basina benzersiz olmasi gerekiyor.
-        var rows = await connection.QueryAsync<UniqueColumnRow>(
-            new CommandDefinition(@"
+        var rows = await session.QueryAsync<UniqueColumnRow>(@"
                 SELECT s.name + '.' + t.name AS TableName, MIN(c.name) AS ColumnName
                 FROM sys.indexes i
                 JOIN sys.index_columns ic ON ic.object_id = i.object_id
@@ -386,7 +387,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                   AND s.name + '.' + t.name IN @Names
                 GROUP BY s.name, t.name, i.object_id, i.index_id
                 HAVING COUNT(*) = 1",
-                new { Names = names }, commandTimeout: 60, cancellationToken: ct));
+            new { Names = names }, timeoutSeconds: SchemaQueryTimeoutSeconds, ct: ct);
 
         var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var row in rows)
