@@ -236,6 +236,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5221
+      # appsettings.Development.json'daki dize localhost:5433'u gosteriyor —
+      # servisi Docker DISINDA calistiranlar icin dogru, konteyner icinde
+      # degil. Ortam Development oldugu icin o dosya appsettings.json'i
+      # eziyordu ve konteyner kendi icindeki 127.0.0.1'e baglanmaya
+      # calisiyordu. Compose kendi degerini acikca vermeli.
+      ConnectionStrings__DefaultConnection: Host=postgres.db.dataanalysis;Port=5432;Database=grafirio_dataanalysis;Username=dataanalysis_user;Password=DataAnalysis123!
       # LLM: tek saglayici Azure OpenAI. Onceden burada yalnizca
       # GEMINI_API_KEY vardi; Azure degiskenleri hic gecmedigi icin
       # container icindeki servis LLM'siz ayaga kalkiyordu.
@@ -244,7 +250,12 @@ services:
       AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
       AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-12-01-preview}
       # Tablo secimi Mongo'da; bu da eksikti.
-      MONGO__CONNECTIONSTRING: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017/?authSource=admin
+      # Kimlik bilgisi dizeye GOMULMUYOR: sifre '@' ya da '/' iceriyorsa URI
+      # gecersiz oluyor ve hata "sifre yanlis" degil "dize gecersiz" diyor.
+      # Ayri alanlar verilince kacis isini surucu yapiyor.
+      MONGO__CONNECTIONSTRING: mongodb://mongo.db:27017/?authSource=admin
+      MONGO__USERNAME: ${MONGO_USERNAME}
+      MONGO__PASSWORD: ${MONGO_PASSWORD}
       MONGO__DATABASENAME: GrafirioDataAnalysisDb
       # "Analiz Et" isi kuyruga aliniyor: profil + LLM cagrisi dakikalar
       # suruyor ve container yeniden baslasa bile is kaybolmamali.
@@ -256,6 +267,11 @@ services:
       # ic aga erisen herkese musteri veritabaninda sorgu calistirma yetkisi
       # vermek yerine hicbir seyin calismamasi tercih ediliyor.
       Internal__ApiKey: ${INTERNAL_API_KEY}
+      # Musteri veritabani sifrelerini koruyan anahtar. Compose'da hic
+      # gecmiyordu; EncryptionHelper.EnsureConfigured() bunu zorunlu tuttugu
+      # icin servis acilista duruyordu.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
     ports:
       - "5221:5221"
     depends_on:

@@ -6,6 +6,10 @@ WORKDIR /src
 COPY ["Grafirio.sln", "./"]
 COPY ["nuget.config", "./"]
 COPY ["src/services/Grafirio.DataAnalysis.Api/Grafirio.DataAnalysis.Api.csproj", "src/services/Grafirio.DataAnalysis.Api/"]
+# Bridge protokolu proje referansi: restore, referans verilen csproj'u da
+# gormek zorunda. Eksik olsaydi "restore" asamasi duserdi ve sebebi
+# Dockerfile'a bakmadan anlasilmazdi.
+COPY ["src/bridge/Grafirio.Bridge.Contracts/Grafirio.Bridge.Contracts.csproj", "src/bridge/Grafirio.Bridge.Contracts/"]
 
 # Grafirio.Shared.* ve Grafirio.Contracts.AI paketleri ayri bir depoda:
 # github.com/Grafirio/Packages.

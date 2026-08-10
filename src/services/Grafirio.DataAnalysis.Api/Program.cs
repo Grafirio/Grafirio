@@ -78,9 +78,32 @@ var mongoDatabaseName = builder.Configuration.GetValue<string>("Mongo:DatabaseNa
     ?? Environment.GetEnvironmentVariable("MONGO__DATABASENAME")
     ?? "GrafirioDataAnalysisDb";
 
+// Kullanici adi ve sifre AYRI verilebiliyor.
+//
+// Sebebi somut: baglanti dizesi bir URI ve sifre '@', '/', ':' gibi bir
+// karakter iceriyorsa dize gecersiz oluyor — "The connection string ... is not
+// valid" hatasi, sifrenin yanlis oldugunu degil URI'nin bozuk oldugunu
+// soyluyor ve bu ayrim loglardan anlasilmiyor. Yerel compose tam da bu yuzden
+// hic calismamisti. Ayri alanlar verildiginde kaciş isi surucunun kendisine
+// birakiliyor ve sifre secimi bir yapilandirma tuzagi olmaktan cikiyor.
+var mongoUsername = builder.Configuration.GetValue<string>("Mongo:Username")
+    ?? Environment.GetEnvironmentVariable("MONGO__USERNAME");
+var mongoPassword = builder.Configuration.GetValue<string>("Mongo:Password")
+    ?? Environment.GetEnvironmentVariable("MONGO__PASSWORD");
+
 if (!string.IsNullOrWhiteSpace(mongoConnectionString))
 {
-    builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient(mongoConnectionString));
+    builder.Services.AddSingleton<IMongoClient>(_ =>
+    {
+        if (string.IsNullOrEmpty(mongoUsername) || string.IsNullOrEmpty(mongoPassword))
+            return new MongoClient(mongoConnectionString);
+
+        var settings = MongoClientSettings.FromConnectionString(mongoConnectionString);
+        settings.Credential = MongoCredential.CreateCredential(
+            databaseName: "admin", mongoUsername, mongoPassword);
+
+        return new MongoClient(settings);
+    });
     builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDatabaseName));
     builder.Services.AddSingleton<ConnectionProfileStore>();
