@@ -41,6 +41,30 @@ public class InternalQueryGuardTests
     [InlineData("/* SELECT */ DELETE FROM t")]
     // Kapanmayan yorum: geri kalani okunamiyorsa gecirilmemeli.
     [InlineData("/* açılmış ama kapanmamış SELECT 1")]
+    // SELECT ... INTO yeni bir tablo OLUSTURUR, ilk kelimesi SELECT olsa da.
+    [InlineData("SELECT * INTO yedek FROM dbo.Shipments")]
+    [InlineData("select a into #tmp from t")]
     public void Okuma_gibi_gorunen_yazma_reddedilir(string sql) =>
         Assert.False(ReadOnlySqlPolicy.IsReadOnly(sql));
+
+    /// <summary>
+    /// Türkçe kültürde 'i'/'I' eşleşmesi bozuluyor; kural CultureInvariant
+    /// olmadan yazılırsa tam da tr-TR sunucularda çalışmıyor.
+    /// </summary>
+    [Fact]
+    public void Turkce_kulturde_de_reddediliyor()
+    {
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture =
+            new System.Globalization.CultureInfo("tr-TR");
+
+        try
+        {
+            Assert.False(ReadOnlySqlPolicy.IsReadOnly("select a into #tmp from t"));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+    }
 }

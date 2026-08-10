@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sunucu ile musteri agindaki bridge arasindaki sozlesme.
+
+    Bilerek bagimliliksiz: bu kutuphane hem bulut servisine hem de musterinin
+    sunucusuna kurulan servise giriyor. Buraya eklenen her paket, musterinin
+    makinesine kurulan bir paket demek.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>
