@@ -246,15 +246,38 @@ public static class AgentQueryEndpoints
         }
     }
 
+    /// <summary>
+    /// Sorgunun cagiran kullanicinin sirketine ait olup olmadigi.
+    ///
+    /// <see cref="QueryHistory"/> sirket bilgisini kendisi tasimiyor; sahiplik
+    /// bagli oldugu <see cref="AnalysisConfig"/> uzerinden dogrulaniyor.
+    ///
+    /// Bu kontrol yoktu: kimligi dogrulanmis herhangi bir kullanici, bir
+    /// sorgu kimligini bilmesi halinde baska bir sirketin analiz sonucunu —
+    /// musteri verisinden uretilmis grafikleri ve calistirilan SQL'i —
+    /// okuyabiliyordu. <c>SubmitQuery</c> suzgeci uyguluyordu, okuma uclari
+    /// atlamisti.
+    /// </summary>
+    private static Task<bool> IsOwnedByCompanyAsync(
+        DataAnalysisDbContext db, Guid configId, string companyId) =>
+        db.AnalysisConfigs.AnyAsync(c => c.Id == configId && c.CompanyId == companyId);
+
     private static async Task<IResult> GetQueryStatus(
         Guid queryId,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromServices] IConfiguration configuration,
+        [FromServices] IIdentityService identity,
         [FromServices] ILogger<LlmAnalysisService> logger)
     {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
         var query = await db.QueryHistories.FindAsync(queryId);
-        if (query is null)
+
+        // Baska sirkete ait kayitta da "bulunamadi" donuyor: 403 donmek
+        // kaydin var oldugunu dogrulamak olurdu.
+        if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
             return Results.NotFound(new { error = "Sorgu bulunamadı" });
 
         // Eğer processing ise PyCaret'ten durumu kontrol et
@@ -339,10 +362,14 @@ public static class AgentQueryEndpoints
 
     private static async Task<IResult> GetQueryResult(
         Guid queryId,
-        [FromServices] DataAnalysisDbContext db)
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity)
     {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
         var query = await db.QueryHistories.FindAsync(queryId);
-        if (query is null)
+        if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
             return Results.NotFound(new { error = "Sorgu bulunamadı" });
 
         if (query.Status != "completed")
@@ -383,30 +410,71 @@ public static class AgentQueryEndpoints
         });
     }
 
+    /// <summary>
+    /// Baglantinin sorgu gecmisi — kanvasin yeniden kurulabilmesi icin
+    /// sonuclariyla birlikte.
+    ///
+    /// Iki sey degisti:
+    ///
+    /// 1. Gecmis artik AKTIF config'e degil BAGLANTIYA bagli. "Analiz Et" her
+    ///    calistiginda yeni bir config uretilip eskisi pasiflesiyor; yalnizca
+    ///    aktif config'e bakmak, yeniden analiz sonrasi butun gecmisi yok
+    ///    gostermek demekti.
+    ///
+    /// 2. Sonuc govdesi de donuyor. Onceden yalnizca soru metni ve durum
+    ///    donuyordu; kanvas grafikleri geri kuramadigi icin cikip giren
+    ///    kullanici bos ekranla karsilasiyordu. Sonuclari ayri ayri cekmek
+    ///    50 soru icin 51 istek demek olurdu.
+    /// </summary>
     private static async Task<IResult> GetQueryHistory(
         Guid connectionId,
-        [FromServices] DataAnalysisDbContext db)
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity)
     {
-        var config = await db.AnalysisConfigs
-            .FirstOrDefaultAsync(c => c.ConnectionId == connectionId && c.IsActive);
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+        var scopedCompanyId = companyId.Value.ToString();
 
-        if (config is null)
+        var configIds = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == connectionId && c.CompanyId == scopedCompanyId)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        if (configIds.Count == 0)
             return Results.Ok(new { queries = Array.Empty<object>() });
 
-        var queries = await db.QueryHistories
-            .Where(q => q.ConfigId == config.Id)
+        var rows = await db.QueryHistories
+            .Where(q => configIds.Contains(q.ConfigId))
             .OrderByDescending(q => q.CreatedAt)
-            .Take(50)
+            .Take(HistoryLimit)
+            .ToListAsync();
+
+        // En yeni 50 kayit alinip tuval icin eskiden yeniye siralaniyor:
+        // sorular sohbet sirasiyla okunmali.
+        var queries = rows
+            .OrderBy(q => q.CreatedAt)
             .Select(q => new
             {
                 queryId = q.Id,
                 question = q.Question,
                 status = q.Status,
                 createdAt = q.CreatedAt,
-                completedAt = q.CompletedAt
+                completedAt = q.CompletedAt,
+                result = TryParse(q.ResultJson),
+                llmParameters = TryParse(q.PyCaretParamsJson),
             })
-            .ToListAsync();
+            .ToList();
 
         return Results.Ok(new { queries });
+    }
+
+    /// <summary>Kanvasa geri yuklenecek en fazla soru sayisi.</summary>
+    private const int HistoryLimit = 50;
+
+    private static JsonElement? TryParse(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<JsonElement>(json); }
+        catch (JsonException) { return null; }
     }
 }

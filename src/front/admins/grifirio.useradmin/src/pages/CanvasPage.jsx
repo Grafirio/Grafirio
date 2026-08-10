@@ -4,7 +4,7 @@ import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
 import {
   getConnectionById, getSelectedTables,
-  submitAgentQuery, getAgentQueryStatus, getAgentQueryResult,
+  submitAgentQuery, getAgentQueryStatus, getAgentQueryResult, getAgentQueryHistory,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
 
@@ -13,7 +13,11 @@ import './CanvasPage.css';
    Render tamamen sonuç odaklıdır: backend'in döndürdüğü composite
    payload'daki answer + charts[] + insights[] neyse o çizilir.
 ───────────────────────────────────────────────────────────── */
-const buildCanvasNodes = (report, parentId, posRef) => {
+/* `key` düğüm kimliklerini sabitler.
+   Önceden `Date.now()` kullanılıyordu; aynı tuval iki kez kurulduğunda
+   (örneğin geçmiş geri yüklenirken) her seferinde başka kimlikler çıkıyordu.
+   Sorgu kimliğinden türetince aynı soru hep aynı düğümleri üretiyor. */
+const buildCanvasNodes = (report, parentId, posRef, key = Date.now()) => {
   const newNodes = [];
   const newEdges = [];
   const { x: sx, y: sy } = posRef.current;
@@ -24,25 +28,25 @@ const buildCanvasNodes = (report, parentId, posRef) => {
 
   const edge = (tgtId) => {
     if (!parentId) return;
-    newEdges.push({ id: `e-${parentId}-${tgtId}-${Date.now()}`, source: parentId, target: tgtId, animated: true, style: { stroke: 'var(--accent)' } });
+    newEdges.push({ id: `e-${parentId}-${tgtId}`, source: parentId, target: tgtId, animated: true, style: { stroke: 'var(--accent)' } });
   };
 
   if (report.answer) {
-    const id = `ins-ans-${Date.now()}`;
+    const id = `ins-ans-${key}`;
     newNodes.push({ id, type: 'biInsightNode', position: { x: sx, y: curY }, data: { type: 'info', title: '🤖 AI Yanıtı', description: report.answer } });
     edge(id);
     curY += ROW_H_INSIGHT + 24;
   }
 
   (report.charts || []).forEach((chart, i) => {
-    const id = `chart-${Date.now()}-${i}`;
+    const id = `chart-${key}-${i}`;
     newNodes.push({ id, type: 'biChartNode', position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_CHART + 32) }, data: chart });
     edge(id);
   });
   if (report.charts?.length) curY += Math.ceil(report.charts.length / 2) * (ROW_H_CHART + 32);
 
   (report.insights || []).forEach((insight, i) => {
-    const id = `ins-${Date.now()}-${i}`;
+    const id = `ins-${key}-${i}`;
     newNodes.push({ id, type: 'biInsightNode', position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_INSIGHT + 20) }, data: insight });
     edge(id);
   });
@@ -50,6 +54,73 @@ const buildCanvasNodes = (report, parentId, posRef) => {
 
   posRef.current = { x: sx, y: Math.max(sy, curY) + 60 };
   return { newNodes, newEdges };
+};
+
+/**
+ * Sunucudan gelen sorgu geçmişini tuval durumuna çevirir.
+ *
+ * Saf fonksiyon: ağ çağrısı yapmaz, state'e dokunmaz. Ayrı durmasının sebebi
+ * test edilebilirlik — kanvasın geri yüklenmesi gözle kolay doğrulanan bir şey
+ * değil ve yanlış çalıştığında kullanıcı geçmişini kaybetmiş sanıyor.
+ *
+ * Canlı akışla aynı yerleşimi üretir: soru solda, cevap ve grafikler sağında,
+ * her soru bir öncekine bağlı.
+ */
+export const restoreFromHistory = (queries = []) => {
+  const messages = [];
+  const nodes = [];
+  const edges = [];
+  const posRef = { current: { x: 80, y: 80 } };
+  let lastGroupId = null;
+
+  for (const item of queries) {
+    const qNodeId = `q-${item.queryId}`;
+    const qPos = { ...posRef.current };
+    const ts = new Date(item.createdAt).getTime();
+
+    nodes.push({
+      id: qNodeId, type: 'biInsightNode', position: qPos,
+      data: { type: 'question', title: '💬 Soru', description: item.question },
+    });
+    if (lastGroupId) {
+      edges.push({
+        id: `e-${lastGroupId}-${qNodeId}`,
+        source: lastGroupId, target: qNodeId,
+        animated: false, style: { stroke: 'var(--slate-400)' },
+      });
+    }
+    lastGroupId = qNodeId;
+
+    messages.push({ role: 'user', content: item.question, ts });
+
+    const result = item.result ?? {};
+
+    if (item.status === 'completed') {
+      const answer = result.summary || result.answer || 'Analiz tamamlandı.';
+      messages.push({
+        role: 'ai', content: answer, ts,
+        result: { charts: result.charts || [] },
+        audit: { ...(result.audit || {}), llmParameters: item.llmParameters },
+      });
+
+      posRef.current = { x: qPos.x + 460, y: qPos.y };
+      const built = buildCanvasNodes(
+        { answer, charts: result.charts || [], insights: [] },
+        qNodeId, posRef, item.queryId);
+      nodes.push(...built.newNodes);
+      edges.push(...built.newEdges);
+      posRef.current = { x: qPos.x, y: posRef.current.y };
+    } else {
+      // Yarım kalmış sorgu da gösteriliyor: sessizce yutmak, kullanıcının
+      // sorduğu bir soruyu hiç sorulmamış gibi göstermek olurdu.
+      messages.push({
+        role: 'ai', error: true, ts,
+        content: `❌ ${result.error || 'Bu analiz tamamlanmadı.'}`,
+      });
+    }
+  }
+
+  return { messages, nodes, edges, lastGroupId, nextPos: { ...posRef.current } };
 };
 
 /**
@@ -227,6 +298,40 @@ export default function CanvasPage() {
     // baska bir makineden girildiginde kanvas bozulmus gibi aciliyordu.
     setAnalysis(null);
     setAnalysisMissing(true);
+    return () => { cancelled = true; };
+  }, [connectionId]);
+
+  /* Geçmişi tuvale geri yükle.
+
+     Kanvas durumu yalnızca React state'inde yaşıyordu: çıkıp giren, sayfayı
+     yenileyen ya da başka bir sayfaya gidip dönen kullanıcı boş ekran
+     görüyordu. Veri kaybolmuyordu — sorular, üretilen parametreler ve
+     sonuçlar sunucuda `QueryHistory` içinde duruyordu — ama hiçbir yerden
+     geri okunmuyordu.
+
+     Tek istekle geliyor: geçmiş ucu artık sonuç gövdesini de döndürüyor. */
+  useEffect(() => {
+    if (!connectionId) return undefined;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { queries = [] } = await getAgentQueryHistory(connectionId);
+        if (cancelled || queries.length === 0) return;
+
+        const restored = restoreFromHistory(queries);
+
+        setMessages(restored.messages);
+        setCanvasNodes(restored.nodes);
+        setCanvasEdges(restored.edges);
+        nextPosRef.current = restored.nextPos;
+        lastGroupIdRef.current = restored.lastGroupId;
+      } catch {
+        // Geçmiş okunamazsa kanvas boş açılır ve yeni soru sorulabilir.
+        // Eski sohbeti gösterememek, ekranı tamamen kilitlemekten iyidir.
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [connectionId]);
 
