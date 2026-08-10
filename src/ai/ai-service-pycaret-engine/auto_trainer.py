@@ -1,17 +1,26 @@
 import pandas as pd
-import sqlalchemy
 from typing import Dict, Any
 import os
 import json
 import logging
 from datetime import datetime
 
+from data_port import DataPort
+
 logger = logging.getLogger(__name__)
 
 
+def _quote(qualified: str) -> str:
+    """`sema.tablo` -> `[sema].[tablo]`. Ad tanimlayici oldugu icin
+    parametrelenemiyor; en azindan koseli parantez kacisi yapiliyor."""
+    parts = qualified.replace("[", "").replace("]", "").split(".")
+    return ".".join(f"[{part}]" for part in parts if part)
+
+
 class AutoTrainer:
-    def __init__(self, connection_string: str, semantic_schema: Dict, company_id: str):
-        self.engine = sqlalchemy.create_engine(connection_string)
+    def __init__(self, data: DataPort, semantic_schema: Dict, company_id: str):
+        # Baglanti degil, sorgu calistiran bir kapi — bkz. data_port.py.
+        self.data = data
         self.semantic_schema = semantic_schema
         self.company_id = company_id
         self.models_dir = os.path.join(
@@ -36,8 +45,9 @@ class AutoTrainer:
             try:
                 logger.info(f"Training models for table: {table_name}")
                 
-                # Load data
-                df = pd.read_sql_table(table_name, self.engine)
+                # Load data. `read_sql_table` bir baglanti nesnesi istiyordu;
+                # kapi tablo degil sorgu konustugu icin SELECT acik yaziliyor.
+                df = self.data.read_sql(f"SELECT * FROM {_quote(table_name)}")
                 
                 if df.empty:
                     logger.warning(f"Table {table_name} is empty, skipping")

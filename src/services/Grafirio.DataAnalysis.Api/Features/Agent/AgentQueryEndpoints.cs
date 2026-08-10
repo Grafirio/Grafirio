@@ -152,18 +152,17 @@ public static class AgentQueryEndpoints
         // 5. PyCaret Engine'e HTTP ile gönder
         try
         {
-            var password = EncryptionHelper.Decrypt(savedConn.EncryptedPassword);
-
+            // Kimlik bilgisi gonderilmiyor: PyCaret veriyi /internal/data/query
+            // uzerinden okuyor. Onceden host/kullanici/sifre burada JSON
+            // govdesine konuyordu; sifre boylece ikinci bir servise, oradan da
+            // SQLAlchemy hata metinlerine yayiliyordu. Ayrica agent uzerinden
+            // giden yolda gonderilecek bir sifre zaten olmayacak.
             var pycaretRequest = new
             {
                 request_id = Guid.NewGuid().ToString(),
                 query_id = queryHistory.Id.ToString(),
                 company_id = savedConn.CompanyId,
-                db_host = savedConn.Host,
-                db_port = savedConn.Port,
-                db_name = savedConn.Database,
-                db_user = savedConn.Username,
-                db_password = password,
+                connection_id = savedConn.Id.ToString(),
                 config_json = config.ConfigJson,
                 analysis_params_json = translation.Json,
                 user_question = request.Question

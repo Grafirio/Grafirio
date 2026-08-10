@@ -6,9 +6,9 @@ MassTransit'ten gelen mesajları işler ve sonuçları geri gönderir.
 import json
 import logging
 import pandas as pd
-import sqlalchemy
 from typing import Dict, Any, List, Optional
 
+from data_port import DataPort
 from query_spec import (
     AliasFactory, Aggregate, ColumnRef, OrderBy, Predicate, QuerySpec,
     QuerySpecError, TableRef, render, render_group_count,
@@ -27,8 +27,11 @@ class AgentAnalyzer:
     # cikar.
     MAX_ROWS = 50000
 
-    def __init__(self, connection_string: str):
-        self.engine = sqlalchemy.create_engine(connection_string)
+    def __init__(self, data: DataPort):
+        # Baglanti degil, sorgu calistiran bir kapi. Veritabanina nasil
+        # ulasildigi (dogrudan mi, musteri agindaki bridge uzerinden mi) burayi
+        # ilgilendirmiyor.
+        self.data = data
         # Denetim izi: uretilen sorgunun ve okunan satir sayisinin disari
         # verilebilmesi icin tutuluyor. Kullanicinin "hangi sorgu calisti,
         # dogru kolonu mu secti" sorusunu cevaplayabilmesi buna bagli.
@@ -232,21 +235,19 @@ class AgentAnalyzer:
         Kucuk harfli anahtar kasitli: LLM kolon adini farkli buyuk/kucuk
         harfle yazdiginda sorgu bunun yuzunden dusmesin.
         """
-        sql = sqlalchemy.text("""
+        frame = self.data.read_sql("""
             SELECT COLUMN_NAME
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
             ORDER BY ORDINAL_POSITION
-        """)
+        """, {"schema": schema, "table": table})
 
-        with self.engine.connect() as conn:
-            rows = conn.execute(sql, {"schema": schema, "table": table}).fetchall()
-
-        if not rows:
+        if frame.empty:
             raise ValueError(
                 f"'{schema}.{table}' tablosu veritabanında bulunamadı.")
 
-        return {r[0].lower(): r[0] for r in rows}
+        names = frame.iloc[:, 0].tolist()
+        return {str(name).lower(): str(name) for name in names}
 
     @staticmethod
     def _resolve_column(name: Optional[str], columns: Dict[str, str]) -> Optional[str]:
@@ -420,10 +421,8 @@ class AgentAnalyzer:
 
         logger.info(f"SQL: {sql}")
 
-        with self.engine.connect() as conn:
-            grouped = pd.read_sql(sqlalchemy.text(sql), conn, params=where_params)
-            total_groups = conn.execute(
-                sqlalchemy.text(count_sql), where_params).scalar()
+        grouped = self.data.read_sql(sql, where_params)
+        total_groups = self.data.scalar(count_sql, where_params)
 
         self.audit["executedSql"] = sql
         self.audit["aggregationPerformedIn"] = "sql"
@@ -497,8 +496,7 @@ class AgentAnalyzer:
 
         logger.info(f"SQL: {query}")
 
-        with self.engine.connect() as conn:
-            df = pd.read_sql(sqlalchemy.text(query), conn, params=where_params)
+        df = self.data.read_sql(query, where_params, max_rows=max_rows)
 
         self.audit["executedSql"] = query
         self.audit["aggregationPerformedIn"] = "pandas"

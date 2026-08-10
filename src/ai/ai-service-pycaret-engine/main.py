@@ -7,11 +7,11 @@ import os
 import threading
 from dotenv import load_dotenv
 from auto_trainer import AutoTrainer
+from data_port import GatewayDataPort, SqlAlchemyDataPort
 from predictor import RealtimePredictor
 from agent_analyzer import AgentAnalyzer
 import json
 import re
-import urllib.parse
 
 load_dotenv()
 
@@ -287,8 +287,11 @@ async def _train_company_models(company_id: str, db_connection: DBConnection, se
         else:
             raise Exception(f"Unsupported database type: {db_type}")
         
-        # Train models
-        trainer = AutoTrainer(connection_string, semantic_schema, company_id)
+        # Bu yol kayitli bir SQL Server baglantisi degil, istekte gelen
+        # Postgres/MySQL bilgileriyle calisiyor; dolayisiyla ic uctan
+        # okunamiyor ve dogrudan baglanti kapisi kullaniliyor.
+        trainer = AutoTrainer(
+            SqlAlchemyDataPort(connection_string), semantic_schema, company_id)
         results = await trainer.train_all_tables()
         
         # Update status
@@ -316,11 +319,9 @@ class AgentAnalyzeRequest(BaseModel):
     request_id: str
     query_id: str
     company_id: str
-    db_host: str
-    db_port: int
-    db_name: str
-    db_user: str
-    db_password: str
+    # Kimlik bilgisi degil, kayitli baglantinin kimligi geliyor. Veriyi
+    # DataAnalysis.Api okuyor; bu servis ne host ne sifre goruyor.
+    connection_id: str
     config_json: str
     analysis_params_json: str
     user_question: str
@@ -380,24 +381,9 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
     try:
         logger.info(f"Running agent analysis for query: {query_id}")
 
-        # SQLAlchemy ham ODBC DSN'ini anlamiyor; "Could not parse SQLAlchemy
-        # URL from string 'DRIVER={...};SERVER=...'" ile duserdi. DSN,
-        # pyodbc surucusunun odbc_connect parametresine URL-kodlanarak
-        # gecirilmeli — SQLAlchemy'nin ODBC icin ongordugu bicim bu.
-        # Surucu 18, Dockerfile'da yuklenen surumle ayni olmali.
-        # 18'de Encrypt varsayilani "yes" ve sertifika dogrulamasi zorunlu;
-        # musteri sunuculari genellikle self-signed sertifika kullandigi icin
-        # TrustServerCertificate aciliyor — C# tarafinin varsayilani da bu.
-        odbc_dsn = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-            f"SERVER={request.db_host},{request.db_port};"
-            f"DATABASE={request.db_name};"
-            f"UID={request.db_user};"
-            f"PWD={request.db_password};"
-            f"Encrypt=yes;TrustServerCertificate=yes"
-        )
-        conn_string = "mssql+pyodbc:///?odbc_connect=" + urllib.parse.quote_plus(odbc_dsn)
-
+        # Veritabanina bu servis baglanmiyor: sorgu DataAnalysis.Api'ye
+        # gonderiliyor, satirlar oradan geliyor. Musteri veritabani firewall
+        # arkasindaysa aradaki fark orada kapaniyor; burasi degismiyor.
         config = json.loads(request.config_json)
         params = json.loads(request.analysis_params_json)
 
@@ -407,7 +393,7 @@ async def _run_agent_analysis(request: AgentAnalyzeRequest):
             "message": "Loading data from database..."
         }
 
-        analyzer = AgentAnalyzer(conn_string)
+        analyzer = AgentAnalyzer(GatewayDataPort(request.connection_id))
         result = analyzer.run_analysis(config, params)
 
         if result["success"]:
@@ -554,11 +540,7 @@ def _start_rabbitmq_consumer():
                     request_id=msg.get("requestId", ""),
                     query_id=msg.get("queryId", ""),
                     company_id=msg.get("companyId", ""),
-                    db_host=msg.get("dbHost", ""),
-                    db_port=msg.get("dbPort", 1433),
-                    db_name=msg.get("dbName", ""),
-                    db_user=msg.get("dbUser", ""),
-                    db_password=msg.get("dbPassword", ""),
+                    connection_id=msg.get("connectionId", ""),
                     config_json=msg.get("configJson", "{}"),
                     analysis_params_json=msg.get("analysisParamsJson", "{}"),
                     user_question=msg.get("userQuestion", "")

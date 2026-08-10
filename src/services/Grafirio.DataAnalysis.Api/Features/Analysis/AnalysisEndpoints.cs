@@ -1,7 +1,5 @@
-using Dapper;
-using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Models;
-using Microsoft.Data.SqlClient;
 
 namespace Grafirio.DataAnalysis.Api.Features.Analysis;
 
@@ -30,59 +28,52 @@ public static class AnalysisEndpoints
             .WithDescription("Detect foreign key relationships");
     }
 
-    private static async Task<IResult> GetDataQuality(AnalysisRequest request)
+    private static async Task<IResult> GetDataQuality(
+        AnalysisRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(
+                DataSourceTarget.From(request.ConnectionInfo), ct);
 
             var results = new List<TableQualityInfo>();
 
             foreach (var table in request.Tables)
             {
-                var parts = table.Split('.');
-                var schema = parts.Length > 1 ? parts[0] : "dbo";
-                var tableName = parts.Length > 1 ? parts[1] : table;
+                var (schema, tableName) = SplitTableName(table);
+                var qualified = $"{Quote(schema)}.{Quote(tableName)}";
 
                 // Toplam satır sayısı
-                var totalRowsQuery = $"SELECT COUNT(*) FROM [{schema}].[{tableName}]";
-                var totalRows = await connection.ExecuteScalarAsync<int>(totalRowsQuery);
+                var totalRows = await session.ScalarAsync<int>(
+                    $"SELECT COUNT(*) FROM {qualified}", ct: ct);
 
                 // Her kolonun NULL sayısı
-                var columnsQuery = @"
+                var columns = await session.QueryAsync<string>(@"
                     SELECT COLUMN_NAME
                     FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName";
-                
-                var columns = await connection.QueryAsync<string>(columnsQuery, new { Schema = schema, TableName = tableName });
+                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName",
+                    new { Schema = schema, TableName = tableName }, ct: ct);
 
                 var nullCounts = new Dictionary<string, int>();
                 foreach (var column in columns)
                 {
-                    var nullCountQuery = $"SELECT COUNT(*) FROM [{schema}].[{tableName}] WHERE [{column}] IS NULL";
-                    var nullCount = await connection.ExecuteScalarAsync<int>(nullCountQuery);
-                    nullCounts[column] = nullCount;
+                    nullCounts[column] = await session.ScalarAsync<int>(
+                        $"SELECT COUNT(*) FROM {qualified} WHERE {Quote(column)} IS NULL", ct: ct);
                 }
 
-                // Duplicate satır sayısı (tüm kolonlara göre)
-                var duplicateQuery = $@"
-                    SELECT COUNT(*) - COUNT(DISTINCT *)
-                    FROM (SELECT * FROM [{schema}].[{tableName}]) AS t";
-                
                 // Basit duplicate kontrolü - ilk kolona göre
                 var firstColumn = columns.FirstOrDefault();
                 var duplicateCount = 0;
                 if (firstColumn != null)
                 {
-                    var dupQuery = $@"
-                        SELECT COUNT(*) 
-                        FROM [{schema}].[{tableName}]
-                        GROUP BY [{firstColumn}]
-                        HAVING COUNT(*) > 1";
-                    var duplicates = await connection.QueryAsync<int>(dupQuery);
-                    duplicateCount = duplicates.Count();
+                    var duplicates = await session.QueryAsync<int>($@"
+                        SELECT COUNT(*)
+                        FROM {qualified}
+                        GROUP BY {Quote(firstColumn)}
+                        HAVING COUNT(*) > 1", ct: ct);
+                    duplicateCount = duplicates.Count;
                 }
 
                 results.Add(new TableQualityInfo
@@ -115,69 +106,68 @@ public static class AnalysisEndpoints
         }
     }
 
-    private static async Task<IResult> GetStatistics(AnalysisRequest request)
+    private static async Task<IResult> GetStatistics(
+        AnalysisRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(
+                DataSourceTarget.From(request.ConnectionInfo), ct);
 
             var results = new List<TableStatistics>();
 
             foreach (var table in request.Tables)
             {
-                var parts = table.Split('.');
-                var schema = parts.Length > 1 ? parts[0] : "dbo";
-                var tableName = parts.Length > 1 ? parts[1] : table;
+                var (schema, tableName) = SplitTableName(table);
+                var qualified = $"{Quote(schema)}.{Quote(tableName)}";
 
                 // Satır sayısı
-                var rowCountQuery = $"SELECT COUNT(*) FROM [{schema}].[{tableName}]";
-                var rowCount = await connection.ExecuteScalarAsync<int>(rowCountQuery);
+                var rowCount = await session.ScalarAsync<int>(
+                    $"SELECT COUNT(*) FROM {qualified}", ct: ct);
 
                 // Kolon sayısı
-                var columnCountQuery = @"
-                    SELECT COUNT(*) 
+                var columnCount = await session.ScalarAsync<int>(@"
+                    SELECT COUNT(*)
                     FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName";
-                var columnCount = await connection.ExecuteScalarAsync<int>(columnCountQuery, new { Schema = schema, TableName = tableName });
+                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName",
+                    new { Schema = schema, TableName = tableName }, ct: ct);
 
                 // Numeric kolonların istatistikleri
-                var numericStatsQuery = @"
-                    SELECT 
+                var numericColumns = await session.QueryRowsAsync(@"
+                    SELECT
                         c.COLUMN_NAME,
                         c.DATA_TYPE
                     FROM INFORMATION_SCHEMA.COLUMNS c
-                    WHERE c.TABLE_SCHEMA = @Schema 
+                    WHERE c.TABLE_SCHEMA = @Schema
                     AND c.TABLE_NAME = @TableName
-                    AND c.DATA_TYPE IN ('int', 'bigint', 'decimal', 'numeric', 'float', 'real', 'money')";
-                
-                var numericColumns = await connection.QueryAsync<dynamic>(numericStatsQuery, new { Schema = schema, TableName = tableName });
+                    AND c.DATA_TYPE IN ('int', 'bigint', 'decimal', 'numeric', 'float', 'real', 'money')",
+                    new { Schema = schema, TableName = tableName }, ct: ct);
 
                 var columnStats = new List<ColumnStatistics>();
                 foreach (var col in numericColumns)
                 {
-                    var colName = (string)col.COLUMN_NAME;
-                    var statsQuery = $@"
-                        SELECT 
-                            MIN([{colName}]) as MinValue,
-                            MAX([{colName}]) as MaxValue,
-                            AVG(CAST([{colName}] AS FLOAT)) as AvgValue,
-                            COUNT(DISTINCT [{colName}]) as DistinctCount
-                        FROM [{schema}].[{tableName}]
-                        WHERE [{colName}] IS NOT NULL";
-                    
-                    var stats = await connection.QueryFirstOrDefaultAsync<dynamic>(statsQuery);
+                    var colName = col.GetRequiredString("COLUMN_NAME");
+                    var stats = await session.QueryFirstRowOrDefaultAsync($@"
+                        SELECT
+                            MIN({Quote(colName)}) as MinValue,
+                            MAX({Quote(colName)}) as MaxValue,
+                            AVG(CAST({Quote(colName)} AS FLOAT)) as AvgValue,
+                            COUNT(DISTINCT {Quote(colName)}) as DistinctCount
+                        FROM {qualified}
+                        WHERE {Quote(colName)} IS NOT NULL", ct: ct);
+
                     if (stats != null)
                     {
                         columnStats.Add(new ColumnStatistics
                         {
                             ColumnName = colName,
-                            DataType = (string)col.DATA_TYPE,
-                            MinValue = stats.MinValue?.ToString(),
-                            MaxValue = stats.MaxValue?.ToString(),
-                            AvgValue = stats.AvgValue?.ToString(),
-                            DistinctCount = stats.DistinctCount
+                            DataType = col.GetString("DATA_TYPE") ?? "",
+                            MinValue = stats.GetString("MinValue"),
+                            MaxValue = stats.GetString("MaxValue"),
+                            AvgValue = stats.GetString("AvgValue"),
+                            DistinctCount = stats.GetInt32("DistinctCount")
                         });
                     }
                 }
@@ -206,49 +196,49 @@ public static class AnalysisEndpoints
         }
     }
 
-    private static async Task<IResult> GetMissingData(AnalysisRequest request)
+    private static async Task<IResult> GetMissingData(
+        AnalysisRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(
+                DataSourceTarget.From(request.ConnectionInfo), ct);
 
             var results = new List<MissingDataInfo>();
 
             foreach (var table in request.Tables)
             {
-                var parts = table.Split('.');
-                var schema = parts.Length > 1 ? parts[0] : "dbo";
-                var tableName = parts.Length > 1 ? parts[1] : table;
+                var (schema, tableName) = SplitTableName(table);
+                var qualified = $"{Quote(schema)}.{Quote(tableName)}";
 
-                var totalRowsQuery = $"SELECT COUNT(*) FROM [{schema}].[{tableName}]";
-                var totalRows = await connection.ExecuteScalarAsync<int>(totalRowsQuery);
+                var totalRows = await session.ScalarAsync<int>(
+                    $"SELECT COUNT(*) FROM {qualified}", ct: ct);
 
-                var columnsQuery = @"
-                    SELECT 
+                var columns = await session.QueryRowsAsync(@"
+                    SELECT
                         COLUMN_NAME,
                         DATA_TYPE,
                         IS_NULLABLE
                     FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName";
-                
-                var columns = await connection.QueryAsync<dynamic>(columnsQuery, new { Schema = schema, TableName = tableName });
+                    WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @TableName",
+                    new { Schema = schema, TableName = tableName }, ct: ct);
 
                 var missingInfo = new List<ColumnMissingInfo>();
                 foreach (var col in columns)
                 {
-                    var colName = (string)col.COLUMN_NAME;
-                    var nullCountQuery = $"SELECT COUNT(*) FROM [{schema}].[{tableName}] WHERE [{colName}] IS NULL";
-                    var nullCount = await connection.ExecuteScalarAsync<int>(nullCountQuery);
-                    
+                    var colName = col.GetRequiredString("COLUMN_NAME");
+                    var nullCount = await session.ScalarAsync<int>(
+                        $"SELECT COUNT(*) FROM {qualified} WHERE {Quote(colName)} IS NULL", ct: ct);
+
                     var missingPercentage = totalRows > 0 ? (nullCount * 100.0 / totalRows) : 0;
 
                     missingInfo.Add(new ColumnMissingInfo
                     {
                         ColumnName = colName,
-                        DataType = (string)col.DATA_TYPE,
-                        IsNullable = (string)col.IS_NULLABLE == "YES",
+                        DataType = col.GetString("DATA_TYPE") ?? "",
+                        IsNullable = col.GetString("IS_NULLABLE") == "YES",
                         MissingCount = nullCount,
                         MissingPercentage = Math.Round(missingPercentage, 2)
                     });
@@ -279,13 +269,15 @@ public static class AnalysisEndpoints
         }
     }
 
-    private static async Task<IResult> GetRelationships(AnalysisRequest request)
+    private static async Task<IResult> GetRelationships(
+        AnalysisRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request.ConnectionInfo);
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(
+                DataSourceTarget.From(request.ConnectionInfo), ct);
 
             var relationshipsQuery = @"
                 SELECT 
@@ -308,18 +300,20 @@ public static class AnalysisEndpoints
                 INNER JOIN sys.columns AS cr 
                     ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id";
 
-            var allRelationships = await connection.QueryAsync<dynamic>(relationshipsQuery);
+            var allRelationships = await session.QueryRowsAsync(relationshipsQuery, ct: ct);
 
             // Sadece seçili tabloları filtrele
             var relevantRelationships = allRelationships
-                .Where(r => request.Tables.Any(t => t.Contains((string)r.ParentTable) || t.Contains((string)r.ReferencedTable)))
+                .Where(r => request.Tables.Any(t =>
+                    t.Contains(r.GetRequiredString("ParentTable"))
+                    || t.Contains(r.GetRequiredString("ReferencedTable"))))
                 .Select(r => new RelationshipInfo
                 {
-                    ConstraintName = (string)r.ConstraintName,
-                    ParentTable = $"{r.ParentSchema}.{r.ParentTable}",
-                    ParentColumn = (string)r.ParentColumn,
-                    ReferencedTable = $"{r.ReferencedSchema}.{r.ReferencedTable}",
-                    ReferencedColumn = (string)r.ReferencedColumn
+                    ConstraintName = r.GetRequiredString("ConstraintName"),
+                    ParentTable = $"{r.GetString("ParentSchema")}.{r.GetString("ParentTable")}",
+                    ParentColumn = r.GetRequiredString("ParentColumn"),
+                    ReferencedTable = $"{r.GetString("ReferencedSchema")}.{r.GetString("ReferencedTable")}",
+                    ReferencedColumn = r.GetRequiredString("ReferencedColumn")
                 })
                 .ToList();
 
@@ -337,6 +331,19 @@ public static class AnalysisEndpoints
             });
         }
     }
+
+    private static (string Schema, string Table) SplitTableName(string qualified)
+    {
+        var parts = qualified.Split('.');
+        return parts.Length > 1 ? (parts[0], parts[1]) : ("dbo", qualified);
+    }
+
+    /// <summary>
+    /// Tablo ve kolon adlari sorguya parametre olarak degil metin olarak
+    /// giriyor (SQL'de tanimlayici parametrelenemez). En azindan koseli parantez
+    /// kacisi yapiliyor; onceden o da yoktu.
+    /// </summary>
+    private static string Quote(string identifier) => $"[{identifier.Replace("]", "]]")}]";
 
     private static double CalculateQualityScore(int totalRows, int totalNulls, int duplicates)
     {

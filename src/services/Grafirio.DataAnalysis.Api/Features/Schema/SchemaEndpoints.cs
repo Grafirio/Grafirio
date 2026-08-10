@@ -1,7 +1,5 @@
-using Dapper;
-using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Models;
-using Microsoft.Data.SqlClient;
 
 namespace Grafirio.DataAnalysis.Api.Features.Schema;
 
@@ -22,91 +20,82 @@ public static class SchemaEndpoints
             .WithDescription("Get detailed schema information for a specific table");
     }
 
-    private static async Task<IResult> GetTables(SqlConnectionRequest request)
+    private static async Task<IResult> GetTables(
+        SqlConnectionRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request);
-            
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(DataSourceTarget.From(request), ct);
 
-            var query = @"
-                SELECT 
-                    t.TABLE_NAME as TableName,
-                    t.TABLE_SCHEMA as Schema,
-                    (SELECT COUNT(*) FROM [' + t.TABLE_SCHEMA + '].[' + t.TABLE_NAME + ']) as RowCount
-                FROM INFORMATION_SCHEMA.TABLES t
-                WHERE t.TABLE_TYPE = 'BASE TABLE'
-                ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME";
-
-            // Basit versiyon - satır sayısı olmadan
-            var simpleQuery = @"
-                SELECT 
-                    TABLE_NAME as TableName,
-                    TABLE_SCHEMA as [Schema]
+            // Satir sayisi bilerek cekilmiyor: tablo listesi ekrani icin her
+            // tabloya COUNT(*) atmak buyuk veritabanlarinda dakikalar suruyor.
+            var rows = await session.QueryRowsAsync(@"
+                SELECT
+                    TABLE_NAME   AS TableName,
+                    TABLE_SCHEMA AS [Schema]
                 FROM INFORMATION_SCHEMA.TABLES
                 WHERE TABLE_TYPE = 'BASE TABLE'
-                ORDER BY TABLE_SCHEMA, TABLE_NAME";
+                ORDER BY TABLE_SCHEMA, TABLE_NAME", ct: ct);
 
-            var tables = await connection.QueryAsync<dynamic>(simpleQuery);
-            
-            var tableList = tables.Select(t => new 
+            var tableList = rows.Select(row =>
             {
-                tableName = (string)t.TableName,
-                schema = (string)t.Schema,
-                fullName = $"{t.Schema}.{t.TableName}"
+                var schema = row.GetRequiredString("Schema");
+                var tableName = row.GetRequiredString("TableName");
+                return new
+                {
+                    tableName,
+                    schema,
+                    fullName = $"{schema}.{tableName}"
+                };
             }).ToList();
 
-            return Results.Ok(new { 
+            return Results.Ok(new
+            {
                 success = true,
                 count = tableList.Count,
-                tables = tableList 
+                tables = tableList
             });
         }
         catch (Exception ex)
         {
-            return Results.Ok(new { 
-                success = false, 
-                message = $"Failed to retrieve tables: {ex.Message}" 
+            return Results.Ok(new
+            {
+                success = false,
+                message = $"Failed to retrieve tables: {ex.Message}"
             });
         }
     }
 
     private static async Task<IResult> GetTableSchema(
-        string tableName, 
-        SqlConnectionRequest request)
+        string tableName,
+        SqlConnectionRequest request,
+        IDataSourceFactory dataSources,
+        CancellationToken ct)
     {
         try
         {
-            var connectionString = ConnectionTestEndpoints.BuildConnectionString(request);
-            
-            using var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
+            await using var session = await dataSources.OpenAsync(DataSourceTarget.From(request), ct);
 
             // Tablo ve şema adını ayır
             var parts = tableName.Split('.');
             var schema = parts.Length > 1 ? parts[0] : "dbo";
             var table = parts.Length > 1 ? parts[1] : tableName;
 
-            var query = @"
-                SELECT 
+            var columns = await session.QueryAsync<ColumnInfo>(@"
+                SELECT
                     COLUMN_NAME as ColumnName,
                     DATA_TYPE as DataType,
                     CAST(CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS BIT) as IsNullable,
                     CHARACTER_MAXIMUM_LENGTH as MaxLength
                 FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_SCHEMA = @Schema AND TABLE_NAME = @Table
-                ORDER BY ORDINAL_POSITION";
+                ORDER BY ORDINAL_POSITION",
+                new { Schema = schema, Table = table }, ct: ct);
 
-            var columns = await connection.QueryAsync<ColumnInfo>(
-                query, 
-                new { Schema = schema, Table = table }
-            );
-
-            // Satır sayısını al
-            var countQuery = $"SELECT COUNT(*) FROM [{schema}].[{table}]";
-            var rowCount = await connection.ExecuteScalarAsync<int>(countQuery);
+            var rowCount = await session.ScalarAsync<int>(
+                $"SELECT COUNT(*) FROM {Quote(schema)}.{Quote(table)}", ct: ct);
 
             return Results.Ok(new TableSchemaResponse(
                 TableName: table,
@@ -117,10 +106,13 @@ public static class SchemaEndpoints
         }
         catch (Exception ex)
         {
-            return Results.BadRequest(new { 
-                Success = false, 
-                Message = $"Failed to retrieve table schema: {ex.Message}" 
+            return Results.BadRequest(new
+            {
+                Success = false,
+                Message = $"Failed to retrieve table schema: {ex.Message}"
             });
         }
     }
+
+    private static string Quote(string identifier) => $"[{identifier.Replace("]", "]]")}]";
 }
