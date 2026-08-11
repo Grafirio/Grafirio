@@ -4,38 +4,18 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Grafirio.Bridge.IntegrationTests;
 
 /// <summary>
-/// Kayıt ve kimlik doğrulama, gerçek Mongo'ya karşı.
+/// Bridge defteri, gerçek Mongo'ya karşı.
 ///
-/// Parite testi bu yolu taklit edilmiş bir kimlik doğrulayıcıyla geçiyordu;
-/// buradaki, bir bridge'i şirkete bağlayan gerçek zinciri ölçüyor. Zincirin
-/// tek zayıf halkası bile, yanlış şirketin verisine erişim demek.
+/// Burada ölçülen şey defterin şirket sınırına uyması: hangi bridge'in kime
+/// ait olduğu, kimin neyi iptal edebildiği. Zincirin tek zayıf halkası bile,
+/// yanlış şirketin verisine erişim demek.
+///
+/// Kimliğin KENDİSİ burada değil — Keycloak'ta. Kurulum onayının ölçüldüğü
+/// yer <see cref="BridgeDeviceLoginTests"/>.
 /// </summary>
 public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixture>
 {
     private BridgeStore Store() => new(mongo.Database, NullLogger<BridgeStore>.Instance);
-
-    [SkippableFact]
-    public async Task Token_uretilip_bir_kez_harcaniyor()
-    {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
-
-        var store = Store();
-        var token = await store.CreateEnrollmentTokenAsync("firma-a", "kullanici-1");
-
-        Assert.Equal("firma-a", await store.RedeemEnrollmentTokenAsync(token));
-
-        // İkinci kullanım geçmemeli: token bir bridge'i şirkete bağlayan tek
-        // şey ve dolaşımda kalırsa başkası kendi bridge'ini kaydettirebilir.
-        Assert.Null(await store.RedeemEnrollmentTokenAsync(token));
-    }
-
-    [SkippableFact]
-    public async Task Gecersiz_token_kabul_edilmiyor()
-    {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
-
-        Assert.Null(await Store().RedeemEnrollmentTokenAsync("uydurma-token"));
-    }
 
     /// <summary>
     /// Defter kaydı. Sır burada YOK — kimlik Keycloak'ta duruyor; bu kayıt

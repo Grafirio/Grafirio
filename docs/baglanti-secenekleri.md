@@ -23,8 +23,10 @@ bağlanır, biz değil.
 | Ne kadar veri çıkıyor? | Yalnızca sorgunun sonucu. Satır tavanı sizin tarafınızda da uygulanıyor. |
 | Servis ne kadar yer kaplar? | Tek bir `.exe`. .NET runtime kurmanız gerekmez. |
 
-**Kurulum:** panelden tek kullanımlık kayıt token'ı alınır (2 saat geçerli),
-servise verilir, servis kendini tanıtır. Ayrıntı: [`src/bridge/README.md`](../src/bridge/README.md).
+**Kurulum:** servis açılışta ekranda kısa bir kod gösterir, kuran kişi onu
+tarayıcıda kendi hesabıyla onaylar (OAuth device flow — bir TV'ye hesap
+tanıtmak gibi). Taşınacak bir token yok.
+Ayrıntı: [`src/bridge/README.md`](../src/bridge/README.md).
 
 Aynı yaklaşımı Postman (Desktop Agent), Microsoft (Power BI On-premises Data
 Gateway, Azure Self-hosted Integration Runtime) ve Cloudflare (Tunnel)

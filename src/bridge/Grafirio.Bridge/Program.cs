@@ -34,6 +34,7 @@ builder.Services.AddSingleton(provider =>
         Resolve(options.AuditLogPath, "audit.tsv"));
 });
 
+builder.Services.AddSingleton<BridgeDeviceLogin>();
 builder.Services.AddSingleton<BridgeEnrollment>();
 builder.Services.AddSingleton<QueryExecutor>();
 builder.Services.AddSingleton<BridgeQueryPump>();

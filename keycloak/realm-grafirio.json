@@ -40,7 +40,7 @@
     {
       "clientId": "grafirio-client",
       "name": "Grafirio Frontend (SPA)",
-      "description": "Public browser client used by grifirio.front, projectadmin and useradmin",
+      "description": "Public browser client used by grifirio.front, projectadmin, useradmin and the Grafirio Bridge installer (device flow)",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -49,6 +49,9 @@
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
       "redirectUris": [
         "https://grafirio.com/*",
         "https://admin.grafirio.com/*",

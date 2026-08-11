@@ -34,9 +34,10 @@ public class BridgeWorker(
             if (!await enrollment.TryEnrollAsync(stoppingToken))
             {
                 logger.LogError(
-                    "Bridge kayıtlı değil ve kayıt yapılamadı. Paneldeki kurulum " +
-                    "token'ını {Path} dosyasındaki EnrollmentToken alanına yazıp " +
-                    "servisi yeniden başlatın.", _options.ConfigurationPath);
+                    "Bridge kayıtlı değil ve kayıt yapılamadı. Servisi yeniden " +
+                    "başlattığınızda yeni bir kurulum kodu verilecek; {Path} " +
+                    "dosyasındaki ServerUrl ve IdentityUrl alanlarının doğru " +
+                    "olduğundan emin olun.", _options.ConfigurationPath);
                 return;
             }
         }
@@ -144,8 +145,20 @@ public class BridgeOptions
     /// <summary>Grafirio bulut adresi, ornegin https://api.grafirio.com</summary>
     public string ServerUrl { get; set; } = "";
 
-    /// <summary>Panelden alinan tek kullanimlik kayit token'i. Kayit sonrasi silinir.</summary>
-    public string? EnrollmentToken { get; set; }
+    /// <summary>
+    /// Kimlik sunucusu realm adresi, ornegin
+    /// https://login.grafirio.com/realms/grafirio. Kurulum onayi buradan
+    /// isteniyor; uc adresleri kesif belgesinden okunuyor.
+    /// </summary>
+    public string IdentityUrl { get; set; } = "";
+
+    /// <summary>
+    /// Kurulum onayinin sorulacagi OAuth istemcisi. Panelin kullandigi public
+    /// istemcinin ayni: <c>company_id</c> ve audience mapper'lari orada tanimli
+    /// ve ikinci bir istemcide tekrarlanmasi, alanlar ayrisinca sessizce
+    /// bozulan bir esleme demek olurdu.
+    /// </summary>
+    public string InstallerClientId { get; set; } = "grafirio-client";
 
     /// <summary>Bu bridge'e panelde gorunecek ad.</summary>
     public string? Name { get; set; }

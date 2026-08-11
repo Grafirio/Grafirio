@@ -5,7 +5,7 @@ import {
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables,
   getBridges, getBridgeBindings, bindConnectionToBridge,
-  createBridgeEnrollmentToken, revokeBridge,
+  revokeBridge,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -48,7 +48,6 @@ const SqlConnectionSettings = () => {
   const [bridgeBindings, setBridgeBindings] = useState({});
   const [bridgeError, setBridgeError] = useState('');
   const [enrollment, setEnrollment] = useState(null);
-  const [isCreatingToken, setIsCreatingToken] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -568,28 +567,14 @@ const SqlConnectionSettings = () => {
   };
 
   /**
-   * Yeni bir bridge kurulumu başlatır: tek kullanımlık token üretir.
+   * Kurulum yönergesini açar.
    *
-   * Token ekranda BİR KEZ gösteriliyor çünkü sunucuda yalnızca özeti
-   * saklanıyor — veritabanını okuyabilen biri bridge kaydedememeli.
+   * Panelin burada üreteceği bir şey yok: bridge açılışta kendi kodunu
+   * gösteriyor ve onay tarayıcıda veriliyor (device flow). Önceki sürümde
+   * burada tek kullanımlık bir token üretiliyor ve kuran kişi onu
+   * `appsettings.json`'a elle yapıştırıyordu.
    */
-  const handleCreateEnrollmentToken = async () => {
-    setIsCreatingToken(true);
-    try {
-      setEnrollment(await createBridgeEnrollmentToken());
-    } catch (error) {
-      console.error('Kayıt token’ı üretilemedi:', error);
-      setNotification({
-        show: true,
-        type: 'error',
-        title: 'Kayıt token’ı üretilemedi',
-        message: 'Bridge kurulumu başlatılamadı.',
-        details: error?.response?.data?.error ?? error.message,
-      });
-    } finally {
-      setIsCreatingToken(false);
-    }
-  };
+  const handleShowInstallGuide = () => setEnrollment({ open: true });
 
   const handleRevokeBridge = async (bridge) => {
     const label = bridge.name || bridge.machineName;
@@ -659,12 +644,8 @@ const SqlConnectionSettings = () => {
               açmanız gerekmez.
             </p>
           </div>
-          <button
-            className="st-btn"
-            onClick={handleCreateEnrollmentToken}
-            disabled={isCreatingToken}
-          >
-            {isCreatingToken ? 'Hazırlanıyor…' : '+ Bridge Ekle'}
+          <button className="st-btn" onClick={handleShowInstallGuide}>
+            + Bridge Ekle
           </button>
         </div>
 
@@ -675,26 +656,25 @@ const SqlConnectionSettings = () => {
         {enrollment && (
           <div className="gf-alert gf-alert--info bridge-enrollment">
             <p>
-              <strong>Kurulum token’ı hazır.</strong> Bu token{' '}
-              {enrollment.expiresInMinutes} dakika geçerli ve <strong>bir kez</strong>{' '}
-              kullanılabilir. Ekranı kapattığınızda tekrar gösterilemez.
+              <strong>Bridge kurulumu.</strong> Kopyalayıp taşıyacağınız bir
+              token yok — bridge açılışta size kendi kodunu gösterecek, siz de
+              onu bu tarayıcıda onaylayacaksınız.
             </p>
-            <code className="bridge-enrollment__token">{enrollment.token}</code>
             <ol className="bridge-enrollment__steps">
               <li>Grafirio Bridge kurulum dosyasını hedef sunucuya kopyalayın.</li>
+              <li>Servisi başlatın; ekranda kısa bir kod ve bir adres görünecek.</li>
               <li>
-                <code>appsettings.json</code> içindeki <code>EnrollmentToken</code>{' '}
-                alanına yukarıdaki değeri yazın.
+                O adresi burada açıp kodu girin ve <strong>kendi hesabınızla</strong>{' '}
+                onaylayın. Bridge hangi şirkete bağlanacağını sizin hesabınızdan
+                öğreniyor.
               </li>
-              <li>Servisi başlatın; bridge kendini tanıtacak ve listede görünecek.</li>
+              <li>Onaydan sonra bridge kendini tanıtacak ve aşağıdaki listede görünecek.</li>
             </ol>
+            <p className="bridge-enrollment__note">
+              Kod kısa ömürlüdür. Süresi dolarsa servisi yeniden başlatmanız
+              yeterli; yenisi verilir.
+            </p>
             <div className="bridge-enrollment__actions">
-              <button
-                className="gf-btn gf-btn--sm"
-                onClick={() => navigator.clipboard?.writeText(enrollment.token)}
-              >
-                <i className="ti ti-copy"></i> Kopyala
-              </button>
               <button
                 className="gf-btn gf-btn--sm"
                 onClick={async () => { setEnrollment(null); await loadBridges(); }}

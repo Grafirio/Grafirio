@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -11,12 +12,18 @@ namespace Grafirio.Bridge;
 /// Ilk kurulum: bridge'i sirkete baglar.
 ///
 /// Kurulum dosyasinin kendisi herkese acik durabilir — bir bridge'i sirkete
-/// baglayan sey panelden alinan tek kullanimlik token. Token kisa omurlu ve
-/// bir kez harcaniyor.
+/// baglayan sey, kuran kisinin device flow ile verdigi onay. Hangi sirkete
+/// baglanacagi istekten degil, o kisinin token'indaki <c>company_id</c>
+/// claim'inden okunuyor: aksi halde baska bir sirkete bridge tanitmak mumkun
+/// olurdu.
+///
+/// Onceki surumde bunun yerine panelden alinan tek kullanimlik bir token
+/// vardi ve dosyaya elle yapistiriliyordu. Bkz. <see cref="BridgeDeviceLogin"/>.
 /// </summary>
 public class BridgeEnrollment(
     IOptions<BridgeOptions> options,
     BridgeState state,
+    BridgeDeviceLogin deviceLogin,
     ILogger<BridgeEnrollment> logger)
 {
     private readonly BridgeOptions _options = options.Value;
@@ -29,15 +36,20 @@ public class BridgeEnrollment(
 
     public async Task<bool> TryEnrollAsync(CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(_options.EnrollmentToken))
-        {
-            logger.LogError("Kayıt token'ı tanımlı değil.");
-            return false;
-        }
-
         if (string.IsNullOrWhiteSpace(_options.ServerUrl))
         {
             logger.LogError("ServerUrl tanımlı değil; hangi buluta kaydolunacağı bilinmiyor.");
+            return false;
+        }
+
+        // Once kuran kisinin onayi. Bu token bridge'in kimligi DEGIL — yalnizca
+        // asagidaki tek cagriyi yetkilendiriyor; bridge kendi kimligini o
+        // cagrinin cevabinda aliyor.
+        var installerToken = await deviceLogin.TryLoginAsync(ct);
+
+        if (installerToken is null)
+        {
+            logger.LogError("Kurulum onayı alınamadı; kayıt yapılamıyor.");
             return false;
         }
 
@@ -45,6 +57,8 @@ public class BridgeEnrollment(
         // kez yapiliyor, soket tuketimi diye bir mesele yok. Musterinin
         // makinesine giden her paket ayri bir onay konusu.
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", installerToken);
 
         var url = _options.ServerUrl.TrimEnd('/') + "/api/bridges/enroll";
 
@@ -54,7 +68,6 @@ public class BridgeEnrollment(
         {
             var response = await client.PostAsJsonAsync(url, new
             {
-                token = _options.EnrollmentToken,
                 machineName = Environment.MachineName,
                 bridgeVersion = _options.Version,
                 protocolVersion = BridgeProtocol.Version,
@@ -89,8 +102,9 @@ public class BridgeEnrollment(
                 new BridgeCredentials(result.ClientId, result.ClientSecret, result.TokenEndpoint));
 
             logger.LogInformation(
-                "Kayıt tamamlandı. Artık {Path} dosyasındaki EnrollmentToken alanını " +
-                "silebilirsiniz; token zaten harcandı.", _options.ConfigurationPath);
+                "Kayıt tamamlandı. Bu makinede yapılacak başka bir şey yok — kimlik " +
+                "{Path} dosyasında değil, yerel durum dosyasında şifreli duruyor.",
+                state.FilePath);
 
             return true;
         }
