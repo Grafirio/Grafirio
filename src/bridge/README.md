@@ -50,12 +50,16 @@ hesap tanıtmak gibi (OAuth 2.0 Device Authorization Grant, RFC 8628).
 ┌─────────────────────────────────────────────────────────────┐
 │  Grafirio Bridge kurulumu                                   │
 ├─────────────────────────────────────────────────────────────┤
-│  1. Tarayıcıda şu adresi açın:                              │
-│     https://login.grafirio.com/realms/grafirio/device       │
-│  2. Şu kodu girin:                                          │
-│     WDJB-MJHT                                               │
+│  Tarayıcıda aşağıdaki adresi açıp şu kodu girin:            │
+│                                                             │
+│      WDJB-MJHT                                              │
 └─────────────────────────────────────────────────────────────┘
+
+  https://login.grafirio.com/realms/grafirio/device
 ```
+
+Servis olarak kurulmuşsa konsol yoktur; aynı adres ve kod servisin günlüğüne
+de yazılır.
 
 3. Kodu tarayıcıda girip **kendi hesabınızla** onaylayın. Bridge hangi şirkete
    bağlanacağını sizin hesabınızdan öğreniyor; ayrıca bir şey seçmenize gerek
@@ -71,7 +75,8 @@ hesap tanıtmak gibi (OAuth 2.0 Device Authorization Grant, RFC 8628).
 sc.exe create "Grafirio Bridge" binPath= "C:\Program Files\Grafirio\Bridge\GrafirioBridge.exe" start= auto
 ```
 
-Kodun süresi dolarsa yeniden başlatmanız yeterli; yenisi verilir.
+Kodun süresi dolarsa bir şey yapmanız gerekmez: bridge kayıt tamamlanana kadar
+aralığı artırarak yeni kod almayı sürdürür.
 
 ## Veritabanı bağlantılarının tanımlanması
 

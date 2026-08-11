@@ -29,18 +29,8 @@ public class BridgeWorker(
     {
         state.Load();
 
-        if (!state.IsEnrolled)
-        {
-            if (!await enrollment.TryEnrollAsync(stoppingToken))
-            {
-                logger.LogError(
-                    "Bridge kayıtlı değil ve kayıt yapılamadı. Servisi yeniden " +
-                    "başlattığınızda yeni bir kurulum kodu verilecek; {Path} " +
-                    "dosyasındaki ServerUrl ve IdentityUrl alanlarının doğru " +
-                    "olduğundan emin olun.", _options.ConfigurationPath);
-                return;
-            }
-        }
+        if (!state.IsEnrolled && !await EnrollWithRetryAsync(stoppingToken))
+            return;
 
         await using var connection = Build();
 
@@ -79,6 +69,40 @@ public class BridgeWorker(
 
             await Task.Delay(HeartbeatInterval, stoppingToken);
         }
+    }
+
+    /// <summary>
+    /// Kayit tamamlanana kadar denemeyi surdurur.
+    ///
+    /// Onceki surumde tek deneme vardi: basarisiz olunca surec ayakta kalir
+    /// ama hicbir sey yapmazdi ve kuran kisiden servisi elle yeniden
+    /// baslatmasi beklenirdi. Oysa buradaki basarisizliklarin neredeyse hepsi
+    /// gecici — kurulum kodunun suresi doldu, kuran kisi henuz onaylamadi,
+    /// bulut daha ayakta degil — ve hepsinin cevabi ayni: yeni bir kod alip
+    /// tekrar sormak.
+    ///
+    /// Aralik artiyor: yapilandirmasi hatali bir bridge (yanlis ServerUrl)
+    /// aksi halde sonsuza kadar bes saniyede bir kod isterdi.
+    /// </summary>
+    private async Task<bool> EnrollWithRetryAsync(CancellationToken ct)
+    {
+        var delay = TimeSpan.FromSeconds(5);
+
+        while (!ct.IsCancellationRequested)
+        {
+            if (await enrollment.TryEnrollAsync(ct)) return true;
+
+            logger.LogWarning(
+                "Kayıt tamamlanamadı. {Seconds} sn sonra yeni bir kurulum kodu " +
+                "alınacak; {Path} dosyasındaki ServerUrl ve IdentityUrl " +
+                "alanlarının doğru olduğundan emin olun.",
+                (int)delay.TotalSeconds, _options.ConfigurationPath);
+
+            await Task.Delay(delay, ct);
+            delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 300));
+        }
+
+        return false;
     }
 
     private HubConnection Build()
