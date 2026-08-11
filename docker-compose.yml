@@ -70,11 +70,22 @@ services:
     image: quay.io/keycloak/keycloak:25.0
     command: start --import-realm
     environment:
-      KC_HOSTNAME_PORT: 8080
-      KC_HOSTNAME_STRICT_BACKCHANNEL: false
+      # Token'daki `iss` her istekte, isteğin geldiği host'a göre üretiliyordu:
+      # konteyner içinden `keycloak:8080`, tarayıcıdan ve yığının dışında
+      # çalışan bir bridge'den `localhost:8080`. Aynı realm iki farklı kimlik
+      # gösteriyordu, servislerin doğruladığı yalnızca biriydi ve dışarıdan
+      # alınan token 401 dönüyordu. Bridge müşterinin ağında çalıştığı için
+      # bu yolu HER ZAMAN dışarıdan yürüyor.
+      #
+      # Burada sabitlenen şey yalnızca dışarıya görünen adres — yani `iss`.
+      KC_HOSTNAME: http://localhost:8080
+      # Arka kanal buna dahil değil: JWKS ve token uçları isteğin geldiği
+      # host'tan üretilmeye devam ediyor, böylece konteyner içindeki servisler
+      # Keycloak'a servis adıyla ulaşabiliyor. Bu satır olmadan keşif belgesi
+      # konteynerlere `localhost:8080` adresini verir ve hiçbiri anahtarları
+      # çekemez.
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: true
       KC_HTTP_ENABLED: true
-      KC_HOSTNAME_STRICT_HTTPS: false
-      KC_HOSTNAME_STRICT: false
       KC_HEALTH_ENABLED: true
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
@@ -190,8 +201,11 @@ services:
       ASPNETCORE_URLS: http://+:5036
       MongoOption__ConnectionString: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017
       MongoOption__DatabaseName: GrafirioIdentityDb
+      # Adres ile issuer AYRI: adres Keycloak'a nasıl ulaşıldığı (konteyner
+      # ağı), issuer ise token'da ne yazdığı (dışarıya görünen adres). İkisini
+      # eşitlemek, yığının dışından alınan her token'ı reddetmek demekti.
       IdentityOption__Address: http://keycloak:8080
-      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://localhost:8080/realms/grafirio
       IdentityOption__Audience: grafirio-api
       KeycloakAdmin__Realm: grafirio
       KeycloakAdmin__Username: ${KEYCLOAK_ADMIN}
@@ -217,7 +231,7 @@ services:
       ConnectionStrings__Redis: redis.db.basket:6379,password=${REDIS_PASSWORD},abortConnect=false
       ConnectionStrings__SqlServer: Server=sqlserver.db.order,1433;Database=GrafirioECommerce;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True
       IdentityOption__Address: http://keycloak:8080/realms/grafirio
-      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://localhost:8080/realms/grafirio
       IdentityOption__Audience: commerce.api
     ports:
       - "5300:5300"
@@ -277,7 +291,7 @@ services:
       # yok — compose kendi degerini acikca vermezse konteyner icindeki servis
       # yerel yigindaki Keycloak yerine uretimi sorguluyor.
       IdentityOption__Address: http://keycloak:8080/realms/grafirio
-      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://localhost:8080/realms/grafirio
       IdentityOption__Audience: gateway.api
       # Bridge kimlikleri Keycloak'ta acilip kapatiliyor: her bridge bir
       # client. Adres burada realm'siz — yonetim ucu /admin/realms/... altinda.
@@ -312,7 +326,7 @@ services:
       # DISINDA calistiranlar icin dogru, konteyner icinde degil: orada
       # localhost gateway'in kendisi. Keycloak'a servis adiyla gidilmeli.
       IdentityOption__Address: http://keycloak:8080/realms/grafirio
-      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://localhost:8080/realms/grafirio
       IdentityOption__Audience: gateway.api
     ports:
       - "5000:5000"
