@@ -92,16 +92,18 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
     /* ── Bridge kaydi ─────────────────────────────────────────────────── */
 
     /// <summary>
-    /// Bridge'i kaydeder ve uzun omurlu sirrini uretir. Sir yalnizca burada,
-    /// bir kez doner; veritabaninda ozeti duruyor.
+    /// Bridge'in defter kaydini acar.
+    ///
+    /// <b>Sir burada YOK.</b> Kimlik Keycloak'ta duruyor; buradaki kayit
+    /// yalnizca panelin gosterdigi seyler icin: ad, makine, surum, son
+    /// gorulme. Onceki surumde bu sinif kendi sirrini uretip SHA256 ozetini
+    /// saklıyor ve sabit sureli karsilastirmayla dogruluyordu — auth sunucusu
+    /// zaten kuruluyken elle yazilmis bir kimlik dogrulama katmaniydi.
     /// </summary>
-    public async Task<(Guid BridgeId, string Secret)> RegisterAsync(
-        string companyId, string name, string machineName, string version,
+    public async Task RegisterAsync(
+        Guid bridgeId, string companyId, string name, string machineName, string version,
         CancellationToken ct = default)
     {
-        var bridgeId = Guid.NewGuid();
-        var secret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
-
         await Bridges.InsertOneAsync(new BsonDocument
         {
             ["_id"] = bridgeId.ToString(),
@@ -109,7 +111,6 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
             ["name"] = name,
             ["machineName"] = machineName,
             ["version"] = version,
-            ["secretHash"] = Hash(secret),
             ["createdAt"] = DateTime.UtcNow,
             ["lastSeenAt"] = BsonNull.Value,
             ["revokedAt"] = BsonNull.Value,
@@ -118,16 +119,14 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
         logger.LogInformation(
             "Bridge kaydedildi. Id: {BridgeId}, şirket: {CompanyId}, makine: {MachineName}",
             bridgeId, companyId, machineName);
-
-        return (bridgeId, secret);
     }
 
     /// <summary>
-    /// Kimlik dogrulama: verilen sir bu bridge'e ait mi. Iptal edilmis bridge
-    /// kabul edilmez.
+    /// Bridge bu sirkete ait ve iptal edilmemis mi. Kimligin KENDISI token'dan
+    /// dogrulaniyor; burada yalnizca defter kontrolu var.
     /// </summary>
-    public async Task<RegisteredBridge?> AuthenticateAsync(
-        Guid bridgeId, string secret, CancellationToken ct = default)
+    public async Task<RegisteredBridge?> FindAsync(
+        Guid bridgeId, CancellationToken ct = default)
     {
         var document = await Bridges
             .Find(Builders<BsonDocument>.Filter.Eq("_id", bridgeId.ToString()))
@@ -135,14 +134,6 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
 
         if (document is null) return null;
         if (document.GetValue("revokedAt", BsonNull.Value) != BsonNull.Value) return null;
-
-        var expected = document.GetValue("secretHash", "").AsString;
-
-        // Sabit sureli karsilastirma: sirrin ne kadarinin dogru oldugunu
-        // olcmeye calisan bir saldirganin isine yaramasin.
-        if (!CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(Hash(secret)), Encoding.UTF8.GetBytes(expected)))
-            return null;
 
         return Map(document);
     }

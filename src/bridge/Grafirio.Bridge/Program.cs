@@ -37,6 +37,7 @@ builder.Services.AddSingleton(provider =>
 builder.Services.AddSingleton<BridgeEnrollment>();
 builder.Services.AddSingleton<QueryExecutor>();
 builder.Services.AddSingleton<BridgeQueryPump>();
+builder.Services.AddSingleton<BridgeTokenSource>();
 builder.Services.AddHostedService<BridgeWorker>();
 
 var host = builder.Build();

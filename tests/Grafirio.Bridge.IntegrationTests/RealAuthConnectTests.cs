@@ -1,49 +1,102 @@
 using Grafirio.Bridge.Contracts;
-using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
-using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Grafirio.Bridge.IntegrationTests;
 
 /// <summary>
-/// Bir bridge'in buluta bağlanma yolunun TAMAMI, taklitsiz.
+/// Bir bridge'in buluta bağlanma yolunun TAMAMI, gerçek Keycloak ile.
 ///
-/// Parite testi hub'ı sabit kimlikli sahte bir doğrulayıcıyla kullanıyordu;
-/// burada gerçek <see cref="BridgeAuthenticationHandler"/> ve gerçek
-/// <see cref="BridgeStore"/> devrede. Ölçülen şey: kayıt sırasında alınan sır
-/// gerçekten bağlanmayı sağlıyor mu, sağlamayanlar gerçekten engelleniyor mu.
+/// Önceki sürümde burada elle yazılmış bir kimlik doğrulama şeması vardı:
+/// kendi token'ımız, kendi SHA256 özetimiz, kendi sabit süreli
+/// karşılaştırmamız. Yazdığımız şey OAuth Dynamic Client Registration'ın elle
+/// yapılmış hâliydi ve auth sunucusu zaten kuruluydu.
+///
+/// Artık bridge kendi Keycloak client'ı olarak <c>client_credentials</c> ile
+/// token alıyor; sunucu o token'ı standart JWT doğrulamasıyla kontrol ediyor.
+/// Ölçülen şey: kimliği olan bağlanabiliyor, olmayan bağlanamıyor, iptal
+/// edilen dışarıda kalıyor.
+///
+///     docker compose up -d keycloak
 /// </summary>
-public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixture>
+public class RealAuthConnectTests(KeycloakFixture keycloak)
+    : IClassFixture<KeycloakFixture>, IAsyncLifetime
 {
-    private IHost BuildServer(string url) =>
+    private const string CompanyId = "auth-firma";
+
+    private readonly List<Guid> _created = [];
+
+    private KeycloakBridgeIdentity Identity()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Keycloak:BaseUrl"] = KeycloakFixture.BaseUrl,
+                ["Keycloak:Realm"] = KeycloakFixture.Realm,
+                ["Keycloak:AdminUsername"] = keycloak.AdminUsername,
+                ["Keycloak:AdminPassword"] = keycloak.AdminPassword,
+                ["IdentityOption:Audience"] = KeycloakFixture.Audience,
+            })
+            .Build();
+
+        return new KeycloakBridgeIdentity(
+            new SimpleHttpClientFactory(),
+            configuration,
+            NullLogger<KeycloakBridgeIdentity>.Instance);
+    }
+
+    private async Task<(Guid BridgeId, BridgeCredentials Credentials)> ProvisionAsync()
+    {
+        var bridgeId = Guid.NewGuid();
+        var credentials = await Identity().CreateAsync(bridgeId, CompanyId, "Test");
+        _created.Add(bridgeId);
+        return (bridgeId, credentials);
+    }
+
+    /// <summary>Gerçek JWT doğrulaması: üretimdeki ayarların aynısı.</summary>
+    private static IHost BuildServer(string url) =>
         Host.CreateDefaultBuilder()
             .ConfigureWebHostDefaults(web => web
                 .UseUrls(url)
                 .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Error))
                 .ConfigureServices(services =>
                 {
-                    services.AddSingleton(mongo.Database);
-                    services.AddSingleton<BridgeStore>();
-                    services.AddSingleton<IBridgePresence>(
-                        sp => sp.GetRequiredService<BridgeStore>());
                     services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
                     services.AddSingleton<BridgeRegistry>();
+                    services.AddSingleton<IBridgePresence, NoopPresence>();
                     services.AddSignalR();
 
-                    // Gerçek doğrulayıcı.
-                    services.AddAuthentication(BridgeAuthentication.Scheme)
-                        .AddScheme<AuthenticationSchemeOptions, BridgeAuthenticationHandler>(
-                            BridgeAuthentication.Scheme, _ => { });
+                    services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+                        .AddJwtBearer(options =>
+                        {
+                            options.Authority = KeycloakFixture.Authority;
+                            options.Audience = KeycloakFixture.Audience;
+                            // Yerel Keycloak HTTP; üretimde HTTPS.
+                            options.RequireHttpsMetadata = false;
+                            options.TokenValidationParameters = new TokenValidationParameters
+                            {
+                                ValidateIssuer = true,
+                                ValidIssuer = KeycloakFixture.Authority,
+                                ValidateAudience = true,
+                                ValidAudience = KeycloakFixture.Audience,
+                            };
+                        });
 
-                    services.AddAuthorization();
+                    services.AddAuthorizationBuilder()
+                        .AddPolicy(BridgeAuthentication.Policy, policy => policy
+                            .RequireAuthenticatedUser()
+                            .RequireClaim(BridgeAuthentication.BridgeIdClaim)
+                            .RequireClaim(BridgeAuthentication.CompanyIdClaim));
                 })
                 .Configure(app =>
                 {
@@ -54,12 +107,32 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
                 }))
             .Build();
 
-    private static HubConnection BuildClient(string url, string authorization, string version) =>
+    private static async Task<string> TokenAsync(BridgeCredentials credentials)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+
+        var response = await client.PostAsync(credentials.TokenEndpoint,
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials",
+                ["client_id"] = credentials.ClientId,
+                ["client_secret"] = credentials.ClientSecret,
+            }));
+
+        response.EnsureSuccessStatusCode();
+
+        var json = System.Text.Json.JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+
+        return json.RootElement.GetProperty("access_token").GetString()!;
+    }
+
+    private static HubConnection BuildClient(string url, Func<Task<string?>> token) =>
         new HubConnectionBuilder()
             .WithUrl(url + BridgeProtocol.HubPath, HttpTransportType.WebSockets, http =>
             {
-                http.Headers["Authorization"] = authorization;
-                http.Headers[BridgeAuthentication.VersionHeader] = version;
+                http.AccessTokenProvider = token;
+                http.Headers[BridgeAuthentication.VersionHeader] = BridgeProtocol.Version;
             })
             .Build();
 
@@ -73,50 +146,25 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
     }
 
     [SkippableFact]
-    public async Task Kayitli_bridge_baglanabiliyor_ve_cevrimici_gorunuyor()
+    public async Task Keycloak_kimligiyle_baglanabiliyor()
     {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
+        Skip.IfNot(keycloak.Available, keycloak.SkipReason);
 
-        var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        var token = await store.CreateEnrollmentTokenAsync("firma-a", "kullanici-1");
-        var companyId = await store.RedeemEnrollmentTokenAsync(token);
-
-        Assert.Equal("firma-a", companyId);
-
-        var (bridgeId, secret) = await store.RegisterAsync(
-            companyId!, "Merkez", "SRV-01", "1.0.0");
-
+        var (bridgeId, credentials) = await ProvisionAsync();
         var url = $"http://127.0.0.1:{FreePort()}";
+
         using var server = BuildServer(url);
         await server.StartAsync();
 
         try
         {
-            await using var client = BuildClient(
-                url, $"Bridge {bridgeId}:{secret}", BridgeProtocol.Version);
-
+            await using var client = BuildClient(url, async () => await TokenAsync(credentials));
             await client.StartAsync();
 
             var registry = server.Services.GetRequiredService<BridgeRegistry>();
-            await WaitUntil(() => registry.IsOnline(bridgeId), TimeSpan.FromSeconds(10));
+            await WaitUntil(() => registry.IsOnline(bridgeId), TimeSpan.FromSeconds(15));
 
             Assert.True(registry.IsOnline(bridgeId));
-
-            // Panel rozetini besleyen "son görüldü" gerçekten yazılmış olmalı.
-            //
-            // Ayrıca bekleniyor çünkü defter ile Mongo aynı anda güncellenmiyor:
-            // hub önce bridge'i deftere alıyor (sorgular hemen gidebilsin diye),
-            // kalıcı kaydı sonra yazıyor. Sıra bilinçli — sorgunun başlaması
-            // bir yazma işleminin tamamlanmasını beklememeli.
-            DateTime? lastSeen = null;
-            await WaitUntil(() =>
-            {
-                lastSeen = store.ListAsync("firma-a").GetAwaiter().GetResult()
-                    .Single(b => b.Id == bridgeId).LastSeenAt;
-                return lastSeen is not null;
-            }, TimeSpan.FromSeconds(10));
-
-            Assert.NotNull(lastSeen);
         }
         finally
         {
@@ -125,12 +173,9 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
     }
 
     [SkippableFact]
-    public async Task Yanlis_sirla_baglanilamiyor()
+    public async Task Token_olmadan_baglanilamiyor()
     {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
-
-        var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        var (bridgeId, _) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
+        Skip.IfNot(keycloak.Available, keycloak.SkipReason);
 
         var url = $"http://127.0.0.1:{FreePort()}";
         using var server = BuildServer(url);
@@ -138,18 +183,33 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
 
         try
         {
-            await using var client = BuildClient(
-                url, $"Bridge {bridgeId}:yanlis", BridgeProtocol.Version);
-
+            await using var client = BuildClient(url, () => Task.FromResult<string?>(null));
             await Assert.ThrowsAnyAsync<Exception>(() => client.StartAsync());
-
-            var registry = server.Services.GetRequiredService<BridgeRegistry>();
-            Assert.False(registry.IsOnline(bridgeId));
         }
         finally
         {
             await server.StopAsync();
         }
+    }
+
+    /// <summary>
+    /// İptal, Keycloak'ta client'ı kapatmak demek. Bu çalışmazsa panelin
+    /// "İptal Et" düğmesi yalancı bir güvence olurdu: defterde iptal yazar,
+    /// bridge çalışmaya devam ederdi.
+    /// </summary>
+    [SkippableFact]
+    public async Task Iptal_edilen_kimlik_token_alamiyor()
+    {
+        Skip.IfNot(keycloak.Available, keycloak.SkipReason);
+
+        var (bridgeId, credentials) = await ProvisionAsync();
+
+        // Önce çalıştığını görelim ki testin kendisi yanlış negatif olmasın.
+        Assert.NotEmpty(await TokenAsync(credentials));
+
+        await Identity().DisableAsync(bridgeId);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => TokenAsync(credentials));
     }
 
     /// <summary>
@@ -160,23 +220,29 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
     [SkippableFact]
     public async Task Uyumsuz_protokol_surumu_reddediliyor()
     {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
+        Skip.IfNot(keycloak.Available, keycloak.SkipReason);
 
-        var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        var (bridgeId, secret) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
-
+        var (bridgeId, credentials) = await ProvisionAsync();
         var url = $"http://127.0.0.1:{FreePort()}";
+
         using var server = BuildServer(url);
         await server.StartAsync();
 
         try
         {
-            await using var client = BuildClient(url, $"Bridge {bridgeId}:{secret}", "999");
+            await using var client = new HubConnectionBuilder()
+                .WithUrl(url + BridgeProtocol.HubPath, HttpTransportType.WebSockets, http =>
+                {
+                    http.AccessTokenProvider = async () => await TokenAsync(credentials);
+                    http.Headers[BridgeAuthentication.VersionHeader] = "999";
+                })
+                .Build();
+
             await client.StartAsync();
 
             var registry = server.Services.GetRequiredService<BridgeRegistry>();
 
-            // Bağlantı kurulsa bile deftere GIRMEMELI.
+            // Bağlantı kurulsa bile deftere GİRMEMELİ.
             await Task.Delay(500);
             Assert.False(registry.IsOnline(bridgeId));
         }
@@ -195,5 +261,31 @@ public class RealAuthConnectTests(MongoFixture mongo) : IClassFixture<MongoFixtu
             if (condition()) return;
             await Task.Delay(50);
         }
+    }
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    /// <summary>Açılan Keycloak client'larını kapatır; realm birikmesin.</summary>
+    public async Task DisposeAsync()
+    {
+        if (!keycloak.Available) return;
+
+        foreach (var bridgeId in _created)
+        {
+            try { await Identity().DisableAsync(bridgeId); }
+            catch { /* temizlik hatası testi etkilemesin */ }
+        }
+    }
+
+    private sealed class NoopPresence : IBridgePresence
+    {
+        public Task TouchAsync(Guid bridgeId, string version, CancellationToken ct = default) =>
+            Task.CompletedTask;
+    }
+
+    private sealed class SimpleHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) =>
+            new() { Timeout = TimeSpan.FromSeconds(30) };
     }
 }

@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Grafirio.Bridge.Contracts;
 
 namespace Grafirio.Bridge;
 
@@ -32,10 +33,18 @@ public class BridgeState(ILogger<BridgeState> logger, string filePath)
 
     public Guid? BridgeId => _document.BridgeId;
 
-    public string? Secret => _document.Secret;
+    /// <summary>
+    /// Keycloak kimligi. Onceki surumde burada bize ait uzun omurlu bir sir
+    /// duruyordu; artik standart bir OAuth client kimligi.
+    /// </summary>
+    public BridgeCredentials? Credentials =>
+        _document.ClientId is { } clientId
+        && _document.ClientSecret is { } secret
+        && _document.TokenEndpoint is { } endpoint
+            ? new BridgeCredentials(clientId, secret, endpoint)
+            : null;
 
-    public bool IsEnrolled => _document.BridgeId is not null
-                              && !string.IsNullOrEmpty(_document.Secret);
+    public bool IsEnrolled => _document.BridgeId is not null && Credentials is not null;
 
     public IReadOnlyList<BridgeConnection> Connections => _document.Connections;
 
@@ -58,11 +67,14 @@ public class BridgeState(ILogger<BridgeState> logger, string filePath)
             _document.BridgeId, _document.Connections.Count);
     }
 
-    public void SaveEnrollment(Guid bridgeId, string secret, string companyId)
+    public void SaveEnrollment(
+        Guid bridgeId, string companyId, BridgeCredentials credentials)
     {
         _document.BridgeId = bridgeId;
-        _document.Secret = secret;
         _document.CompanyId = companyId;
+        _document.ClientId = credentials.ClientId;
+        _document.ClientSecret = credentials.ClientSecret;
+        _document.TokenEndpoint = credentials.TokenEndpoint;
         Save();
 
         logger.LogInformation("Kayıt tamamlandı. Bridge: {BridgeId}", bridgeId);
@@ -141,8 +153,10 @@ public class BridgeState(ILogger<BridgeState> logger, string filePath)
     private class StateDocument
     {
         public Guid? BridgeId { get; set; }
-        public string? Secret { get; set; }
         public string? CompanyId { get; set; }
+        public string? ClientId { get; set; }
+        public string? ClientSecret { get; set; }
+        public string? TokenEndpoint { get; set; }
         public List<BridgeConnection> Connections { get; set; } = [];
     }
 }

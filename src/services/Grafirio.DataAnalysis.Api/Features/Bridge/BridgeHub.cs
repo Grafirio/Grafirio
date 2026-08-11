@@ -1,6 +1,4 @@
-using System.Security.Claims;
 using Grafirio.Bridge.Contracts;
-using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -14,13 +12,18 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// firewall'inda hicbir giris portu acilmaz — satista soylenen cumlenin
 /// koddaki karsiligi burasi.
 /// </summary>
-[Authorize(AuthenticationSchemes = BridgeAuthentication.Scheme)]
 /// <remarks>
+/// Kimlik dogrulama Keycloak'in verdigi JWT ile — bridge'e ozel elle yazilmis
+/// bir sema YOK. Bridge kendi Keycloak client'i olarak <c>client_credentials</c>
+/// ile token aliyor; token'daki <c>bridge_id</c> ve <c>company_id</c> claim'leri
+/// kimligi tasiyor. Iptal, token suresi ve anahtar rotasyonu Keycloak'in isi.
+///
 /// <paramref name="connectionSync"/> varsayilan degerli: protokolu Mongo
 /// olmadan test edebilmek icin. Uretimde kayitli olmadigi bir durum yok —
 /// olsaydi bridge baglanir ama hicbir sorgu calistiramazdi, o yuzden
 /// eksikligi uyari olarak yaziliyor.
 /// </remarks>
+[Authorize(Policy = BridgeAuthentication.Policy)]
 public class BridgeHub(
     BridgeRegistry registry,
     IBridgePresence presence,
@@ -128,11 +131,12 @@ public class BridgeHub(
         var bridgeId = Context.User?.FindFirst(BridgeAuthentication.BridgeIdClaim)?.Value;
         var companyId = Context.User?.FindFirst(BridgeAuthentication.CompanyIdClaim)?.Value;
 
-        // Kimlik dogrulama zaten gecmis olmali; buraya duserse yapilandirma
-        // hatasi var demektir ve sessizce devam etmek yanlis bridge'e sorgu
-        // gondermeye yol acar.
+        // Policy her ikisini de sart kosuyor; buraya duserse Keycloak'taki
+        // claim mapper'lari ile buradaki adlar ayrismis demektir. Sessizce
+        // devam etmek yanlis bridge'e sorgu gondermeye yol acar.
         if (bridgeId is null || companyId is null)
-            throw new HubException("Bridge kimliği çözülemedi.");
+            throw new HubException(
+                "Bridge kimliği çözülemedi: token'da bridge_id/company_id yok.");
 
         return (Guid.Parse(bridgeId), companyId);
     }
@@ -148,23 +152,17 @@ public interface IBridgePresence
     Task TouchAsync(Guid bridgeId, string version, CancellationToken ct = default);
 }
 
-/// <summary>Bridge kimlik dogrulamasinin sabitleri.</summary>
+/// <summary>
+/// Bridge kimliginin token'daki karsiligi.
+///
+/// Claim adlari Keycloak tarafindaki hardcoded claim mapper'lariyla ayni
+/// olmali (<see cref="KeycloakBridgeIdentity"/>); ikisi ayrisirsa bridge
+/// baglanir ama kimligi cozulemez.
+/// </summary>
 public static class BridgeAuthentication
 {
-    public const string Scheme = "Bridge";
+    public const string Policy = "BridgeAccess";
     public const string BridgeIdClaim = "bridge_id";
-    public const string CompanyIdClaim = "bridge_company_id";
+    public const string CompanyIdClaim = "company_id";
     public const string VersionHeader = "X-Grafirio-Bridge-Version";
-}
-
-public static class BridgeClaimsExtensions
-{
-    public static ClaimsPrincipal ToPrincipal(this RegisteredBridge bridge) =>
-        new(new ClaimsIdentity(
-            [
-                new Claim(BridgeAuthentication.BridgeIdClaim, bridge.Id.ToString()),
-                new Claim(BridgeAuthentication.CompanyIdClaim, bridge.CompanyId),
-                new Claim(ClaimTypes.Name, bridge.Name),
-            ],
-            BridgeAuthentication.Scheme));
 }

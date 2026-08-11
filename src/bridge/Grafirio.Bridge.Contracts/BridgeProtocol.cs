@@ -67,6 +67,22 @@ public sealed record ConfigureConnectionRequest(
 /// <summary>Sunucu → bridge: bu baglantiyi unut.</summary>
 public sealed record RemoveConnectionRequest(Guid ConnectionId);
 
+/// <summary>
+/// Bridge'in kimlik sunucusundaki hesabi.
+///
+/// Kayit aninda bir kez donuyor ve bridge'in diskinde DPAPI ile sifreli
+/// duruyor. Bridge bununla <c>client_credentials</c> akisindan kisa omurlu
+/// erisim token'lari aliyor.
+///
+/// Sozlesmede duruyor cunku iki taraf da ayni sekli konusuyor: sunucu
+/// uretiyor, bridge tuketiyor. Iki yerde ayri ayri tanimlanmasi, alan adlari
+/// ayrisinca sessizce bozulan bir JSON esleme demekti.
+/// </summary>
+public sealed record BridgeCredentials(
+    string ClientId,
+    string ClientSecret,
+    string TokenEndpoint);
+
 /// <summary>Sunucu → bridge: su sorguyu calistir.</summary>
 public sealed record ExecuteQueryRequest(
     string RequestId,

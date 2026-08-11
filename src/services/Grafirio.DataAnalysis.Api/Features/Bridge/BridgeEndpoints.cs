@@ -81,6 +81,7 @@ public static class BridgeEndpoints
     private static async Task<IResult> Enroll(
         EnrollRequest request,
         BridgeStore store,
+        KeycloakBridgeIdentity identity,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
@@ -108,19 +109,35 @@ public static class BridgeEndpoints
             });
         }
 
-        var (bridgeId, secret) = await store.RegisterAsync(
-            companyId,
-            string.IsNullOrWhiteSpace(request.Name) ? request.MachineName : request.Name,
-            request.MachineName,
-            request.BridgeVersion,
-            ct);
+        var bridgeId = Guid.NewGuid();
+        var name = string.IsNullOrWhiteSpace(request.Name) ? request.MachineName : request.Name;
 
-        // Sir yalnizca burada, bir kez doner. Sunucuda ozeti duruyor.
+        // Kimlik Keycloak'ta aciliyor. Once orada, sonra defterde: Keycloak
+        // adimi duserse elimizde kimligi olmayan bir defter kaydi kalmasin.
+        BridgeCredentials credentials;
+        try
+        {
+            credentials = await identity.CreateAsync(bridgeId, companyId, name, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Bridge kimliği açılamadı. Şirket: {CompanyId}", companyId);
+            return Results.Problem(
+                detail: "Kimlik sunucusunda bridge hesabı açılamadı.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        await store.RegisterAsync(
+            bridgeId, companyId, name, request.MachineName, request.BridgeVersion, ct);
+
+        // Sir yalnizca burada, bir kez doner — Keycloak onu kendi sakliyor.
         return Results.Ok(new
         {
             bridgeId,
-            secret,
-            companyId
+            companyId,
+            clientId = credentials.ClientId,
+            clientSecret = credentials.ClientSecret,
+            tokenEndpoint = credentials.TokenEndpoint
         });
     }
 
@@ -169,6 +186,7 @@ public static class BridgeEndpoints
     private static async Task<IResult> RevokeBridge(
         Guid bridgeId,
         BridgeStore store,
+        KeycloakBridgeIdentity bridgeIdentity,
         IIdentityService identity,
         CancellationToken ct)
     {
@@ -176,7 +194,14 @@ public static class BridgeEndpoints
             return Results.BadRequest(new { error = "Token'da şirket bilgisi yok." });
 
         var revoked = await store.RevokeAsync(bridgeId, companyId, ct);
-        return revoked ? Results.NoContent() : Results.NotFound();
+        if (!revoked) return Results.NotFound();
+
+        // Asil iptal burada: Keycloak kimligi kapatilmazsa bridge elindeki
+        // token'la calismaya devam eder ve defterdeki "iptal" kaydi yalanci
+        // bir guvence olurdu.
+        await bridgeIdentity.DisableAsync(bridgeId, ct);
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> BindConnection(

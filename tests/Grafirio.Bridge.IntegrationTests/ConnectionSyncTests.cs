@@ -85,7 +85,8 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
     private async Task<Harness> StartAsync()
     {
         var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        var (bridgeId, secret) = await store.RegisterAsync(CompanyId, "Sync", "SRV", "1.0.0");
+        var bridgeId = Guid.NewGuid();
+        await store.RegisterAsync(bridgeId, CompanyId, "Sync", "SRV", "1.0.0");
 
         var port = FreePort();
         var url = $"http://127.0.0.1:{port}";
@@ -109,11 +110,19 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
                     services.AddSingleton<BridgeConnectionSync>();
                     services.AddSignalR();
 
-                    services.AddAuthentication(BridgeAuthentication.Scheme)
-                        .AddScheme<AuthenticationSchemeOptions, BridgeAuthenticationHandler>(
-                            BridgeAuthentication.Scheme, _ => { });
+                    // Kimlik doğrulama burada taklit: ölçülen şey veri yolu
+                    // (Postgres → Mongo → şifre çözme → kanal). Gerçek
+                    // Keycloak doğrulaması RealAuthConnectTests'te.
+                    services.AddAuthentication(SyncStubAuth.SchemeName)
+                        .AddScheme<AuthenticationSchemeOptions, SyncStubAuth>(
+                            SyncStubAuth.SchemeName, _ => { });
 
-                    services.AddAuthorization();
+                    services.AddAuthorizationBuilder()
+                        .AddPolicy(BridgeAuthentication.Policy, policy => policy
+                            .RequireClaim(BridgeAuthentication.BridgeIdClaim)
+                            .RequireClaim(BridgeAuthentication.CompanyIdClaim));
+
+                    services.AddSingleton(new SyncStubAuth.Identity(bridgeId, CompanyId));
                 })
                 .Configure(app =>
                 {
@@ -142,7 +151,6 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
         var client = new HubConnectionBuilder()
             .WithUrl(url + BridgeProtocol.HubPath, HttpTransportType.WebSockets, http =>
             {
-                http.Headers["Authorization"] = $"Bridge {bridgeId}:{secret}";
                 http.Headers[BridgeAuthentication.VersionHeader] = BridgeProtocol.Version;
             })
             .Build();
@@ -160,6 +168,38 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    /// <summary>Sabit kimlikli sahte doğrulayıcı — Keycloak'ın yerine.</summary>
+    private sealed class SyncStubAuth(
+        Microsoft.Extensions.Options.IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory loggerFactory,
+        System.Text.Encodings.Web.UrlEncoder encoder,
+        SyncStubAuth.Identity identity)
+        : Microsoft.AspNetCore.Authentication.AuthenticationHandler<AuthenticationSchemeOptions>(
+            options, loggerFactory, encoder)
+    {
+        public const string SchemeName = "SyncTestBridge";
+
+        public sealed record Identity(Guid BridgeId, string CompanyId);
+
+        protected override Task<Microsoft.AspNetCore.Authentication.AuthenticateResult>
+            HandleAuthenticateAsync()
+        {
+            var claims = new System.Security.Claims.ClaimsIdentity(
+                [
+                    new System.Security.Claims.Claim(
+                        BridgeAuthentication.BridgeIdClaim, identity.BridgeId.ToString()),
+                    new System.Security.Claims.Claim(
+                        BridgeAuthentication.CompanyIdClaim, identity.CompanyId),
+                ],
+                SchemeName);
+
+            return Task.FromResult(
+                Microsoft.AspNetCore.Authentication.AuthenticateResult.Success(
+                    new Microsoft.AspNetCore.Authentication.AuthenticationTicket(
+                        new System.Security.Claims.ClaimsPrincipal(claims), SchemeName)));
+        }
     }
 
     [SkippableFact]

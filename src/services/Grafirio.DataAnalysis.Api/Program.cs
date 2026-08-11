@@ -191,14 +191,20 @@ builder.Services.AddGrafirioMassTransit(
 // userId ile baskasinin kayitli baglantilarini okuyabiliyordu.
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 
-// Bridge'ler kullanici token'i tasimiyor: arkalarinda oturum acmis kimse yok,
-// kayit sirasinda aldiklari uzun omurlu sirri kullaniyorlar. Sema, varsayilan
-// semayi degistirmeden EKLENIYOR — kullanici uclari Keycloak token'iyla
-// calismaya devam ediyor.
-builder.Services
-    .AddAuthentication()
-    .AddScheme<AuthenticationSchemeOptions, BridgeAuthenticationHandler>(
-        BridgeAuthentication.Scheme, _ => { });
+// Bridge'ler de Keycloak token'i tasiyor — kendilerine ait bir client olarak,
+// client_credentials ile. Ayri bir kimlik dogrulama semasi YOK; tek fark
+// token'da bridge_id claim'inin bulunmasi.
+//
+// Onceki surumde burada elle yazilmis bir sema vardi: kendi token'imiz, kendi
+// SHA256 ozetimiz. Auth sunucusu zaten kuruluydu; token suresi, anahtar
+// rotasyonu ve merkezi iptal o surumde hic yoktu.
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(BridgeAuthentication.Policy, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(BridgeAuthentication.BridgeIdClaim)
+        .RequireClaim(BridgeAuthentication.CompanyIdClaim));
+
+builder.Services.AddSingleton<KeycloakBridgeIdentity>();
 
 // IIdentityService (token'daki company_id / userId'yi okuyan servis) burada
 // kayitli degildi; Commerce ve Identity servisleri bunu yapiyor, bu servis

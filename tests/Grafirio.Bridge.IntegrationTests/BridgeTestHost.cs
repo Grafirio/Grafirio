@@ -126,11 +126,17 @@ public sealed class BridgeTestHost : IAsyncDisposable
                     services.AddSingleton<IBridgePresence, NoopPresence>();
                     services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 
+                    // Üretimde bu, Keycloak'ın verdiği JWT. Burada taklit
+                    // ediliyor çünkü ölçülen şey protokol, kimlik doğrulama
+                    // değil — gerçek doğrulayıcı RealAuthConnectTests'te.
                     services.AddAuthentication(StubAuthHandler.SchemeName)
                         .AddScheme<AuthenticationSchemeOptions, StubAuthHandler>(
-                            BridgeAuthentication.Scheme, _ => { });
+                            StubAuthHandler.SchemeName, _ => { });
 
-                    services.AddAuthorization();
+                    services.AddAuthorizationBuilder()
+                        .AddPolicy(BridgeAuthentication.Policy, policy => policy
+                            .RequireClaim(BridgeAuthentication.BridgeIdClaim)
+                            .RequireClaim(BridgeAuthentication.CompanyIdClaim));
                 })
                 .Configure(app =>
                 {
@@ -156,7 +162,6 @@ public sealed class BridgeTestHost : IAsyncDisposable
         var connection = new HubConnectionBuilder()
             .WithUrl(Url + BridgeProtocol.HubPath, HttpTransportType.WebSockets, http =>
             {
-                http.Headers["Authorization"] = $"Bridge {BridgeId}:secret";
                 http.Headers[BridgeAuthentication.VersionHeader] = BridgeProtocol.Version;
             })
             .Build();
@@ -222,7 +227,7 @@ public sealed class BridgeTestHost : IAsyncDisposable
         ILoggerFactory logger,
         UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {
-        public const string SchemeName = BridgeAuthentication.Scheme;
+        public const string SchemeName = "TestBridge";
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {

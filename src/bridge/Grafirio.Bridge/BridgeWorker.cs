@@ -17,6 +17,7 @@ public class BridgeWorker(
     BridgeState state,
     BridgeEnrollment enrollment,
     BridgeQueryPump pump,
+    BridgeTokenSource tokens,
     ILogger<BridgeWorker> logger) : BackgroundService
 {
     private readonly BridgeOptions _options = options.Value;
@@ -88,10 +89,9 @@ public class BridgeWorker(
         return new HubConnectionBuilder()
             .WithUrl(url, HttpTransportType.WebSockets, http =>
             {
-                // Sir baslikta gidiyor, sorgu dizesinde degil: sorgu dizesi her
-                // ara sunucunun erisim gunlugune yazilir.
-                http.Headers["Authorization"] =
-                    $"{BridgeAuthenticationScheme} {state.BridgeId}:{state.Secret}";
+                // SignalR token'i her baglanti denemesinde yeniden soruyor;
+                // yeniden baglanmalarda suresi dolmus bir token kullanilmiyor.
+                http.AccessTokenProvider = async () => await tokens.GetAsync();
                 http.Headers[BridgeVersionHeader] = BridgeProtocol.Version;
             })
             // Yeniden baglanma araliklari artan: bulut tarafinda bir kesinti
@@ -106,7 +106,6 @@ public class BridgeWorker(
             .Build();
     }
 
-    private const string BridgeAuthenticationScheme = "Bridge";
     private const string BridgeVersionHeader = "X-Grafirio-Bridge-Version";
 
     /// <summary>
