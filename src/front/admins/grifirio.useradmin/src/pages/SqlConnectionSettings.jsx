@@ -5,7 +5,7 @@ import {
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables,
   getBridges, getBridgeBindings, bindConnectionToBridge,
-  revokeBridge, getBridgeInstallerInfo, downloadBridgeInstaller,
+  revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -48,7 +48,6 @@ const SqlConnectionSettings = () => {
   const [bridgeBindings, setBridgeBindings] = useState({});
   const [bridgeError, setBridgeError] = useState('');
   const [installer, setInstaller] = useState(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [enrollment, setEnrollment] = useState(null);
 
   const [formData, setFormData] = useState({
@@ -87,20 +86,6 @@ const SqlConnectionSettings = () => {
     } catch (error) {
       console.error('Kurulum dosyası bilgisi alınamadı:', error);
       setInstaller({ available: false });
-    }
-  };
-
-  const handleDownloadInstaller = async () => {
-    setIsDownloading(true);
-    try {
-      await downloadBridgeInstaller();
-    } catch (error) {
-      console.error('Kurulum dosyası indirilemedi:', error);
-      setBridgeError(
-        error?.response?.data?.error ?? 'Kurulum dosyası indirilemedi.'
-      );
-    } finally {
-      setIsDownloading(false);
     }
   };
 
@@ -708,13 +693,12 @@ const SqlConnectionSettings = () => {
                     </span>
                   ) : installer.available ? (
                     <>
-                      <button
+                      <a
+                        href={bridgeInstallerUrl}
                         className="gf-btn gf-btn--primary gf-btn--sm"
-                        onClick={handleDownloadInstaller}
-                        disabled={isDownloading}
                       >
-                        {isDownloading ? 'İndiriliyor…' : 'Bridge’i indir (Windows)'}
-                      </button>
+                        Bridge’i indir (Windows)
+                      </a>
                       {installer.sizeBytes && (
                         <span className="bridge-enrollment__note">
                           {(installer.sizeBytes / 1048576).toFixed(0)} MB
