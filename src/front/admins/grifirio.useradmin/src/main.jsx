@@ -44,7 +44,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     onEvent={eventLogger}
     onTokens={tokenLogger}
     initOptions={{
-      onLoad: 'login-required',
+      // Masaustu uygulamasinin devrettigi oturum.
+      //
+      // Giris orada DIS TARAYICIDA yapiliyor; bu pencerenin Keycloak
+      // cerezi yok ve 'login-required' kullaniciyi ikinci kez giris
+      // yapmaya zorlardi. keycloak-js hazir token'larla baslatilabiliyor:
+      // uygulama token'lari sayfa yuklenmeden once enjekte ediyor, buradan
+      // da olduklari gibi veriliyor. Yenileme yine keycloak-js'in isi —
+      // refresh token'la token ucuna gidiyor, cereze ihtiyaci yok.
+      ...(window.__GRAFIRIO_DESKTOP__?.tokens ?? {}),
+      onLoad: window.__GRAFIRIO_DESKTOP__?.tokens ? 'check-sso' : 'login-required',
       checkLoginIframe: false,
       enableLogging: true,
       flow: 'standard',
