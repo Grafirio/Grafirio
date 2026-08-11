@@ -17,7 +17,15 @@ namespace Grafirio.Bridge;
 /// </summary>
 public static class BridgeCore
 {
-    public static IServiceCollection AddBridgeCore(this IServiceCollection services)
+    /// <param name="runInBackground">
+    /// Servis surumunde <c>true</c>: acilir acilmaz kaydolmayi ve baglanmayi
+    /// dener. Masaustu kabugunda <c>false</c> — orada kurulum, kullanicinin
+    /// "Giriş Yap" dugmesine basmasiyla basliyor ve isci ondan sonra elle
+    /// baslatiliyor. Otomatik baslasaydi, uygulama acilir acilmaz kimsenin
+    /// istemedigi bir kurulum akisi yuruturdu.
+    /// </param>
+    public static IServiceCollection AddBridgeCore(
+        this IServiceCollection services, bool runInBackground = true)
     {
         // Yollar yapilandirmadan geliyor ama varsayilanlari ProgramData
         // altinda: calisma dizini servis hesabina gore degisiyor ve gorece yol
@@ -35,7 +43,10 @@ public static class BridgeCore
         services.AddSingleton<QueryExecutor>();
         services.AddSingleton<BridgeQueryPump>();
         services.AddSingleton<BridgeTokenSource>();
-        services.AddHostedService<BridgeWorker>();
+
+        services.AddSingleton<BridgeWorker>();
+        if (runInBackground)
+            services.AddHostedService(provider => provider.GetRequiredService<BridgeWorker>());
 
         return services;
     }

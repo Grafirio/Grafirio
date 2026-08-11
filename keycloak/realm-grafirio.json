@@ -62,7 +62,9 @@
         "http://localhost:5173/*",
         "http://localhost:59264/*",
         "http://localhost:59265/*",
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
       ],
       "webOrigins": [
         "https://grafirio.com",

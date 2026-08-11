@@ -1,65 +1,57 @@
-using System.IO;
 using System.Windows;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace Grafirio.Bridge.Desktop;
 
 /// <summary>
-/// Pencereli kabuk.
+/// Masaustu kabugu.
 ///
-/// Cekirdek burada da bir <see cref="IHost"/> icinde kosuyor — konsol
-/// surumundekinin aynisi, <see cref="BridgeCore.AddBridgeCore"/> ile. Tek fark
-/// <see cref="IBridgeDisplay"/>: kurulum kodu kutu icinde konsola degil,
-/// pencerede buyuk puntoyla gosteriliyor ve tarayici kendiliginden aciliyor.
+/// Cekirdek burada da konsol surumundekiyle ayni servislerle kosuyor
+/// (<see cref="BridgeCore.AddBridgeCore"/>). Iki fark var: giris tarayicida
+/// authorization code + PKCE ile yapiliyor (device flow servis surumunde
+/// kaldi) ve isci kendiliginden baslamiyor — kullanici "Giriş Yap" dedikten
+/// sonra basliyor.
 ///
-/// Neden ayri bir ikili: bridge sunucu odasina servis olarak kuruluyor ama
+/// Neden ayri bir ikili: agent sunucu odasina servis olarak da kuruluyor ama
 /// asil ihtiyac cogu zaman bir insanin kendi makinesinde — VPN istemeden,
-/// cift tiklayip calistirdigi bir sey. Postman Desktop Agent'in yaptigi bu.
+/// cift tiklayip calistirdigi bir sey.
 /// </summary>
 public partial class App : Application
 {
     private IHost? _host;
     private TrayIcon? _tray;
     private MainWindow? _window;
-    private WpfBridgeDisplay? _display;
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
-        _display = new WpfBridgeDisplay(Dispatcher);
 
         var builder = Host.CreateApplicationBuilder();
 
         // Yapilandirma exe'nin yaninda. Calisma dizini kisayoldan baslatinca
         // baska bir yer olabiliyor; gorece okumak dosyayi bulamamak demekti.
         builder.Configuration.Sources.Clear();
-        builder.Configuration
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddEnvironmentVariables();
+        builder.Configuration.AddJsonFile(
+            System.IO.Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
+            optional: true,
+            reloadOnChange: false);
+        builder.Configuration.AddEnvironmentVariables();
 
         builder.Services.Configure<BridgeOptions>(builder.Configuration.GetSection("Bridge"));
-        builder.Services.AddSingleton<IBridgeDisplay>(_display);
-        builder.Services.AddBridgeCore();
 
-        // Gunluk pencerede gosteriliyor: sorun cikmasi hâlinde kullaniciya
-        // "ProgramData altindaki dosyaya bakin" demek yerine ekranda duruyor.
-        builder.Logging.AddProvider(new WindowLogProvider(LogBuffer.Instance));
+        // Kurulum kodu diye bir sey yok: giris tarayicida yapiliyor. Cekirdek
+        // yine de bir IBridgeDisplay istiyor cunku servis surumu device
+        // flow'u kullanmayi surduruyor.
+        builder.Services.AddSingleton<IBridgeDisplay, SilentBridgeDisplay>();
+        builder.Services.AddSingleton<BrowserLogin>();
+
+        builder.Services.AddBridgeCore(runInBackground: false);
 
         _host = builder.Build();
 
-        _window = new MainWindow(_display, _host.Services);
+        _window = new MainWindow(_host.Services);
         _tray = new TrayIcon(_window, Shutdown);
 
-        _display.StatusChanged += (status, _) => _tray.Update(status);
-
         _window.Show();
-
-        await _host.StartAsync();
     }
 
     protected override async void OnExit(ExitEventArgs e)
@@ -68,9 +60,8 @@ public partial class App : Application
 
         if (_host is not null)
         {
-            // Bridge'in kapanirken bulut baglantisini duzgunce kapatmasi
-            // gerekiyor; aksi halde panel bridge'i bir sure daha "çevrimiçi"
-            // gosterir.
+            // Kapanirken bulut baglantisinin duzgunce kapanmasi gerekiyor;
+            // aksi halde panel bridge'i bir sure daha "çevrimiçi" gosterir.
             await _host.StopAsync(TimeSpan.FromSeconds(5));
             _host.Dispose();
         }
@@ -80,11 +71,12 @@ public partial class App : Application
 }
 
 /// <summary>
-/// Yapilandirma dosyasinin yolu — hata mesajlarinda gosteriliyor.
+/// Masaustunde kurulum ekrani yok; durum bilgisi de gunluge yaziliyor. Bu
+/// yuzden gosterilecek bir sey yok — ama cekirdegin arayuzu karsilanmali.
 /// </summary>
-public static class DesktopPaths
+public class SilentBridgeDisplay : IBridgeDisplay
 {
-    public static string SettingsFile => Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+    public void ShowDeviceCode(DeviceCodePrompt prompt) { }
 
-    public static string DataDirectory => BridgeCore.DataDirectory;
+    public void ShowStatus(BridgeStatus status, string? detail = null) { }
 }

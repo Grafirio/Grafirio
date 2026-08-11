@@ -35,17 +35,13 @@ public class BridgeEnrollment(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>
+    /// Kurulum onayini device flow ile alip kaydolur. Basi olmayan kurulum —
+    /// servis olarak calisan surum — bu yolu kullaniyor.
+    /// </summary>
     public async Task<bool> TryEnrollAsync(CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(_options.ServerUrl))
-        {
-            logger.LogError("ServerUrl tanımlı değil; hangi buluta kaydolunacağı bilinmiyor.");
-            display.ShowStatus(
-                BridgeStatus.EnrollmentFailed,
-                $"ServerUrl tanımlı değil. {_options.ConfigurationPath} dosyasına " +
-                "Grafirio bulut adresini yazın.");
-            return false;
-        }
+        if (!HasServerUrl()) return false;
 
         // Once kuran kisinin onayi. Bu token bridge'in kimligi DEGIL — yalnizca
         // asagidaki tek cagriyi yetkilendiriyor; bridge kendi kimligini o
@@ -60,10 +56,35 @@ public class BridgeEnrollment(
             return false;
         }
 
-        // Onay gecti. Kullaniciya bunu SOYLEMEK gerekiyor: tarayicida onay
-        // verdikten sonra uygulamaya donduren bir adres yok (device flow'un
-        // dogasi) ve ekranda hicbir sey degismezse onayin gecip gecmedigi
-        // anlasilmiyor.
+        return await EnrollWithTokenAsync(installerToken, ct);
+    }
+
+    private bool HasServerUrl()
+    {
+        if (!string.IsNullOrWhiteSpace(_options.ServerUrl)) return true;
+
+        logger.LogError("ServerUrl tanımlı değil; hangi buluta kaydolunacağı bilinmiyor.");
+        display.ShowStatus(
+            BridgeStatus.EnrollmentFailed,
+            $"ServerUrl tanımlı değil. {_options.ConfigurationPath} dosyasına " +
+            "Grafirio bulut adresini yazın.");
+
+        return false;
+    }
+
+    /// <summary>
+    /// Kuran kisinin token'i zaten elde oldugunda kaydolur.
+    ///
+    /// Masaustu kabugu girisi tarayicida kendisi yapiyor (authorization code +
+    /// PKCE) ve token'i buraya veriyor. Onayin nasil alindigi bu metodun
+    /// bilmesi gereken bir sey degil: sunucu tarafindan bakildiginda ikisi de
+    /// "kuran kisinin token'i" — bu ayrimi burada tutmak, iki kabuk icin iki
+    /// ayri kayit yolu yazmak olurdu.
+    /// </summary>
+    public async Task<bool> EnrollWithTokenAsync(string installerToken, CancellationToken ct)
+    {
+        if (!HasServerUrl()) return false;
+
         display.ShowStatus(BridgeStatus.Registering);
 
         // IHttpClientFactory yerine tek kullanimlik istemci: kayit acilista bir

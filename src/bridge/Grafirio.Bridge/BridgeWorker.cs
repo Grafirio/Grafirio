@@ -212,6 +212,12 @@ public class BridgeOptions
     /// <summary>Bu bridge'e panelde gorunecek ad.</summary>
     public string? Name { get; set; }
 
+    /// <summary>
+    /// Masaustu uygulamasinin giristen sonra actigi panel adresi. Panel
+    /// yeniden yazilmiyor, oldugu gibi gosteriliyor.
+    /// </summary>
+    public string PanelUrl { get; set; } = "https://admin.grafirio.com";
+
     /// <summary>Yerel durum dosyasi (kimlik ve veritabani bilgileri).</summary>
     public string StatePath { get; set; } = "state.dat";
 
