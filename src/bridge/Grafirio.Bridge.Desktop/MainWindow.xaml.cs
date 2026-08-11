@@ -1,184 +1,160 @@
-using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
-using System.Windows.Media;
-using System.Windows.Threading;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
+using Microsoft.Web.WebView2.Core;
 
 namespace Grafirio.Bridge.Desktop;
 
 /// <summary>
-/// Kabugun tek penceresi: durum, kurulum onayi, baglantilar ve son olaylar.
+/// Uygulamanin tek penceresi ve iki hâli: giris ve panel.
 ///
-/// Pencere cekirdegin durumunu OKUYOR, yonetmiyor. Kurulum akisi
-/// <see cref="BridgeWorker"/>'in isi; buradaki dugmeler yalnizca zaten ekranda
-/// olan seyi kolaylastiriyor (tarayiciyi ac, kodu kopyala). Kurulumu buradan
-/// da baslatabilmek, ayni isi iki yerden yuruten iki yol demek olurdu.
+/// Giris ekraninda logo ve tek bir dugme var. Once burada durum karti,
+/// baglanti listesi ve gunluk vardi; hepsi kalkti. Kullanicinin ogrenmesi
+/// gereken ikinci bir arayuz yaratmak, panelde kazandigi aliskanliklari bu
+/// pencerede ise yaramaz hâle getiriyordu.
+///
+/// Giristen sonra panelin KENDISI aciliyor — yeniden yazilmis bir benzeri
+/// degil. Benzeri yazilsaydi "web'dekiyle ayni" olmasi ilk degisiklige kadar
+/// surerdi.
 /// </summary>
 public partial class MainWindow : Window
 {
-    private readonly WpfBridgeDisplay _display;
     private readonly IServiceProvider _services;
-    private readonly DispatcherTimer _refresh;
+    private readonly BridgeOptions _options;
 
-    private string _userCode = "";
-    private string _verificationUri = "";
-
-    public MainWindow(WpfBridgeDisplay display, IServiceProvider services)
+    public MainWindow(IServiceProvider services)
     {
         InitializeComponent();
 
-        _display = display;
         _services = services;
+        _options = services.GetRequiredService<IOptions<BridgeOptions>>().Value;
 
         Icon = BrandIcon.Mark();
-
-        var options = services.GetRequiredService<IOptions<BridgeOptions>>().Value;
-        SubtitleText.Text = $"Sürüm {options.Version}  ·  {options.ServerUrl}";
-
-        display.DeviceCodeReceived += ShowPrompt;
-        display.StatusChanged += ShowStatus;
-
-        LogBuffer.Instance.LineAdded += line => Dispatcher.Invoke(() => AppendLog(line));
-        LogText.Text = string.Join(Environment.NewLine, LogBuffer.Instance.Snapshot());
-
-        // Baglanti tanimlari buluttan iniyor ve BridgeState bunu duyurmuyor.
-        // Bir olay eklemek yerine kisa araliklarla okunuyor: liste birkac
-        // satir ve okuma yerel bir nesneden — degisiklik duyurusu icin
-        // cekirdege bir mekanizma eklemek, kazanciyla orantisiz olurdu.
-        _refresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _refresh.Tick += (_, _) => RefreshConnections();
-        _refresh.Start();
-
-        ShowStatus(display.Status, null);
-        if (display.PendingPrompt is { } pending) ShowPrompt(pending);
-
-        RefreshConnections();
     }
 
-    private void ShowPrompt(DeviceCodePrompt prompt)
+    private async void SignInButton_Click(object sender, RoutedEventArgs e)
     {
-        _userCode = prompt.UserCode;
-        _verificationUri = prompt.BestUri;
+        SignInButton.IsEnabled = false;
+        Hint("Tarayıcıda giriş bekleniyor…");
 
-        CodeText.Text = prompt.UserCode;
-        VerificationUriText.Text = prompt.VerificationUri;
-        SetupCard.Visibility = Visibility.Visible;
+        try
+        {
+            var session = await _services.GetRequiredService<BrowserLogin>()
+                .TryLoginAsync(CancellationToken.None);
 
-        BringToFront();
+            if (session is null)
+            {
+                Hint("Giriş tamamlanamadı. Tekrar deneyebilirsiniz.");
+                return;
+            }
+
+            // Giris bitti; pencere one geliyor. Kullanici tarayicidayken
+            // uygulamanin arkada kalmasi, "simdi ne olacak" sorusunu
+            // doguruyordu.
+            Activate();
+
+            if (!await EnrollIfNeededAsync(session)) return;
+
+            await StartAgentAsync();
+            await ShowPanelAsync(session);
+        }
+        catch (Exception ex)
+        {
+            _services.GetRequiredService<ILogger<MainWindow>>()
+                .LogError(ex, "Giriş sırasında beklenmeyen hata.");
+
+            Hint($"Giriş yapılamadı: {ex.Message}");
+        }
+        finally
+        {
+            SignInButton.IsEnabled = true;
+        }
     }
 
-    /// <summary>Pencere tepsideyse geri getirir ve one alir.</summary>
-    private void BringToFront()
-    {
-        if (!IsVisible) Show();
-        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
-
-        Activate();
-    }
-
-    private void ShowStatus(BridgeStatus status, string? detail)
-    {
-        StatusText.Text = StatusLabel.Of(status);
-        StatusDot.Fill = Dot(status);
-
-        StatusDetail.Text = detail ?? "";
-        StatusDetail.Visibility = string.IsNullOrWhiteSpace(detail)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-
-        // Kurulum kartı YALNIZCA onay beklenirken duruyor. Onceki surumde onay
-        // alindiktan sonra da ekranda kaliyordu: kullanici onayladigi hâlde
-        // "onay bekleniyor" gorup onayin gecmedigini sanıyordu. Kart, artik
-        // yapilacak bir sey kalmadiginda kayboluyor.
-        if (status is not BridgeStatus.AwaitingApproval)
-            SetupCard.Visibility = Visibility.Collapsed;
-
-        // Tarayicida giris yapildiginda kullanici orada kaliyor; device
-        // flow'un uygulamaya donduren bir adresi yok. Donusu uygulama kendisi
-        // yapiyor: onay gelir gelmez one cikiyor.
-        if (status is BridgeStatus.Registering) BringToFront();
-    }
-
-    private Brush Dot(BridgeStatus status) => status switch
-    {
-        BridgeStatus.Connected => (Brush)FindResource("Ok"),
-        BridgeStatus.AwaitingApproval
-            or BridgeStatus.Registering
-            or BridgeStatus.Connecting => (Brush)FindResource("Warn"),
-        BridgeStatus.EnrollmentFailed
-            or BridgeStatus.Disconnected
-            or BridgeStatus.Stopped => (Brush)FindResource("Bad"),
-        _ => (Brush)FindResource("Muted"),
-    };
-
-    private void RefreshConnections()
+    /// <summary>
+    /// Ilk giriste bu makine sirkete tanitiliyor. Sonraki acilislarda kimlik
+    /// zaten yerel durum dosyasinda ve bu adim atlaniyor — kayit makineye
+    /// ait, oturuma degil.
+    /// </summary>
+    private async Task<bool> EnrollIfNeededAsync(UserSession session)
     {
         var state = _services.GetRequiredService<BridgeState>();
-        var connections = state.Connections;
+        state.Load();
 
-        ConnectionsList.ItemsSource = connections;
-        NoConnectionsText.Visibility = connections.Count == 0
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        if (state.IsEnrolled) return true;
+
+        Hint("Bu bilgisayar hesabınıza bağlanıyor…");
+
+        var enrolled = await _services.GetRequiredService<BridgeEnrollment>()
+            .EnrollWithTokenAsync(session.AccessToken, CancellationToken.None);
+
+        if (!enrolled)
+        {
+            Hint("Bu bilgisayar hesabınıza bağlanamadı. Ayrıntı için günlüğe bakın.");
+            return false;
+        }
+
+        return true;
     }
 
-    private void AppendLog(string line)
-    {
-        LogText.Text = LogText.Text.Length == 0
-            ? line
-            : LogText.Text + Environment.NewLine + line;
+    /// <summary>
+    /// Veritabanina baglanan kisim. Panel acildiktan sonra da arka planda
+    /// calismaya devam ediyor; pencerenin kapanmasi onu durdurmuyor.
+    /// </summary>
+    private Task StartAgentAsync() =>
+        _services.GetRequiredService<BridgeWorker>().StartAsync(CancellationToken.None);
 
-        LogScroller.ScrollToEnd();
+    /// <summary>
+    /// Paneli acar ve oturumu devreder.
+    ///
+    /// Giris DIS TARAYICIDA yapildigi icin bu pencerenin Keycloak cerezi yok;
+    /// panel kendi basina acilsaydi kullaniciyi ikinci kez giris yapmaya
+    /// zorlardi. Token'lar sayfanin ilk betigi calismadan once enjekte
+    /// ediliyor ve keycloak-js onlarla basliyor.
+    /// </summary>
+    private async Task ShowPanelAsync(UserSession session)
+    {
+        // Tarayici verisi kullanicinin profilinde: uygulamanin yanina
+        // yazmak, Program Files altina kurulan bir uygulamada yazma izni
+        // olmadigi icin sessizce basarisiz oluyor.
+        var profile = Path.Combine(BridgeCore.DataDirectory, "webview");
+        Directory.CreateDirectory(profile);
+
+        var environment = await CoreWebView2Environment.CreateAsync(
+            userDataFolder: profile);
+
+        await Panel.EnsureCoreWebView2Async(environment);
+
+        var handoff = JsonSerializer.Serialize(new
+        {
+            tokens = new
+            {
+                token = session.AccessToken,
+                refreshToken = session.RefreshToken,
+                idToken = session.IdToken,
+            }
+        });
+
+        await Panel.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+            $"window.__GRAFIRIO_DESKTOP__ = {handoff};");
+
+        // Panel disina cikan baglantilar (dokuman, destek) uygulamanin icinde
+        // acilmasin: kullanici uygulamanin icinde kaybolur ve geri donemez.
+        Panel.CoreWebView2.NewWindowRequested += (_, args) =>
+        {
+            args.Handled = true;
+            Browser.Open(args.Uri);
+        };
+
+        Panel.Source = new Uri(_options.PanelUrl);
+
+        LoginView.Visibility = Visibility.Collapsed;
+        Panel.Visibility = Visibility.Visible;
     }
 
-    private void SignInButton_Click(object sender, RoutedEventArgs e) =>
-        WpfBridgeDisplay.OpenBrowser(_verificationUri);
-
-    private void CopyCodeButton_Click(object sender, RoutedEventArgs e)
+    private void Hint(string text)
     {
-        if (string.IsNullOrWhiteSpace(_userCode)) return;
-
-        try
-        {
-            Clipboard.SetText(_userCode);
-        }
-        catch (Exception ex)
-        {
-            // Pano baska bir uygulama tarafindan tutuluyor olabiliyor; bu
-            // kurulumu engellemiyor, kod zaten ekranda.
-            MessageBox.Show(
-                $"Kod panoya kopyalanamadı: {ex.Message}",
-                "Grafirio Bridge", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    private void OpenSettings_Click(object sender, RoutedEventArgs e) =>
-        Reveal(DesktopPaths.SettingsFile);
-
-    private void OpenDataDirectory_Click(object sender, RoutedEventArgs e) =>
-        Reveal(DesktopPaths.DataDirectory);
-
-    /// <summary>Dosyayi ya da klasoru Gezgin'de gosterir.</summary>
-    private static void Reveal(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\""));
-            else if (Directory.Exists(path))
-                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            else
-                MessageBox.Show(
-                    $"Bulunamadı:\n{path}",
-                    "Grafirio Bridge", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"Açılamadı: {ex.Message}\n\n{path}",
-                "Grafirio Bridge", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        LoginHint.Text = text;
+        LoginHint.Visibility = Visibility.Visible;
     }
 }

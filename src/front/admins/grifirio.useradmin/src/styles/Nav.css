@@ -138,6 +138,32 @@
   border-left: 1px solid var(--gf-line);
 }
 
+/* Masaüstü uygulaması indirme düğmesi.
+   Çıkış düğmesiyle aynı ölçüde ama dolgulu: menüdeki tek eylem çağrısı bu ve
+   çıkışla aynı ağırlıkta durursa gözden kaçıyor. */
+.nv-desktop {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--gf-navy);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.16s;
+}
+
+.nv-desktop:hover {
+  opacity: 0.88;
+}
+
+.nv-desktop:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .nv-logout {
   padding: 8px 14px;
   border: 1px solid var(--gf-line);
