@@ -27,28 +27,51 @@ Self-hosted Integration Runtime'da da kullanılıyor.
 
 ## Kurulum
 
-1. Grafirio panelinde **Bridge ekle** → tek kullanımlık kayıt token'ı alın
-   (2 saat geçerli).
-2. `appsettings.json` dosyasını doldurun:
+Kopyalayıp taşıyacağınız bir token yok. Bridge açılışta size kısa bir kod
+gösteriyor, siz onu tarayıcıda kendi hesabınızla onaylıyorsunuz — bir TV'ye
+hesap tanıtmak gibi (OAuth 2.0 Device Authorization Grant, RFC 8628).
+
+1. `appsettings.json` dosyasını doldurun:
 
 ```json
 {
   "Bridge": {
     "ServerUrl": "https://api.grafirio.com",
-    "EnrollmentToken": "panelden-aldiginiz-token",
+    "IdentityUrl": "https://login.grafirio.com/realms/grafirio",
     "Name": "Merkez SQL Sunucusu"
   }
 }
 ```
 
-3. Servisi kurun:
+2. Bridge'i bir kez konsoldan çalıştırın. Ekranda bir adres ve bir kod
+   görünecek:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Grafirio Bridge kurulumu                                   │
+├─────────────────────────────────────────────────────────────┤
+│  1. Tarayıcıda şu adresi açın:                              │
+│     https://login.grafirio.com/realms/grafirio/device       │
+│  2. Şu kodu girin:                                          │
+│     WDJB-MJHT                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+3. Kodu tarayıcıda girip **kendi hesabınızla** onaylayın. Bridge hangi şirkete
+   bağlanacağını sizin hesabınızdan öğreniyor; ayrıca bir şey seçmenize gerek
+   yok.
+
+4. Onaydan sonra bridge kendi kimliğini alır ve `state.dat` dosyasına şifreli
+   yazar. Kimlik **size değil bridge'e** ait: siz şirketten ayrılsanız da
+   çalışmaya devam eder.
+
+5. Servisi kurun:
 
 ```powershell
 sc.exe create "Grafirio Bridge" binPath= "C:\Program Files\Grafirio\Bridge\GrafirioBridge.exe" start= auto
 ```
 
-4. Kayıt tamamlandıktan sonra `EnrollmentToken` alanını silebilirsiniz; token
-   zaten harcanmıştır.
+Kodun süresi dolarsa yeniden başlatmanız yeterli; yenisi verilir.
 
 ## Veritabanı bağlantılarının tanımlanması
 

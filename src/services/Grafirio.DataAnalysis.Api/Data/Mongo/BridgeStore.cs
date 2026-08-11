@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
@@ -21,73 +19,13 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
     : Features.Bridge.IBridgePresence
 {
     public const string BridgeCollectionName = "Bridges";
-    public const string EnrollmentCollectionName = "BridgeEnrollments";
     public const string BindingCollectionName = "BridgeConnectionBindings";
-
-    /// <summary>
-    /// Kayit token'inin omru. Kisa: token, bir bridge'i sirkete baglayan tek
-    /// sey; e-postayla dolasan ve haftalarca gecerli kalan bir sir olmamali.
-    /// </summary>
-    public static readonly TimeSpan EnrollmentTokenLifetime = TimeSpan.FromHours(2);
 
     private IMongoCollection<BsonDocument> Bridges =>
         database.GetCollection<BsonDocument>(BridgeCollectionName);
 
-    private IMongoCollection<BsonDocument> Enrollments =>
-        database.GetCollection<BsonDocument>(EnrollmentCollectionName);
-
     private IMongoCollection<BsonDocument> Bindings =>
         database.GetCollection<BsonDocument>(BindingCollectionName);
-
-    /* ── Kayit token'i ────────────────────────────────────────────────── */
-
-    /// <summary>
-    /// Tek kullanimlik kayit token'i uretir. Token'in kendisi saklanmiyor,
-    /// yalnizca ozeti — veritabanini okuyabilen biri bridge kaydedememeli.
-    /// </summary>
-    public async Task<string> CreateEnrollmentTokenAsync(
-        string companyId, string createdByUserId, CancellationToken ct = default)
-    {
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
-            .Replace("+", "").Replace("/", "").Replace("=", "");
-
-        await Enrollments.InsertOneAsync(new BsonDocument
-        {
-            ["_id"] = Hash(token),
-            ["companyId"] = companyId,
-            ["createdByUserId"] = createdByUserId,
-            ["createdAt"] = DateTime.UtcNow,
-            ["expiresAt"] = DateTime.UtcNow.Add(EnrollmentTokenLifetime),
-            ["usedAt"] = BsonNull.Value,
-        }, cancellationToken: ct);
-
-        logger.LogInformation("Bridge kayıt token'ı üretildi. Şirket: {CompanyId}", companyId);
-        return token;
-    }
-
-    /// <summary>
-    /// Token'i harcar ve bagli oldugu sirketi doner. Gecersiz, suresi dolmus
-    /// veya kullanilmis token icin <c>null</c>.
-    ///
-    /// Harcama tek adimda ve kosullu: iki bridge ayni token'la ayni anda
-    /// kaydolmaya calisirsa yalnizca biri gecer.
-    /// </summary>
-    public async Task<string?> RedeemEnrollmentTokenAsync(
-        string token, CancellationToken ct = default)
-    {
-        var filter = Builders<BsonDocument>.Filter.And(
-            Builders<BsonDocument>.Filter.Eq("_id", Hash(token)),
-            Builders<BsonDocument>.Filter.Eq("usedAt", BsonNull.Value),
-            Builders<BsonDocument>.Filter.Gt("expiresAt", DateTime.UtcNow));
-
-        var document = await Enrollments.FindOneAndUpdateAsync(
-            filter,
-            Builders<BsonDocument>.Update.Set("usedAt", DateTime.UtcNow),
-            new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After },
-            ct);
-
-        return document?.GetValue("companyId", BsonNull.Value).AsString;
-    }
 
     /* ── Bridge kaydi ─────────────────────────────────────────────────── */
 
@@ -239,9 +177,6 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
             ? created.ToUniversalTime() : DateTime.MinValue,
         document.GetValue("lastSeenAt", BsonNull.Value) is BsonDateTime seen
             ? seen.ToUniversalTime() : null);
-
-    private static string Hash(string value) =>
-        Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }
 
 public sealed record RegisteredBridge(

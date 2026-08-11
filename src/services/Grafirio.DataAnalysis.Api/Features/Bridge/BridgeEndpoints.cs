@@ -11,12 +11,20 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// Bridge kurulumu ve yonetimi.
 ///
 /// Kayit akisi:
-///   1. Sirket yoneticisi panelden tek kullanimlik token uretir.
-///   2. Installer bu token'i ister, <c>/enroll</c>'a gonderir.
-///   3. Bridge kendi kimligini ve uzun omurlu sirrini alir, diske sifreli yazar.
+///   1. Bridge acilista ekranda kisa bir kod gosterir (device flow).
+///   2. Kuran kisi tarayicida kendi hesabiyla onaylar.
+///   3. Bridge onun token'iyla <c>/enroll</c>'a gelir.
+///   4. Sunucu bridge'e KENDI Keycloak kimligini acar ve doner.
 ///
 /// Kurulum dosyasinin kendisi herkese acik durabilir; bir bridge'i sirkete
-/// baglayan sey token.
+/// baglayan sey kuran kisinin onayi. Onceki surumde bunun yerine panelden
+/// uretilen tek kullanimlik bir token vardi — kendi uretimimiz, kendi
+/// ozetimiz, kendi son kullanma mantigimiz — ve device flow'un elle yapilmis
+/// halinden ibaretti.
+///
+/// 3. adimda gelen token kuran KISININ; bridge'in kimligi 4. adimda dogar ve
+/// o kisiden bagimsizdir. Kuran kisi sirketten ayrildiginda bridge calismaya
+/// devam eder.
 /// </summary>
 public static class BridgeEndpoints
 {
@@ -26,16 +34,13 @@ public static class BridgeEndpoints
             .WithTags("Bridge")
             .WithOpenApi();
 
-        // Kayit ucu kimlik dogrulamasi ISTEMEZ: bridge henuz bir kimlige sahip
-        // degil. Yetkiyi token veriyor ve token tek kullanimlik.
-        group.MapPost("/enroll", Enroll)
-            .AllowAnonymous()
-            .WithDescription("Bridge'i kayıt token'ıyla sisteme tanıtır");
-
         var managed = group.MapGroup("").RequireAuthorization("CompanyAccess");
 
-        managed.MapPost("/enrollment-tokens", CreateEnrollmentToken)
-            .WithDescription("Yeni bir bridge kurulumu için tek kullanımlık token üretir");
+        // Kayit ucu artik kimlik dogrulamasi ISTIYOR. Bridge'in henuz kimligi
+        // yok ama kuran kisinin var; sirket bilgisi de istekten degil onun
+        // token'indan okunuyor.
+        managed.MapPost("/enroll", Enroll)
+            .WithDescription("Bridge'i, kuran kişinin onayıyla sisteme tanıtır");
 
         managed.MapGet("/", ListBridges)
             .WithDescription("Şirketin bridge'lerini ve çevrimiçi durumlarını listeler");
@@ -57,38 +62,15 @@ public static class BridgeEndpoints
     private static string? CompanyOf(IIdentityService identity) =>
         identity.CurrentCompanyId?.ToString();
 
-    private static async Task<IResult> CreateEnrollmentToken(
-        BridgeStore store,
-        IIdentityService identity,
-        CancellationToken ct)
-    {
-        if (CompanyOf(identity) is not { } companyId)
-            return Results.BadRequest(new { error = "Token'da şirket bilgisi yok." });
-
-        var token = await store.CreateEnrollmentTokenAsync(
-            companyId, identity.UserId.ToString(), ct);
-
-        return Results.Ok(new
-        {
-            token,
-            // Kullaniciya sureyi soylemek gerekiyor: token'i bir kenara yazip
-            // ertesi gun kurmaya calismak yaygin ve o an sebebi anlasilmiyor.
-            expiresInMinutes = (int)BridgeStore.EnrollmentTokenLifetime.TotalMinutes,
-            protocolVersion = BridgeProtocol.Version
-        });
-    }
-
     private static async Task<IResult> Enroll(
         EnrollRequest request,
         BridgeStore store,
         KeycloakBridgeIdentity identity,
+        IIdentityService callerIdentity,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("BridgeEnrollment");
-
-        if (string.IsNullOrWhiteSpace(request.Token))
-            return Results.BadRequest(new { error = "Kayıt token'ı boş." });
 
         if (request.ProtocolVersion != BridgeProtocol.Version)
             return Results.BadRequest(new
@@ -98,14 +80,14 @@ public static class BridgeEndpoints
                         "Lütfen güncel kurulum dosyasını indirin."
             });
 
-        var companyId = await store.RedeemEnrollmentTokenAsync(request.Token, ct);
-
-        if (companyId is null)
+        // Sirket istekten DEGIL, kuran kisinin token'indan. Istekten alinsaydi
+        // gecerli bir hesabi olan herkes baska bir sirkete bridge tanitabilirdi.
+        if (CompanyOf(callerIdentity) is not { } companyId)
         {
-            logger.LogWarning("Geçersiz ya da süresi dolmuş kayıt token'ı ile deneme.");
+            logger.LogWarning("Şirket bilgisi olmayan bir hesapla bridge kaydı denemesi.");
             return Results.BadRequest(new
             {
-                error = "Kayıt token'ı geçersiz, süresi dolmuş ya da daha önce kullanılmış."
+                error = "Hesabınızda şirket bilgisi yok; bridge kaydı yapılamaz."
             });
         }
 
@@ -256,7 +238,6 @@ public static class BridgeEndpoints
 }
 
 public record EnrollRequest(
-    string Token,
     string MachineName,
     string BridgeVersion,
     string ProtocolVersion,
