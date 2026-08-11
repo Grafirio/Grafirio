@@ -75,13 +75,18 @@ public class BridgeEnrollment(
             var result = JsonSerializer.Deserialize<EnrollResponse>(body, JsonOptions);
 
             if (result is null || result.BridgeId == Guid.Empty
-                || string.IsNullOrEmpty(result.Secret))
+                || string.IsNullOrEmpty(result.ClientId)
+                || string.IsNullOrEmpty(result.ClientSecret)
+                || string.IsNullOrEmpty(result.TokenEndpoint))
             {
                 logger.LogError("Kayıt cevabı okunamadı.");
                 return false;
             }
 
-            state.SaveEnrollment(result.BridgeId, result.Secret, result.CompanyId ?? "");
+            state.SaveEnrollment(
+                result.BridgeId,
+                result.CompanyId ?? "",
+                new BridgeCredentials(result.ClientId, result.ClientSecret, result.TokenEndpoint));
 
             logger.LogInformation(
                 "Kayıt tamamlandı. Artık {Path} dosyasındaki EnrollmentToken alanını " +
@@ -99,7 +104,9 @@ public class BridgeEnrollment(
     private class EnrollResponse
     {
         public Guid BridgeId { get; set; }
-        public string? Secret { get; set; }
         public string? CompanyId { get; set; }
+        public string? ClientId { get; set; }
+        public string? ClientSecret { get; set; }
+        public string? TokenEndpoint { get; set; }
     }
 }

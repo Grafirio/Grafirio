@@ -272,12 +272,29 @@ services:
       # icin servis acilista duruyordu.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       ENCRYPTION_KEY_PREVIOUS: ${ENCRYPTION_KEY_PREVIOUS:-}
+      # Token dogrulama. appsettings.json'daki adres uretimdeki Keycloak'i
+      # (login.grafirio.com) gosteriyor ve Development dosyasinda karsiligi
+      # yok — compose kendi degerini acikca vermezse konteyner icindeki servis
+      # yerel yigindaki Keycloak yerine uretimi sorguluyor.
+      IdentityOption__Address: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Audience: gateway.api
+      # Bridge kimlikleri Keycloak'ta acilip kapatiliyor: her bridge bir
+      # client. Adres burada realm'siz — yonetim ucu /admin/realms/... altinda.
+      Keycloak__BaseUrl: http://keycloak:8080
+      Keycloak__Realm: grafirio
+      # Yerel gelistirme icin yonetici kullanicisi. Uretimde bunun yerine
+      # realm uzerinde yalnizca manage-clients yetkisi olan bir servis hesabi
+      # verilmeli: Keycloak__AdminClientId / Keycloak__AdminClientSecret.
+      Keycloak__AdminUsername: ${KEYCLOAK_ADMIN}
+      Keycloak__AdminPassword: ${KEYCLOAK_ADMIN_PASSWORD}
     ports:
       - "5221:5221"
     depends_on:
       - postgres.db.dataanalysis
       - mongo.db
       - rabbitmq
+      - keycloak
     networks:
       - grifirio_network
   gateway:
@@ -291,12 +308,19 @@ services:
       ReverseProxy__Clusters__commerce.cluster__Destinations__destination1__Address: http://commerce.api.container:5300
       ReverseProxy__Clusters__identity.cluster__Destinations__destination1__Address: http://identity.api.container:5036
       ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221
+      # appsettings.Development.json localhost:8080 diyor — gateway'i Docker
+      # DISINDA calistiranlar icin dogru, konteyner icinde degil: orada
+      # localhost gateway'in kendisi. Keycloak'a servis adiyla gidilmeli.
+      IdentityOption__Address: http://keycloak:8080/realms/grafirio
+      IdentityOption__Issuer: http://keycloak:8080/realms/grafirio
+      IdentityOption__Audience: gateway.api
     ports:
       - "5000:5000"
     depends_on:
       - identity.api
       - commerce.api
       - data-analysis.api
+      - keycloak
     networks:
       - grifirio_network
   frontend:

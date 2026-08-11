@@ -37,16 +37,20 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
         Assert.Null(await Store().RedeemEnrollmentTokenAsync("uydurma-token"));
     }
 
+    /// <summary>
+    /// Defter kaydı. Sır burada YOK — kimlik Keycloak'ta duruyor; bu kayıt
+    /// yalnızca panelin gösterdiği şeyler için (ad, makine, son görülme).
+    /// </summary>
     [SkippableFact]
-    public async Task Kayitli_bridge_kendi_sirriyla_taniniyor()
+    public async Task Kayitli_bridge_defterde_bulunuyor()
     {
         Skip.IfNot(mongo.Available, mongo.SkipReason);
 
         var store = Store();
-        var (bridgeId, secret) = await store.RegisterAsync(
-            "firma-a", "Merkez", "SRV-01", "1.0.0");
+        var bridgeId = Guid.NewGuid();
+        await store.RegisterAsync(bridgeId, "firma-a", "Merkez", "SRV-01", "1.0.0");
 
-        var bridge = await store.AuthenticateAsync(bridgeId, secret);
+        var bridge = await store.FindAsync(bridgeId);
 
         Assert.NotNull(bridge);
         Assert.Equal("firma-a", bridge.CompanyId);
@@ -54,26 +58,16 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
     }
 
     [SkippableFact]
-    public async Task Yanlis_sir_reddediliyor()
+    public async Task Iptal_edilen_bridge_defterde_bulunmuyor()
     {
         Skip.IfNot(mongo.Available, mongo.SkipReason);
 
         var store = Store();
-        var (bridgeId, _) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
-
-        Assert.Null(await store.AuthenticateAsync(bridgeId, "yanlis-sir"));
-    }
-
-    [SkippableFact]
-    public async Task Iptal_edilen_bridge_artik_taninmiyor()
-    {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
-
-        var store = Store();
-        var (bridgeId, secret) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
+        var bridgeId = Guid.NewGuid();
+        await store.RegisterAsync(bridgeId, "firma-a", "Merkez", "SRV-01", "1.0.0");
 
         Assert.True(await store.RevokeAsync(bridgeId, "firma-a"));
-        Assert.Null(await store.AuthenticateAsync(bridgeId, secret));
+        Assert.Null(await store.FindAsync(bridgeId));
     }
 
     [SkippableFact]
@@ -82,10 +76,11 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
         Skip.IfNot(mongo.Available, mongo.SkipReason);
 
         var store = Store();
-        var (bridgeId, secret) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
+        var bridgeId = Guid.NewGuid();
+        await store.RegisterAsync(bridgeId, "firma-a", "Merkez", "SRV-01", "1.0.0");
 
         Assert.False(await store.RevokeAsync(bridgeId, "firma-b"));
-        Assert.NotNull(await store.AuthenticateAsync(bridgeId, secret));
+        Assert.NotNull(await store.FindAsync(bridgeId));
     }
 
     [SkippableFact]
@@ -94,8 +89,8 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
         Skip.IfNot(mongo.Available, mongo.SkipReason);
 
         var store = Store();
-        await store.RegisterAsync("firma-a", "A", "SRV-A", "1.0.0");
-        await store.RegisterAsync("firma-b", "B", "SRV-B", "1.0.0");
+        await store.RegisterAsync(Guid.NewGuid(), "firma-a", "A", "SRV-A", "1.0.0");
+        await store.RegisterAsync(Guid.NewGuid(), "firma-b", "B", "SRV-B", "1.0.0");
 
         var list = await store.ListAsync("firma-a");
 
@@ -111,7 +106,8 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
 
         var store = Store();
         var connectionId = Guid.NewGuid();
-        var (bridgeId, _) = await store.RegisterAsync("firma-a", "Merkez", "SRV-01", "1.0.0");
+        var bridgeId = Guid.NewGuid();
+        await store.RegisterAsync(bridgeId, "firma-a", "Merkez", "SRV-01", "1.0.0");
 
         // Başlangıçta bağlı değil: yani doğrudan bağlantı.
         Assert.Null(await store.GetBoundBridgeAsync(connectionId));
