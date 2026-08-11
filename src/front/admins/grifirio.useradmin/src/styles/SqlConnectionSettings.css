@@ -919,6 +919,22 @@
   gap: var(--space-2);
 }
 
+/* İndirme düğmesi ve yanındaki boyut/tarih bilgisi. Adımın içinde durduğu
+   için üstten biraz nefes alması gerekiyor; aksi halde madde metnine
+   yapışıyor ve iki ayrı şey tek satır gibi okunuyor. */
+.bridge-enrollment__download {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-3);
+}
+
+.bridge-enrollment__note {
+  color: var(--text-muted, #6b7684);
+  font-size: var(--text-xs, 0.78rem);
+}
+
 /* Form alanlarının altındaki açıklama. Bağlantı yolu seçimi tek başına
    anlaşılmıyor; hangi durumda hangisinin gerektiği burada yazıyor. */
 .form-hint {

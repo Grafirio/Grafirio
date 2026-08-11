@@ -45,6 +45,16 @@ public static class BridgeEndpoints
         managed.MapGet("/", ListBridges)
             .WithDescription("Şirketin bridge'lerini ve çevrimiçi durumlarını listeler");
 
+        // Kurulum dosyasi. Sirket suzgeci yok — dosya herkes icin ayni ve
+        // gizli degil; bir bridge'i sirkete baglayan sey dosya degil, device
+        // flow'daki onay. Yine de oturum sart: panele giren biri indiriyor.
+        managed.MapGet("/installer", (BridgeInstaller installer) => installer.Serve())
+            .WithDescription("Grafirio Bridge kurulum dosyasını indirir");
+
+        managed.MapGet("/installer/info", (BridgeInstaller installer) =>
+                Results.Ok(installer.Describe()))
+            .WithDescription("Kurulum dosyasının yayınlanıp yayınlanmadığını bildirir");
+
         managed.MapDelete("/{bridgeId:guid}", RevokeBridge)
             .WithDescription("Bridge'in erişimini iptal eder");
 

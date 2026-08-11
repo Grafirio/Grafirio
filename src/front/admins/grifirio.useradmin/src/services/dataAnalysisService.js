@@ -396,6 +396,42 @@ export const getBridges = async () => {
   return response.data;
 };
 
+/** Kurulum dosyası bu ortamda yayınlanmış mı. */
+export const getBridgeInstallerInfo = async () => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/bridges/installer/info`, { timeout: 15000 }
+  );
+  return response.data;
+};
+
+/**
+ * Kurulum dosyasını indirir.
+ *
+ * Düz bir <a href> yetmiyor: uç oturum istiyor ve tarayıcı bağlantıya
+ * Authorization başlığını eklemiyor. Dosya blob olarak alınıp geçici bir
+ * bağlantıyla kaydettiriliyor — token'ı adrese koymak, adresin tarayıcı
+ * geçmişine ve sunucu günlüklerine düşmesi demek olurdu.
+ */
+export const downloadBridgeInstaller = async () => {
+  const response = await axios.get(`${API_BASE_URL}/api/bridges/installer`, {
+    responseType: 'blob',
+    timeout: 0 // dosya büyük; süre sınırı koymak yavaş bağlantıyı cezalandırır
+  });
+
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = 'GrafirioBridge.Desktop.exe';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  // Blob'u serbest bırak: bırakılmazsa dosya, sekme kapanana kadar bellekte
+  // durur ve 170 MB'lik bir kurulum dosyasında bu fark ediliyor.
+  URL.revokeObjectURL(url);
+};
+
 /** Bridge'in erişimini iptal eder. */
 export const revokeBridge = async (bridgeId) => {
   const response = await axios.delete(

@@ -5,7 +5,7 @@ import {
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables,
   getBridges, getBridgeBindings, bindConnectionToBridge,
-  revokeBridge,
+  revokeBridge, getBridgeInstallerInfo, downloadBridgeInstaller,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -47,6 +47,8 @@ const SqlConnectionSettings = () => {
   const [bridges, setBridges] = useState([]);
   const [bridgeBindings, setBridgeBindings] = useState({});
   const [bridgeError, setBridgeError] = useState('');
+  const [installer, setInstaller] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [enrollment, setEnrollment] = useState(null);
 
   const [formData, setFormData] = useState({
@@ -72,6 +74,36 @@ const SqlConnectionSettings = () => {
    * gösteriliyor — sessizce boş bir liste, "hiç bridge'im yok" ile
    * "listeyi alamadım"ı ayırt edilemez yapardı.
    */
+  /**
+   * Kurulum dosyasının bu ortamda yayınlanıp yayınlanmadığı.
+   *
+   * Sorulmadan bir indirme düğmesi koymak, tıklanana kadar çalışıyor görünen
+   * bir arayüz demek olurdu. Hata sayfayı düşürmüyor: dosya yoksa düğme
+   * yerine ne yapılacağını anlatan bir cümle çıkıyor.
+   */
+  const loadInstaller = async () => {
+    try {
+      setInstaller(await getBridgeInstallerInfo());
+    } catch (error) {
+      console.error('Kurulum dosyası bilgisi alınamadı:', error);
+      setInstaller({ available: false });
+    }
+  };
+
+  const handleDownloadInstaller = async () => {
+    setIsDownloading(true);
+    try {
+      await downloadBridgeInstaller();
+    } catch (error) {
+      console.error('Kurulum dosyası indirilemedi:', error);
+      setBridgeError(
+        error?.response?.data?.error ?? 'Kurulum dosyası indirilemedi.'
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const loadBridges = async () => {
     setBridgeError('');
     try {
@@ -574,7 +606,12 @@ const SqlConnectionSettings = () => {
    * burada tek kullanımlık bir token üretiliyor ve kuran kişi onu
    * `appsettings.json`'a elle yapıştırıyordu.
    */
-  const handleShowInstallGuide = () => setEnrollment({ open: true });
+  const handleShowInstallGuide = () => {
+    setEnrollment({ open: true });
+    // Dosya bilgisi kurulum paneli acilinca soruluyor: sayfa her acildiginda
+    // sormak, kimsenin bakmadigi bir ucu her ziyarette calistirmak olurdu.
+    if (!installer) loadInstaller();
+  };
 
   const handleRevokeBridge = async (bridge) => {
     const label = bridge.name || bridge.machineName;
@@ -657,22 +694,59 @@ const SqlConnectionSettings = () => {
           <div className="gf-alert gf-alert--info bridge-enrollment">
             <p>
               <strong>Bridge kurulumu.</strong> Kopyalayıp taşıyacağınız bir
-              token yok — bridge açılışta size kendi kodunu gösterecek, siz de
-              onu bu tarayıcıda onaylayacaksınız.
+              token yok — uygulamayı indirip çalıştırıyor, tek bir düğmeyle
+              kendi hesabınızla giriş yapıyorsunuz.
             </p>
             <ol className="bridge-enrollment__steps">
-              <li>Grafirio Bridge kurulum dosyasını hedef sunucuya kopyalayın.</li>
-              <li>Servisi başlatın; ekranda kısa bir kod ve bir adres görünecek.</li>
               <li>
-                O adresi burada açıp kodu girin ve <strong>kendi hesabınızla</strong>{' '}
-                onaylayın. Bridge hangi şirkete bağlanacağını sizin hesabınızdan
-                öğreniyor.
+                Kurulum dosyasını indirip veritabanına erişebilen makineye
+                kopyalayın.
+                <div className="bridge-enrollment__download">
+                  {installer === null ? (
+                    <span className="bridge-enrollment__note">
+                      Kurulum dosyası kontrol ediliyor…
+                    </span>
+                  ) : installer.available ? (
+                    <>
+                      <button
+                        className="gf-btn gf-btn--primary gf-btn--sm"
+                        onClick={handleDownloadInstaller}
+                        disabled={isDownloading}
+                      >
+                        {isDownloading ? 'İndiriliyor…' : 'Bridge’i indir (Windows)'}
+                      </button>
+                      {installer.sizeBytes && (
+                        <span className="bridge-enrollment__note">
+                          {(installer.sizeBytes / 1048576).toFixed(0)} MB
+                          {installer.publishedAt &&
+                            ` · ${new Date(installer.publishedAt).toLocaleDateString('tr-TR')}`}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="bridge-enrollment__note">
+                      Kurulum dosyası bu ortamda yayınlanmamış. Sunucu
+                      yöneticinizden <code>BridgeInstaller</code> ayarını
+                      yapmasını isteyin.
+                    </span>
+                  )}
+                </div>
               </li>
-              <li>Onaydan sonra bridge kendini tanıtacak ve aşağıdaki listede görünecek.</li>
+              <li>
+                Uygulamayı çalıştırıp <strong>Giriş Yap</strong>’a basın; tarayıcıda
+                Grafirio giriş sayfası açılacak.
+              </li>
+              <li>
+                <strong>Kendi hesabınızla</strong> giriş yapın. Bridge hangi şirkete
+                bağlanacağını sizin hesabınızdan öğreniyor; ayrıca bir şey
+                seçmenize gerek yok.
+              </li>
+              <li>Girişten sonra bridge kendini tanıtacak ve aşağıdaki listede görünecek.</li>
             </ol>
             <p className="bridge-enrollment__note">
-              Kod kısa ömürlüdür. Süresi dolarsa servisi yeniden başlatmanız
-              yeterli; yenisi verilir.
+              Kurulum makinesinde açılacak port yok; bridge bağlantıyı dışarı
+              doğru kurar. Onay süresi dolarsa uygulama kendiliğinden yeniden
+              dener.
             </p>
             <div className="bridge-enrollment__actions">
               <button

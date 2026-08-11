@@ -92,6 +92,7 @@ public class BridgeEnrollSeamTests(KeycloakFixture keycloak, MongoFixture mongo)
                     services.AddSingleton(new ConnectionProfileStore(
                         mongo.Database, NullLogger<ConnectionProfileStore>.Instance));
                     services.AddSingleton<BridgeConnectionSync>();
+                    services.AddSingleton<BridgeInstaller>();
 
                     // Yalnizca cozumlenebilir olmasi yetiyor: baglanti
                     // baglama ucu bu testte hic cagrilmadigi icin nesne
