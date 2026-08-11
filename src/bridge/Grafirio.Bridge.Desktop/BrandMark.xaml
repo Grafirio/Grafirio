@@ -1,0 +1,58 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      Marka isareti — kaynagi src/front/grifirio.front/public/favicon.svg.
+
+      SVG olarak gomulup calisma aninda cizilmiyor: WPF'in SVG destegi yok ve
+      bunun icin bir kutuphane eklemek, iki dosyalik bir sekil ugruna
+      bagimlilik demekti. Yollar dogrudan XAML geometrisine cevrildi — vektor
+      kaldigi icin hem 40 pikselde hem tepsideki 16 pikselde net.
+
+      Kaynak SVG degisirse burasi da degismeli; iki dosya elle esleniyor.
+    -->
+    <DrawingImage x:Key="BrandMark">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+
+                <!-- Zemin: 200x200, kose yaricapi 34 -->
+                <GeometryDrawing Brush="#1C3F7C">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="0,0,200,200" RadiusX="34" RadiusY="34" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+
+                <DrawingGroup>
+                    <!-- SVG'deki translate(100 100) scale(0.82) translate(-100 -100) -->
+                    <DrawingGroup.Transform>
+                        <ScaleTransform ScaleX="0.82" ScaleY="0.82" CenterX="100" CenterY="100" />
+                    </DrawingGroup.Transform>
+
+                    <GeometryDrawing Brush="#F0902B"
+                        Geometry="M162.74 167.28A92 92 0 0 1 93.58 191.78L96.09 155.86A56 56 0 0 0 138.19 140.96Z" />
+                    <GeometryDrawing Brush="#F8C630"
+                        Geometry="M87.20 191.10A92 92 0 0 1 24.64 152.77L54.13 132.12A56 56 0 0 0 92.21 155.46Z" />
+                    <GeometryDrawing Brush="#F5B32A"
+                        Geometry="M21.14 147.38A92 92 0 0 1 11.56 74.64L46.17 84.56A56 56 0 0 0 52.00 128.84Z" />
+                    <GeometryDrawing Brush="#E4633C"
+                        Geometry="M13.55 68.53A92 92 0 0 1 64.05 15.31L78.12 48.45A56 56 0 0 0 47.38 80.85Z" />
+                    <GeometryDrawing Brush="#0E8F8C"
+                        Geometry="M70.05 13.01A92 92 0 0 1 143.19 18.77L126.29 50.55A56 56 0 0 0 81.77 47.05Z" />
+
+                    <GeometryDrawing Brush="#FBFAF8">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="96,84,76,32" RadiusX="3" RadiusY="3" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FBFAF8">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="140,84,32,54" RadiusX="3" RadiusY="3" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+</ResourceDictionary>

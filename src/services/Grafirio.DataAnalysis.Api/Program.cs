@@ -205,6 +205,7 @@ builder.Services.AddAuthorizationBuilder()
         .RequireClaim(BridgeAuthentication.CompanyIdClaim));
 
 builder.Services.AddSingleton<KeycloakBridgeIdentity>();
+builder.Services.AddSingleton<BridgeInstaller>();
 
 // IIdentityService (token'daki company_id / userId'yi okuyan servis) burada
 // kayitli degildi; Commerce ve Identity servisleri bunu yapiyor, bu servis

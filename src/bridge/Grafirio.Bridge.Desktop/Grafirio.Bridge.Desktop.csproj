@@ -1,0 +1,48 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <UseWPF>true</UseWPF>
+    <!--
+      Tepsi simgesi icin. WPF'in kendi NotifyIcon'u yok; Windows Forms'unki
+      isletim sisteminin standart davranisini veriyor ve ek bir bagimlilik
+      getirmiyor.
+    -->
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!--
+      Musteri makinesine tek dosya kuruluyor: .NET runtime kurmak BT
+      ekiplerinde ayri bir onay sureci. Konsol surumuyle ayni tercih.
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <!--
+      WPF'in yerel kutuphaneleri (wpfgfx, PresentationNative, D3DCompiler)
+      varsayilan olarak exe'nin YANINA dusuyor ve "tek dosya" sozu orada
+      bozuluyor: kullanicinin tasimasi gereken bir klasor kaliyor.
+    -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <AssemblyName>GrafirioBridge.Desktop</AssemblyName>
+    <RootNamespace>Grafirio.Bridge.Desktop</RootNamespace>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Yapilandirma dosyasi cekirdek projeden geliyor: iki kabuk ayni
+      appsettings.json semasini okuyor ve ikinci bir kopya tutmak, alanlar
+      ayrisinca sessizce bozulan bir esleme demek olurdu. Cekirdegin dosyasi
+      referans zinciriyle bu projenin ciktisina da kopyalaniyor.
+    -->
+    <ProjectReference Include="..\Grafirio.Bridge\Grafirio.Bridge.csproj" />
+  </ItemGroup>
+
+
+</Project>

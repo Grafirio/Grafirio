@@ -24,6 +24,7 @@ public class BridgeEnrollment(
     IOptions<BridgeOptions> options,
     BridgeState state,
     BridgeDeviceLogin deviceLogin,
+    IBridgeDisplay display,
     ILogger<BridgeEnrollment> logger)
 {
     private readonly BridgeOptions _options = options.Value;
@@ -39,6 +40,10 @@ public class BridgeEnrollment(
         if (string.IsNullOrWhiteSpace(_options.ServerUrl))
         {
             logger.LogError("ServerUrl tanımlı değil; hangi buluta kaydolunacağı bilinmiyor.");
+            display.ShowStatus(
+                BridgeStatus.EnrollmentFailed,
+                $"ServerUrl tanımlı değil. {_options.ConfigurationPath} dosyasına " +
+                "Grafirio bulut adresini yazın.");
             return false;
         }
 
@@ -50,8 +55,16 @@ public class BridgeEnrollment(
         if (installerToken is null)
         {
             logger.LogError("Kurulum onayı alınamadı; kayıt yapılamıyor.");
+            display.ShowStatus(
+                BridgeStatus.EnrollmentFailed, "Kurulum onayı alınamadı.");
             return false;
         }
+
+        // Onay gecti. Kullaniciya bunu SOYLEMEK gerekiyor: tarayicida onay
+        // verdikten sonra uygulamaya donduren bir adres yok (device flow'un
+        // dogasi) ve ekranda hicbir sey degismezse onayin gecip gecmedigi
+        // anlasilmiyor.
+        display.ShowStatus(BridgeStatus.Registering);
 
         // IHttpClientFactory yerine tek kullanimlik istemci: kayit acilista bir
         // kez yapiliyor, soket tuketimi diye bir mesele yok. Musterinin
@@ -82,6 +95,9 @@ public class BridgeEnrollment(
                 // süresi dolmuş" ile "sürümünüz uyumsuz" arasindaki fark,
                 // kuran kisinin ne yapacagini belirliyor.
                 logger.LogError("Kayıt reddedildi ({Status}): {Body}", response.StatusCode, body);
+                display.ShowStatus(
+                    BridgeStatus.EnrollmentFailed,
+                    $"Kayıt reddedildi ({(int)response.StatusCode}). {Describe(body)}");
                 return false;
             }
 
@@ -93,6 +109,9 @@ public class BridgeEnrollment(
                 || string.IsNullOrEmpty(result.TokenEndpoint))
             {
                 logger.LogError("Kayıt cevabı okunamadı.");
+                display.ShowStatus(
+                    BridgeStatus.EnrollmentFailed,
+                    "Kayıt cevabı okunamadı; sunucu beklenen kimliği döndürmedi.");
                 return false;
             }
 
@@ -111,8 +130,42 @@ public class BridgeEnrollment(
         catch (Exception ex)
         {
             logger.LogError(ex, "Kayıt sırasında buluta ulaşılamadı.");
+
+            // Adres mesajda gecmek zorunda: bu hatayi alan kisinin bakacagi
+            // ilk yer yapilandirmadaki ServerUrl ve cogu zaman sorun orada.
+            display.ShowStatus(
+                BridgeStatus.EnrollmentFailed,
+                $"{url} adresine ulaşılamadı: {ex.Message}");
+
             return false;
         }
+    }
+
+    /// <summary>
+    /// Sunucunun yazdigi sebebi kullaniciya gosterilebilir hâle getirir.
+    ///
+    /// Govde JSON geliyor; ham hâliyle gostermek kullaniciyi kucuk bir
+    /// ayrastiriciya cevirirdi. Beklenen bicimde degilse oldugu gibi
+    /// gosteriliyor — eksik bilgi vermektense ham bilgi.
+    /// </summary>
+    private static string Describe(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return "";
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+
+            if (document.RootElement.TryGetProperty("error", out var error)
+                && error.GetString() is { } message)
+                return message;
+        }
+        catch (JsonException)
+        {
+            // JSON degilmis; asagida ham hâli gosteriliyor.
+        }
+
+        return body.Length > 300 ? body[..300] + "…" : body;
     }
 
     private class EnrollResponse

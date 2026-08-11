@@ -1,4 +1,12 @@
-<#macro registrationLayout displayInfo=false displayMessage=true displayRequiredFields=false showAnotherWayIfPresent=true>
+<#--
+  bodyClass ve displayWide: bu tema kullanmiyor ama base temadaki sablonlar
+  geciriyor (ornegin login-oauth-grant.ftl — device flow'un onay ekrani).
+  FreeMarker tanimlanmamis bir parametreyle cagrilinca makroyu calistirmiyor,
+  500 doner ve kullanici "An internal server error has occurred" gorur.
+  Bizde karsiligi olmayan parametreleri kabul edip yok saymak, base'den gelen
+  her sablonu ayri ayri yazmak zorunda kalmadan calistiriyor.
+-->
+<#macro registrationLayout displayInfo=false displayMessage=true displayRequiredFields=false showAnotherWayIfPresent=true bodyClass="" displayWide=false>
 <!DOCTYPE html>
 <#-- locale, realm'de uluslararasilastirma kapaliyken hic tanimlanmiyor; parantez
      olmadan "locale.currentLanguageTag!'tr'" yalnizca eksik alani karsilar,

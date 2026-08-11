@@ -1,0 +1,159 @@
+﻿<Window x:Class="Grafirio.Bridge.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Grafirio Bridge"
+        Width="560" Height="680"
+        MinWidth="480" MinHeight="560"
+        Background="{StaticResource Canvas}"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI">
+
+    <Grid Margin="20,18,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Başlık -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+            <Image Source="{StaticResource BrandMark}" Width="40" Height="40" />
+            <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                <TextBlock Text="Grafirio Bridge" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{StaticResource Ink}" />
+                <TextBlock x:Name="SubtitleText" FontSize="11"
+                           Foreground="{StaticResource Muted}" />
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+
+                <!-- Durum -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="DURUM" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="StatusDot" Width="10" Height="10"
+                                     VerticalAlignment="Center"
+                                     Fill="{StaticResource Muted}" />
+                            <TextBlock x:Name="StatusText" Margin="8,0,0,0"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource Ink}" />
+                        </StackPanel>
+                        <TextBlock x:Name="StatusDetail" Margin="18,4,0,0"
+                                   FontSize="11" TextWrapping="Wrap"
+                                   Foreground="{StaticResource Muted}"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Kurulum: tek düğme -->
+                <Border x:Name="SetupCard" Style="{StaticResource Card}"
+                        Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="KURULUM" Style="{StaticResource CardTitle}" />
+                        <TextBlock TextWrapping="Wrap" FontSize="13"
+                                   Foreground="{StaticResource Ink}"
+                                   Text="Bu bilgisayarı Grafirio hesabınıza bağlamak için giriş yapın. Tarayıcıda açılan sayfada giriş yaptıktan sonra buraya dönmenize gerek yok; bağlantı kendiliğinden kurulur." />
+
+                        <Button x:Name="SignInButton"
+                                Style="{StaticResource PrimaryButton}"
+                                Margin="0,16,0,0" HorizontalAlignment="Left"
+                                Padding="28,12" FontSize="14"
+                                Content="Giriş Yap"
+                                Click="SignInButton_Click" />
+
+                        <!--
+                          Kod, tarayici acilamazsa diye duruyor: device flow'da
+                          adres kodu icinde tasiyor ve normal akista kullanicinin
+                          bunu gormesi gerekmiyor. One cikarmak, tek dugmelik bir
+                          isi iki adimli gosterirdi.
+                        -->
+                        <Expander Margin="0,14,0,0" Foreground="{StaticResource Muted}"
+                                  FontSize="11" Header="Tarayıcı açılmadı mı?">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{StaticResource Muted}"
+                                           Text="Aşağıdaki adresi tarayıcıda açıp bu kodu girin:" />
+                                <TextBlock x:Name="VerificationUriText" Margin="0,6,0,0"
+                                           FontSize="11" TextWrapping="Wrap"
+                                           Foreground="{StaticResource Ink}" />
+                                <TextBlock x:Name="CodeText" Margin="0,6,0,0"
+                                           FontFamily="Consolas" FontSize="18" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandDark}" />
+                                <Button x:Name="CopyCodeButton" Margin="0,8,0,0"
+                                        HorizontalAlignment="Left"
+                                        Style="{StaticResource QuietButton}"
+                                        Padding="12,7" FontSize="11"
+                                        Content="Kodu Kopyala"
+                                        Click="CopyCodeButton_Click" />
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </Border>
+
+                <!-- Bağlantılar -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="VERİTABANI BAĞLANTILARI"
+                                   Style="{StaticResource CardTitle}" />
+
+                        <TextBlock x:Name="NoConnectionsText" TextWrapping="Wrap"
+                                   FontSize="12" Foreground="{StaticResource Muted}"
+                                   Text="Henüz tanımlı bağlantı yok. Panelden bir bağlantı bu bridge'e bağlandığında burada görünür." />
+
+                        <ItemsControl x:Name="ConnectionsList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,6" Padding="12,10" CornerRadius="6"
+                                            Background="{StaticResource Canvas}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{StaticResource Ink}" />
+                                            <TextBlock FontSize="11" Margin="0,2,0,0"
+                                                       Foreground="{StaticResource Muted}">
+                                                <Run Text="{Binding Host, Mode=OneWay}" /><Run Text=":" /><Run Text="{Binding Port, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Database, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Günlük -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="SON OLAYLAR" Style="{StaticResource CardTitle}" />
+                        <Border Background="#0f1720" CornerRadius="6" Padding="10">
+                            <ScrollViewer x:Name="LogScroller" Height="140"
+                                          VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="LogText" FontFamily="Consolas" FontSize="11"
+                                           Foreground="#cbd5e1" TextWrapping="Wrap" />
+                            </ScrollViewer>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Alt bilgi -->
+        <StackPanel Grid.Row="2" Margin="0,4,0,0">
+            <TextBlock FontSize="11" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                       Text="Pencereyi kapatınca bridge tepside çalışmaya devam eder. Çıkmak için tepsideki simgeye sağ tıklayın." />
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Style="{StaticResource QuietButton}" Content="Ayarlar dosyası"
+                        Padding="12,7" FontSize="11" Click="OpenSettings_Click" />
+                <Button Style="{StaticResource QuietButton}" Content="Veri klasörü"
+                        Margin="8,0,0,0" Padding="12,7" FontSize="11"
+                        Click="OpenDataDirectory_Click" />
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>
