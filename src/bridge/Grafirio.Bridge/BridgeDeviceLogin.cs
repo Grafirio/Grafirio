@@ -130,33 +130,44 @@ public class BridgeDeviceLogin(
     /// <summary>
     /// Kodu kuran kisiye gosterir.
     ///
-    /// Hem gunluge hem dogrudan konsola yaziliyor: bridge bir Windows servisi
-    /// olarak da kurulabiliyor ama ilk kurulum neredeyse her zaman konsoldan
-    /// yapiliyor ve o an ekranda gorulmesi gereken tek sey bu.
+    /// Hem gunluge hem dogrudan konsola yaziliyor: kutu konsoldan calistiran
+    /// kisi icin, gunluk satiri ise servis icin. Bridge bir Windows servisi
+    /// olarak kuruldugunda konsol diye bir sey yok ve asagidaki kutu hicbir
+    /// yere akmiyor — kodu goremeyen kisi kurulumu tamamlayamaz, servis de
+    /// sessizce bekler.
     /// </summary>
-    private static void Announce(DeviceAuthorization authorization)
+    private void Announce(DeviceAuthorization authorization)
     {
-        var target = authorization.VerificationUriComplete ?? authorization.VerificationUri;
-
+        // Kisa alanlar kutunun icinde, adresler disinda: bir URL cerceveden
+        // uzun oldugunda hizalama bozuluyor ve kutu kirik gorunuyor. Kutunun
+        // isi kodu one cikarmak; adres zaten kopyalanacak bir metin.
         var message =
             $"""
 
              ┌─────────────────────────────────────────────────────────────┐
              │  Grafirio Bridge kurulumu                                   │
              ├─────────────────────────────────────────────────────────────┤
-             │  1. Tarayıcıda şu adresi açın:                              │
-             │     {authorization.VerificationUri,-56}│
-             │  2. Şu kodu girin:                                          │
-             │     {authorization.UserCode,-56}│
+             │  Tarayıcıda aşağıdaki adresi açıp şu kodu girin:            │
              │                                                             │
-             │  Doğrudan bağlantı:                                         │
-             │  {target,-59}│
+             │      {authorization.UserCode,-55}│
              └─────────────────────────────────────────────────────────────┘
+
+               {authorization.VerificationUri}
+
+             Kodu elle girmek istemezseniz doğrudan bu adres:
+
+               {authorization.VerificationUriComplete ?? authorization.VerificationUri}
 
              Onay bekleniyor…
              """;
 
         Console.WriteLine(message);
+
+        // Ayni bilgi gunlukte, tek satirda: servis olarak kurulmus bir
+        // bridge'in kurulum kodunu gorunur kildigi tek yer burasi.
+        logger.LogInformation(
+            "Kurulum onayı bekleniyor. Adres: {VerificationUri} — Kod: {UserCode}",
+            authorization.VerificationUri, authorization.UserCode);
     }
 
     /// <summary>
