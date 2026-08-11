@@ -30,6 +30,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
   </ItemGroup>
 

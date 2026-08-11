@@ -18,6 +18,7 @@ public class BridgeWorker(
     BridgeEnrollment enrollment,
     BridgeQueryPump pump,
     BridgeTokenSource tokens,
+    IBridgeDisplay display,
     ILogger<BridgeWorker> logger) : BackgroundService
 {
     private readonly BridgeOptions _options = options.Value;
@@ -29,8 +30,16 @@ public class BridgeWorker(
     {
         state.Load();
 
-        if (!state.IsEnrolled && !await EnrollWithRetryAsync(stoppingToken))
-            return;
+        if (!state.IsEnrolled)
+        {
+            display.ShowStatus(BridgeStatus.AwaitingEnrollment);
+
+            if (!await EnrollWithRetryAsync(stoppingToken))
+            {
+                display.ShowStatus(BridgeStatus.Stopped);
+                return;
+            }
+        }
 
         await using var connection = Build();
 
@@ -39,12 +48,14 @@ public class BridgeWorker(
         connection.Reconnecting += error =>
         {
             logger.LogWarning(error, "Bulut bağlantısı koptu, yeniden bağlanılıyor.");
+            display.ShowStatus(BridgeStatus.Disconnected, error?.Message);
             return Task.CompletedTask;
         };
 
         connection.Reconnected += _ =>
         {
             logger.LogInformation("Bulut bağlantısı yeniden kuruldu.");
+            display.ShowStatus(BridgeStatus.Connected);
             return Task.CompletedTask;
         };
 
@@ -69,6 +80,8 @@ public class BridgeWorker(
 
             await Task.Delay(HeartbeatInterval, stoppingToken);
         }
+
+        display.ShowStatus(BridgeStatus.Stopped);
     }
 
     /// <summary>
@@ -97,6 +110,13 @@ public class BridgeWorker(
                 "alınacak; {Path} dosyasındaki ServerUrl ve IdentityUrl " +
                 "alanlarının doğru olduğundan emin olun.",
                 (int)delay.TotalSeconds, _options.ConfigurationPath);
+
+            // Sebep, basarisiz olan adimda zaten gosterildi. Buradaki ek
+            // bilgi ne olacagi: kullanici bir sey yapmali mi, yoksa beklemesi
+            // mi yetiyor. "Yeniden denenecek" demek, ikinci sorunun cevabi.
+            display.ShowStatus(
+                BridgeStatus.EnrollmentFailed,
+                $"{(int)delay.TotalSeconds} sn sonra yeni bir kurulum kodu alınacak.");
 
             await Task.Delay(delay, ct);
             delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 300));
@@ -142,12 +162,15 @@ public class BridgeWorker(
     {
         var delay = TimeSpan.FromSeconds(5);
 
+        display.ShowStatus(BridgeStatus.Connecting);
+
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 await connection.StartAsync(ct);
                 logger.LogInformation("Buluta bağlanıldı. Bridge: {BridgeId}", state.BridgeId);
+                display.ShowStatus(BridgeStatus.Connected);
                 return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -155,6 +178,8 @@ public class BridgeWorker(
                 logger.LogWarning(ex,
                     "Buluta bağlanılamadı, {Seconds} sn sonra yeniden denenecek.",
                     (int)delay.TotalSeconds);
+
+                display.ShowStatus(BridgeStatus.Disconnected, ex.Message);
 
                 await Task.Delay(delay, ct);
                 delay = TimeSpan.FromSeconds(Math.Min(delay.TotalSeconds * 2, 300));
