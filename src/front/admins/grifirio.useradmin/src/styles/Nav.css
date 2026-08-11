@@ -138,10 +138,13 @@
   border-left: 1px solid var(--gf-line);
 }
 
-/* Masaüstü uygulaması indirme düğmesi.
+/* Masaüstü uygulaması indirme bağlantısı — düz bir <a href>: uç anonim,
+   dosya kimlik doğrulamasız iniyor.
    Çıkış düğmesiyle aynı ölçüde ama dolgulu: menüdeki tek eylem çağrısı bu ve
    çıkışla aynı ağırlıkta durursa gözden kaçıyor. */
 .nv-desktop {
+  display: inline-flex;
+  align-items: center;
   padding: 8px 14px;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -150,6 +153,7 @@
   font-size: 13px;
   font-weight: 600;
   color: #fff;
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
   transition: opacity 0.16s;
@@ -157,11 +161,6 @@
 
 .nv-desktop:hover {
   opacity: 0.88;
-}
-
-.nv-desktop:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 .nv-logout {

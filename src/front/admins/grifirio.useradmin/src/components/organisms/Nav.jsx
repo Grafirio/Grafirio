@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
 import { roleName } from '../../services/companyService';
-import { downloadBridgeInstaller } from '../../services/dataAnalysisService';
+import { bridgeInstallerUrl } from '../../services/dataAnalysisService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
 
@@ -93,25 +93,6 @@ export default function Nav() {
   const { user, logout } = useAuth();
   const { keycloak } = useKeycloak();
   const location = useLocation();
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  /**
-   * Kurulum dosyası büyük (~180 MB) ve uç oturum istiyor; tarayıcı düz bir
-   * bağlantıya Authorization başlığı eklemediği için dosya blob olarak
-   * alınıyor. Hata sayfayı düşürmüyor — indirilememesi panelde yapılan başka
-   * hiçbir işi engellemiyor.
-   */
-  const handleDownload = async () => {
-    setIsDownloading(true);
-    try {
-      await downloadBridgeInstaller();
-    } catch (error) {
-      console.error('Masaüstü uygulaması indirilemedi:', error);
-      alert('Masaüstü uygulaması indirilemedi. Lütfen daha sonra tekrar deneyin.');
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const atDashboard = location.pathname === '/' || location.pathname === '/dashboard';
   const atCompany = location.pathname === '/company-info';
@@ -152,15 +133,13 @@ export default function Nav() {
 
         <div className="nv-right">
           {!insideDesktopApp() && (
-            <button
-              type="button"
+            <a
+              href={bridgeInstallerUrl}
               className="nv-desktop"
-              onClick={handleDownload}
-              disabled={isDownloading}
               title="Veritabanınıza kendi ağınızdan bağlanan masaüstü uygulaması"
             >
-              {isDownloading ? 'İndiriliyor…' : 'Masaüstü uygulamayı indir'}
-            </button>
+              Masaüstü uygulamayı indir
+            </a>
           )}
 
           <div className="nv-user">

@@ -45,13 +45,18 @@ public static class BridgeEndpoints
         managed.MapGet("/", ListBridges)
             .WithDescription("Şirketin bridge'lerini ve çevrimiçi durumlarını listeler");
 
-        // Kurulum dosyasi. Sirket suzgeci yok — dosya herkes icin ayni ve
-        // gizli degil; bir bridge'i sirkete baglayan sey dosya degil, device
-        // flow'daki onay. Yine de oturum sart: panele giren biri indiriyor.
-        managed.MapGet("/installer", (BridgeInstaller installer) => installer.Serve())
+        // Kurulum dosyasi ANONIM: managed grubunun disinda. Sirket suzgeci
+        // hicbir zaman yoktu (dosya herkes icin ayni ve gizli degil, bir
+        // bridge'i sirkete baglayan sey dosya degil giristeki onay) ama oturum
+        // sart kosmak, gercek koruma saglamadan panelde bir indirme
+        // dugmesinin duz bir baglanti olamamasina yol aciyordu — dosya zaten
+        // BridgeInstaller__Url'de public blob'a yonlendiriliyor, isteyen
+        // adresi dogrudan da acabilir. Kimlik dogrulamasi burada yalnizca
+        // "panele giren biri" olmayi zorlaştiran, kazandirmayan bir engeldi.
+        group.MapGet("/installer", (BridgeInstaller installer) => installer.Serve())
             .WithDescription("Grafirio Bridge kurulum dosyasını indirir");
 
-        managed.MapGet("/installer/info", (BridgeInstaller installer) =>
+        group.MapGet("/installer/info", (BridgeInstaller installer) =>
                 Results.Ok(installer.Describe()))
             .WithDescription("Kurulum dosyasının yayınlanıp yayınlanmadığını bildirir");
 

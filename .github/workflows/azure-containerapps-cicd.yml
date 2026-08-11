@@ -29,6 +29,7 @@ on:
           - projectadmin
           - useradmin
           - keycloak
+          - bridge-desktop
 
 concurrency:
   group: azure-containerapps-cicd-${{ github.ref }}
@@ -53,6 +54,7 @@ jobs:
     outputs:
       matrix: ${{ steps.generate-matrix.outputs.matrix }}
       has_changes: ${{ steps.generate-matrix.outputs.has_changes }}
+      bridge_desktop_changed: ${{ steps.generate-matrix.outputs.bridge_desktop_changed }}
 
     steps:
       - name: Checkout
@@ -89,6 +91,10 @@ jobs:
             keycloak:
               - 'docker-keycloak-themes/**'
               - 'keycloak/**'
+            # Masaustu kabugu ayri bir is: Windows runner'a ve az storage'a
+            # ihtiyaci var, container servisleriyle ayni matriste calismiyor.
+            bridge-desktop:
+              - 'src/bridge/**'
 
       - name: Build deployment matrix
         id: generate-matrix
@@ -102,6 +108,7 @@ jobs:
           FILTER_PROJECTADMIN: ${{ steps.filter.outputs.projectadmin }}
           FILTER_USERADMIN: ${{ steps.filter.outputs.useradmin }}
           FILTER_KEYCLOAK: ${{ steps.filter.outputs.keycloak }}
+          FILTER_BRIDGE_DESKTOP: ${{ steps.filter.outputs.bridge-desktop }}
           TARGET_INPUT: ${{ github.event.inputs.target || '' }}
         run: |
           set -euo pipefail
@@ -160,6 +167,16 @@ jobs:
           fi
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+          # Masaustu kabugu container matrisinin disinda: ayri bir isten
+          # (publish-desktop) tetikleniyor, kendi kosulunu burada belirliyoruz.
+          if [ "$include_all" = true ] || [ "$selected_service" = "bridge-desktop" ]; then
+            echo "bridge_desktop_changed=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$selected_service" ] && [ "${FILTER_BRIDGE_DESKTOP:-false}" = "true" ]; then
+            echo "bridge_desktop_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bridge_desktop_changed=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Print selected services
         run: |
@@ -234,10 +251,115 @@ jobs:
             --query "{name:name,state:properties.runningStatus,latestRevision:properties.latestRevisionName}" \
             -o table
 
+  # Masaustu kabugu (Grafirio Bridge Desktop): container servislerinden ayri
+  # tutuluyor cunku WPF derlemesi Windows istiyor ve hedefi bir Container App
+  # degil, musterinin indirdigi tek bir exe.
+  #
+  # Depo public-read: dosya gizli degil, bir bridge'i sirkete baglayan sey
+  # dosya degil device flow'daki/girisdeki onay (bkz. BridgeInstaller.cs).
+  # SAS linki ekstra kod getirirdi, kazandirdigi bir sey olmazdi.
+  #
+  # Iki kopya yukleniyor: sabit adres panelin kullandigi ("guncel surum
+  # buradan inilir"), surumlu kopya ise geri donmek icin — sabit adresin
+  # uzerine her seferinde yazilmasi eskiyi kurtarilamaz yapardi.
+  publish-desktop:
+    runs-on: windows-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.bridge_desktop_changed == 'true'
+    timeout-minutes: 30
+    env:
+      STORAGE_ACCOUNT: grifirioinstallers
+      CONTAINER_NAME: installers
+      EXE_NAME: GrafirioBridge.Desktop.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: preview
+
+      - name: Publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish src/bridge/Grafirio.Bridge.Desktop/Grafirio.Bridge.Desktop.csproj \
+            -c Release -r win-x64 --self-contained true \
+            -o artifacts/bridge-desktop
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Ensure storage account and container exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! az storage account show --name "$STORAGE_ACCOUNT" \
+              --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+            echo "Storage account yok, oluşturuluyor: $STORAGE_ACCOUNT"
+            az storage account create \
+              --name "$STORAGE_ACCOUNT" \
+              --resource-group "$RESOURCE_GROUP" \
+              --sku Standard_LRS \
+              --kind StorageV2 \
+              --allow-blob-public-access true
+          fi
+
+      - name: Upload installer
+        shell: bash
+        env:
+          VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Veri duzlemi (container/blob islemleri) icin hesap anahtari
+          # kullaniliyor, --auth-mode login degil: ikincisi SP'ye ayrica
+          # "Storage Blob Data Contributor" rolu atanmasini isterdi ve bu
+          # atamanin yapildigindan emin degiliz. Anahtari okumak ise ARM
+          # islemi — ayni SP zaten containerapp create/update yapabildigine
+          # gore Resource Group'ta Contributor, dolayisiyla bunu da yapabilir.
+          ACCOUNT_KEY=$(az storage account keys list \
+            --account-name "$STORAGE_ACCOUNT" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[0].value" -o tsv)
+
+          az storage container create \
+            --account-name "$STORAGE_ACCOUNT" \
+            --account-key "$ACCOUNT_KEY" \
+            --name "$CONTAINER_NAME" \
+            --public-access blob
+
+          # Sabit adres: panelin BridgeInstaller__Url'i hep buraya bakiyor.
+          az storage blob upload \
+            --account-name "$STORAGE_ACCOUNT" \
+            --account-key "$ACCOUNT_KEY" \
+            --container-name "$CONTAINER_NAME" \
+            --name "$EXE_NAME" \
+            --file "artifacts/bridge-desktop/$EXE_NAME" \
+            --overwrite
+
+          # Surumlu kopya: sabit adres bir sonraki push'ta ustune yazilinca
+          # bu surume geri donulebilsin diye.
+          az storage blob upload \
+            --account-name "$STORAGE_ACCOUNT" \
+            --account-key "$ACCOUNT_KEY" \
+            --container-name "$CONTAINER_NAME" \
+            --name "$VERSION/$EXE_NAME" \
+            --file "artifacts/bridge-desktop/$EXE_NAME" \
+            --overwrite
+
+          echo "İndirme adresi: https://$STORAGE_ACCOUNT.blob.core.windows.net/$CONTAINER_NAME/$EXE_NAME"
+
   no-op:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes != 'true'
+    if: needs.detect-changes.outputs.has_changes != 'true' && needs.detect-changes.outputs.bridge_desktop_changed != 'true'
     steps:
       - name: No service changes detected
         run: echo "No service-level changes detected. Skipping deployment."

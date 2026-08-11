@@ -26,6 +26,11 @@
       bozuluyor: kullanicinin tasimasi gereken bir klasor kaliyor.
     -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!--
+      Musteriye indirilen dosya bu — boyut aciliş suresinden daha cok onemli.
+      WPF kirpma (trimming) desteklemiyor, yani tek kazanc burada.
+    -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <InvariantGlobalization>false</InvariantGlobalization>
 
