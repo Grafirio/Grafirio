@@ -37,6 +37,28 @@
     <AssemblyName>GrafirioBridge.Desktop</AssemblyName>
     <RootNamespace>Grafirio.Bridge.Desktop</RootNamespace>
     <Version>1.0.0</Version>
+
+    <!--
+      Dosyanin Explorer'da ve gorev cubugunda gordugu ikon. Calisma aninda
+      ayarlanan pencere/tepsi ikonu bunun yerine gecmiyor: o ikon yalnizca
+      uygulama acikken gecerli, indirilen dosya ise varsayilan Windows
+      ikonuyla goruntuleniyordu.
+
+      Kaynak Assets/generate-icon.ps1 — logo degisirse onu yeniden calistirin.
+    -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+
+    <!--
+      Dosya meta verisi. SmartScreen uyarisini kaldirmiyor (onu yalnizca kod
+      imzalama ve zamanla biriken itibar kaldiriyor) ama uyarinin "Daha fazla
+      bilgi" ekranindaki yayinci satirini dolduruyor. Bos birakildiginda
+      musterinin BT ekibi hicbir ad goremiyordu.
+    -->
+    <Company>Grafirio</Company>
+    <Product>Grafirio</Product>
+    <AssemblyTitle>Grafirio</AssemblyTitle>
+    <Description>Grafirio — veritabanınıza kendi ağınızdan bağlanan masaüstü uygulaması</Description>
+    <Copyright>© 2026 Grafirio</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
