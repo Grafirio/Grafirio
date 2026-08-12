@@ -189,17 +189,32 @@ public class BridgeWorker(
 
 }
 
+/// <summary>
+/// Bridge'in yapilandirmasi.
+///
+/// <b>Varsayilanlar uretimi gosteriyor, bos degil.</b> Musteri tek bir exe
+/// indiriyor ve yaninda appsettings.json olmuyor; alanlar bos kalinca
+/// uygulama "kimlik adresi tanimli degil" deyip giris dugmesine basar basmaz
+/// donuyordu ve sebebi ekranda gorunmuyordu. Yapilandirma dosyasi artik bir
+/// zorunluluk degil, gelistirme icin bir gecersiz kilma.
+/// </summary>
 public class BridgeOptions
 {
-    /// <summary>Grafirio bulut adresi, ornegin https://api.grafirio.com</summary>
-    public string ServerUrl { get; set; } = "";
+    /// <summary>
+    /// Grafirio bulut adresi — kayit ve sorgu kanali buradan geciyor.
+    ///
+    /// Azure'un uzun adresi yaziliyor cunku su an gateway'e ulasan tek ad bu:
+    /// api.grafirio.com'un DNS'te karsiligi yok. Kisa bir ad tanimlandiginda
+    /// burasi tek satirda degisir.
+    /// </summary>
+    public string ServerUrl { get; set; } =
+        "https://gateway.proudcoast-6064711b.westeurope.azurecontainerapps.io";
 
     /// <summary>
-    /// Kimlik sunucusu realm adresi, ornegin
-    /// https://login.grafirio.com/realms/grafirio. Kurulum onayi buradan
-    /// isteniyor; uc adresleri kesif belgesinden okunuyor.
+    /// Kimlik sunucusu realm adresi. Giris buradan isteniyor; uc adresleri
+    /// kesif belgesinden okunuyor.
     /// </summary>
-    public string IdentityUrl { get; set; } = "";
+    public string IdentityUrl { get; set; } = "https://login.grafirio.com/realms/grafirio";
 
     /// <summary>
     /// Kurulum onayinin sorulacagi OAuth istemcisi. Panelin kullandigi public

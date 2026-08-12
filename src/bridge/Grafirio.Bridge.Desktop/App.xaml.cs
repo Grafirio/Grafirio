@@ -46,6 +46,10 @@ public partial class App : Application
 
         builder.Services.AddBridgeCore(runInBackground: false);
 
+        // Gunluk ekranda da gorunsun: bu uygulamanin konsolu yok ve bir sey
+        // ters gittiginde kullanicinin bakabilecegi baska bir yer kalmiyor.
+        builder.Logging.AddProvider(new WindowLogProvider(LogBuffer.Instance));
+
         _host = builder.Build();
 
         _window = new MainWindow(_host.Services);
