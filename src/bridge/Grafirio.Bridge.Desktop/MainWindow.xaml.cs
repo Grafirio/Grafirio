@@ -30,6 +30,18 @@ public partial class MainWindow : Window
         _options = services.GetRequiredService<IOptions<BridgeOptions>>().Value;
 
         Icon = BrandIcon.Mark();
+
+        LogText.Text = string.Join(Environment.NewLine, LogBuffer.Instance.Snapshot());
+        LogBuffer.Instance.LineAdded += line => Dispatcher.Invoke(() => AppendLog(line));
+    }
+
+    private void AppendLog(string line)
+    {
+        LogText.Text = LogText.Text.Length == 0
+            ? line
+            : LogText.Text + Environment.NewLine + line;
+
+        LogScroller.ScrollToEnd();
     }
 
     private async void SignInButton_Click(object sender, RoutedEventArgs e)
@@ -44,7 +56,7 @@ public partial class MainWindow : Window
 
             if (session is null)
             {
-                Hint("Giriş tamamlanamadı. Tekrar deneyebilirsiniz.");
+                Hint("Giriş tamamlanamadı. Tekrar deneyebilirsiniz.", isFailure: true);
                 return;
             }
 
@@ -63,7 +75,7 @@ public partial class MainWindow : Window
             _services.GetRequiredService<ILogger<MainWindow>>()
                 .LogError(ex, "Giriş sırasında beklenmeyen hata.");
 
-            Hint($"Giriş yapılamadı: {ex.Message}");
+            Hint($"Giriş yapılamadı: {ex.Message}", isFailure: true);
         }
         finally
         {
@@ -90,7 +102,7 @@ public partial class MainWindow : Window
 
         if (!enrolled)
         {
-            Hint("Bu bilgisayar hesabınıza bağlanamadı. Ayrıntı için günlüğe bakın.");
+            Hint("Bu bilgisayar hesabınıza bağlanamadı.", isFailure: true);
             return false;
         }
 
@@ -152,9 +164,13 @@ public partial class MainWindow : Window
         Panel.Visibility = Visibility.Visible;
     }
 
-    private void Hint(string text)
+    private void Hint(string text, bool isFailure = false)
     {
         LoginHint.Text = text;
         LoginHint.Visibility = Visibility.Visible;
+
+        // Hata olunca gunluk kendiliginden aciliyor: sebebi gormek icin
+        // kullanicinin once bir alani kesfetmesi gerekmemeli.
+        if (isFailure) DetailsPanel.IsExpanded = true;
     }
 }

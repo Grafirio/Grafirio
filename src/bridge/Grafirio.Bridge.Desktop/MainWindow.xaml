@@ -33,6 +33,29 @@
                            TextWrapping="Wrap" FontSize="12"
                            Foreground="{StaticResource Muted}"
                            Visibility="Collapsed" />
+
+                <!--
+                  Varsayilan olarak kapali: normal akista kimsenin gunluk
+                  okumasi gerekmiyor. Hata olunca kendiliginden aciliyor —
+                  onceki surumde "Giriş tamamlanamadı"dan baska hicbir sey
+                  yazmiyordu ve sebep ekranda hic gorunmuyordu.
+                -->
+                <Expander x:Name="DetailsPanel"
+                          Margin="0,22,0,0" MaxWidth="620"
+                          HorizontalAlignment="Center"
+                          FontSize="11"
+                          Foreground="{StaticResource Muted}"
+                          Header="Ayrıntılar">
+                    <Border Margin="0,8,0,0" Padding="10" CornerRadius="6"
+                            Background="#0f1720">
+                        <ScrollViewer x:Name="LogScroller" Height="150"
+                                      VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="LogText"
+                                       FontFamily="Consolas" FontSize="11"
+                                       Foreground="#cbd5e1" TextWrapping="Wrap" />
+                        </ScrollViewer>
+                    </Border>
+                </Expander>
             </StackPanel>
         </Grid>
 
