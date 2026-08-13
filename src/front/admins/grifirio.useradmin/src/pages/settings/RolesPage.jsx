@@ -42,7 +42,9 @@ const ROLE_ACCENT = {
   COMPANY_USER: 'var(--gf-sun)',
 };
 
-export default function RolesPage() {
+// embedded: UsersRolesPage bu bileseni "Izinler ve roller" sekmesinde
+// gosterir ve kendi sayfa basligini kendisi cizer.
+export default function RolesPage({ embedded = false } = {}) {
   const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
@@ -76,22 +78,24 @@ export default function RolesPage() {
   const countFor = (code) => users.filter((u) => u.role === code).length;
 
   return (
-    <div className="st">
-      <div className="st-head">
-        <div>
-          <p className="st-eyebrow">Ayarlar · Güvenlik</p>
-          <h1>Yetki Ayarları</h1>
-          <p className="st-lead">
-            Roller ve izinler. Bir kullanıcının şirket içindeki rolü, hangi yönetim işlemlerini
-            yapabileceğini belirler.
-          </p>
+    <div className={embedded ? undefined : 'st'}>
+      {!embedded && (
+        <div className="st-head">
+          <div>
+            <p className="st-eyebrow">Ayarlar · Güvenlik</p>
+            <h1>Yetki Ayarları</h1>
+            <p className="st-lead">
+              Roller ve izinler. Bir kullanıcının şirket içindeki rolü, hangi yönetim işlemlerini
+              yapabileceğini belirler.
+            </p>
+          </div>
+          <div className="st-head-actions">
+            <button type="button" className="st-btn" onClick={() => navigate('/settings/users')}>
+              Kullanıcı rollerini yönet
+            </button>
+          </div>
         </div>
-        <div className="st-head-actions">
-          <button type="button" className="st-btn" onClick={() => navigate('/settings/user')}>
-            Kullanıcı rollerini yönet
-          </button>
-        </div>
-      </div>
+      )}
 
       {error && <div className="st-alert">{error}</div>}
 

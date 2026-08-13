@@ -85,10 +85,10 @@ const DashboardPage = () => {
           </p>
         </div>
         <div className="db-head-actions">
-          <button className="db-btn db-btn--ghost" onClick={() => navigate('/settings/data-input')}>
+          <button className="db-btn db-btn--ghost" onClick={() => navigate('/data?tab=upload')}>
             Veri yükle
           </button>
-          <button className="db-btn" onClick={() => navigate('/settings/sql-connection')}>
+          <button className="db-btn" onClick={() => navigate('/data?tab=connections')}>
             + Yeni Analiz
           </button>
         </div>
@@ -175,7 +175,7 @@ const DashboardPage = () => {
 
             <button
               className="db-tile db-tile--add"
-              onClick={() => navigate('/settings/sql-connection')}
+              onClick={() => navigate('/data?tab=connections')}
             >
               <span className="db-plus">+</span>
               <span>Bağlantı ekle</span>
@@ -229,7 +229,7 @@ const DashboardPage = () => {
       <section className="db-card">
         <div className="db-card-head">
           <h2>Veritabanı bağlantıları</h2>
-          <button className="db-link" onClick={() => navigate('/settings/sql-connection')}>
+          <button className="db-link" onClick={() => navigate('/data?tab=connections')}>
             Tümünü yönet →
           </button>
         </div>

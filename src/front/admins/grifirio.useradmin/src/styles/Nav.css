@@ -1,16 +1,15 @@
 @import '../../../../shared/theme/tokens.css';
 
-/* Ust navigasyon — tasarim taslagindaki menu hiyerarsisiyle birebir.
-   Eski Tabler Header/Sidebar'in yerini alir; Sidebar zaten hicbir layout'a
-   bagli degildi (olu koddu). */
+/* Ust navigasyon. Onceden iki acilir menu vardi (Baglanti Ayarlari, Ayarlar);
+   yeni tasarim onlari sekmeye cevirdi — Ayarlar kendi kart-hub sayfasini
+   aciyor. Eski Tabler Header/Sidebar'in yerini alir; Sidebar zaten hicbir
+   layout'a bagli degildi (olu koddu). */
 
 .nv {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(251, 250, 248, 0.9);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--gf-paper);
   border-bottom: 1px solid var(--gf-line);
   font-family: var(--gf-font-body);
 }
@@ -37,90 +36,47 @@
   font-weight: 800;
   font-size: 18px;
   letter-spacing: 0.045em;
-  color: var(--gf-navy);
+  color: var(--gf-ink);
 }
 
-.nv-links {
+.nv-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.nv-item {
+.nv-tab {
   position: relative;
-}
-
-.nv-link {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
   background: transparent;
   border: 0;
-  padding: 8px 12px 5px;
+  padding: 8px 14px;
   font-family: inherit;
   font-size: 14.5px;
-  font-weight: 600;
-  color: var(--gf-ink);
-  text-decoration: none;
+  font-weight: 700;
+  color: var(--gf-muted);
   cursor: pointer;
-}
-
-.nv-link:hover {
-  color: var(--gf-navy);
-}
-
-.nv-caret {
-  font-size: 9px;
-  color: var(--gf-faint);
-}
-
-.nv-underline {
-  display: block;
-  width: 100%;
-  height: 3px;
-  border-radius: 99px;
-  background: var(--gf-navy);
-}
-
-.nv-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 240px;
-  background: var(--gf-paper);
-  border: 1px solid var(--gf-line);
-  border-radius: 14px;
-  box-shadow: 0 24px 48px -24px rgba(16, 24, 40, 0.4);
-  padding: 8px;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.nv-menu-item {
-  text-align: left;
-  background: transparent;
-  border: 0;
-  padding: 10px 12px;
   border-radius: 9px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
+  transition: background 0.16s, color 0.16s;
+}
+
+.nv-tab:hover {
   color: var(--gf-ink);
-  cursor: pointer;
+  background: var(--gf-paper-warm);
 }
 
-.nv-menu-item:hover {
-  background: var(--gf-chip);
-  color: var(--gf-navy);
+.nv-tab.is-active {
+  color: var(--gf-ink);
 }
 
-.nv-menu-divider {
-  height: 1px;
-  background: var(--gf-line-soft);
-  margin: 6px 4px;
+.nv-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--gf-accent);
 }
 
 .nv-right {
@@ -138,6 +94,26 @@
   border-left: 1px solid var(--gf-line);
 }
 
+.nv-theme-toggle {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: var(--gf-paper-warm);
+  border: 1px solid var(--gf-line);
+  border-radius: 9px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--gf-muted);
+  cursor: pointer;
+  transition: border-color 0.16s, color 0.16s;
+}
+
+.nv-theme-toggle:hover {
+  border-color: var(--gf-accent);
+  color: var(--gf-accent);
+}
+
 /* Masaüstü uygulaması indirme bağlantısı — düz bir <a href>: uç anonim,
    dosya kimlik doğrulamasız iniyor.
    Çıkış düğmesiyle aynı ölçüde ama dolgulu: menüdeki tek eylem çağrısı bu ve
@@ -148,11 +124,11 @@
   padding: 8px 14px;
   border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--gf-navy);
+  background: var(--gf-accent);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--gf-accent-on);
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
@@ -177,8 +153,8 @@
 }
 
 .nv-logout:hover {
-  border-color: var(--gf-navy);
-  color: var(--gf-navy);
+  border-color: var(--gf-accent);
+  color: var(--gf-accent);
 }
 
 .nv-avatar {

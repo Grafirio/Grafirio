@@ -8,15 +8,15 @@ import LoginPage from '../pages/LoginPage';
 import OnboardingPage from '../pages/OnboardingPage';
 import DashboardPage from '../pages/DashboardPage';
 import CanvasPage from '../pages/CanvasPage';
-import CompanyAdminPage from '../pages/CompanyAdminPage';
+import DataSourcesPage from '../pages/DataSourcesPage';
+import SettingsHubPage from '../pages/SettingsHubPage';
+import UsersRolesPage from '../pages/UsersRolesPage';
 
 // Ayar Sayfaları — menudeki her giris kendi sayfasina gidiyor.
 import CompanySettingsPage from '../pages/settings/CompanySettingsPage';
-import DataEntryPage from '../pages/settings/DataEntryPage';
 import DepartmentsPage from '../pages/settings/DepartmentsPage';
-import RolesPage from '../pages/settings/RolesPage';
-import UsersPage from '../pages/settings/UsersPage';
-import SqlConnectionSettings from '../pages/SqlConnectionSettings';
+import ThemeSettingsPage from '../pages/settings/ThemeSettingsPage';
+import NotificationsPage from '../pages/settings/NotificationsPage';
 import PlanPage from '../pages/PlanPage';
 
 const routes = [
@@ -26,7 +26,7 @@ const routes = [
     children: [
       { path: '/', element: <DashboardPage /> },
       { path: 'dashboard', element: <DashboardPage /> },
-      { path: 'company-info', element: <CompanyAdminPage /> },
+      { path: 'data', element: <DataSourcesPage /> },
       // Kanvasla ayni isi yapan eski ekranlar kaldirildi: /ai-query kendi
       // arka ucuna, /ai-dashboard Django'ya ve dogrudan localhost portlarina,
       // /data-analysis ise kanvastan onceki analiz akisina bagliydi. Ucu de
@@ -35,16 +35,25 @@ const routes = [
       { path: 'ai-query', element: <Navigate to="/canvas" replace /> },
       { path: 'ai-dashboard', element: <Navigate to="/canvas" replace /> },
       { path: 'data-analysis', element: <Navigate to="/canvas" replace /> },
+      // Menu artik dropdown degil sekme + hub: "Sirket Bilgileri" ve
+      // "Baglanti Ayarlari" acilir menuleri kalkti, /company-info ve
+      // /settings/sql-connection gibi eski yollar kirilmasin diye buradan
+      // yeni karsiliklarina yonlendiriliyor.
+      { path: 'company-info', element: <Navigate to="/settings/company" replace /> },
       {
         path: 'settings',
         children: [
+          { index: true, element: <SettingsHubPage /> },
           { path: 'company', element: <CompanySettingsPage /> },
-          { path: 'data-input', element: <DataEntryPage /> },
-          { path: 'sql-connection', element: <SqlConnectionSettings /> },
+          { path: 'users', element: <UsersRolesPage /> },
           { path: 'department', element: <DepartmentsPage /> },
-          { path: 'authorization', element: <RolesPage /> },
-          { path: 'user', element: <UsersPage /> },
+          { path: 'theme', element: <ThemeSettingsPage /> },
+          { path: 'notifications', element: <NotificationsPage /> },
           { path: 'membership', element: <PlanPage /> },
+          { path: 'data-input', element: <Navigate to="/data?tab=upload" replace /> },
+          { path: 'sql-connection', element: <Navigate to="/data?tab=connections" replace /> },
+          { path: 'authorization', element: <Navigate to="/settings/users?tab=roles" replace /> },
+          { path: 'user', element: <Navigate to="/settings/users" replace /> },
         ],
       },
     ],

@@ -88,18 +88,18 @@
   padding: 12px 20px;
   border: 1px solid transparent;
   border-radius: 11px;
-  background: var(--gf-navy);
-  color: #fff;
+  background: var(--gf-accent);
+  color: var(--gf-accent-on);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 10px 22px -14px rgba(28, 63, 124, 0.9);
+  box-shadow: var(--gf-shadow-sm);
   transition: background 0.16s, border-color 0.16s, color 0.16s;
 }
 
 .st-btn:hover:not(:disabled) {
-  background: var(--gf-navy-hover);
+  background: var(--gf-accent-hover);
 }
 
 .st-btn:disabled {
@@ -118,8 +118,8 @@
 
 .st-btn--ghost:hover:not(:disabled) {
   background: var(--gf-paper);
-  border-color: var(--gf-navy);
-  color: var(--gf-navy);
+  border-color: var(--gf-accent);
+  color: var(--gf-accent);
 }
 
 .st-btn--sm {
@@ -134,7 +134,7 @@
   font-family: inherit;
   font-size: 13.5px;
   font-weight: 700;
-  color: var(--gf-navy);
+  color: var(--gf-accent);
   cursor: pointer;
 }
 
@@ -371,8 +371,8 @@
   height: 34px;
   flex: none;
   border-radius: 10px;
-  background: var(--gf-chip);
-  color: var(--gf-navy);
+  background: var(--gf-accent-soft);
+  color: var(--gf-accent-ink);
   display: grid;
   place-items: center;
   font-family: var(--gf-font-head);
@@ -491,8 +491,8 @@
 .st-field input:focus,
 .st-field select:focus,
 .st-field textarea:focus {
-  border-color: var(--gf-navy);
-  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+  border-color: var(--gf-accent);
+  box-shadow: 0 0 0 3px var(--gf-accent-soft);
 }
 
 .st-field input:disabled,
@@ -554,12 +554,46 @@
 }
 
 .st-switch-knob.is-on {
-  background: var(--gf-navy);
+  background: var(--gf-accent);
 }
 
 .st-switch-knob.is-on::after {
   left: auto;
   right: 3px;
+}
+
+/* Tiklanabilir varyant — Bildirimler gibi gercekten degisen (ama sunucuya
+   kaydedilmeyen, oturumluk) anahtarlar icin. Salt-okunur .st-switch-knob'dan
+   farkli: bu bir <button>. */
+.st-switch-knob-btn {
+  position: relative;
+  width: 36px;
+  height: 21px;
+  padding: 0;
+  border: 1px solid var(--gf-line);
+  border-radius: 99px;
+  background: var(--gf-paper-warm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.st-switch-knob-btn i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 99px;
+  background: var(--gf-fainter);
+  display: block;
+  transition: left 0.15s, background 0.15s;
+}
+.st-switch-knob-btn[data-on="true"] {
+  background: var(--gf-accent);
+  border-color: transparent;
+}
+.st-switch-knob-btn[data-on="true"] i {
+  left: 17px;
+  background: var(--gf-accent-on);
 }
 
 /* --------------------------------------------------------------------------
@@ -592,17 +626,179 @@
   gap: 10px;
 }
 
+/* --------------------------------------------------------------------------
+   Sekme pili — birden fazla alt gorunumu olan sayfalarda (Veri kaynaklari,
+   Kullanicilar) baslik ile icerik arasinda durur.
+   -------------------------------------------------------------------------- */
+.st-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--gf-chip);
+  width: fit-content;
+  flex-wrap: wrap;
+}
+
+.st-tabs button {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--gf-muted);
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s;
+}
+
+.st-tabs button.is-active {
+  background: var(--gf-paper);
+  color: var(--gf-ink);
+  box-shadow: var(--gf-shadow-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Gorunum ve Tema sayfasi — mod/marka rengi seciciler.
+   -------------------------------------------------------------------------- */
+.st-theme-swatch {
+  text-align: left;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--gf-paper-warm);
+  cursor: pointer;
+  font-family: inherit;
+  border: 2px solid var(--gf-line);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.st-theme-swatch[data-active="true"] { border-color: var(--gf-accent); }
+.st-theme-swatch strong { font-size: 14px; font-weight: 700; color: var(--gf-ink); }
+.st-theme-swatch span:last-child { font-size: 12px; color: var(--gf-muted); }
+
+.st-theme-preview {
+  display: block;
+  height: 56px;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+.st-theme-preview span { display: block; height: 6px; border-radius: 3px; margin-bottom: 5px; }
+.st-theme-preview span:first-child { height: 8px; width: 60%; margin-bottom: 6px; }
+.st-theme-preview span:nth-child(2) { width: 85%; }
+.st-theme-preview span:last-child { width: 40%; margin-bottom: 0; background: var(--gf-accent); }
+
+.st-theme-preview--light { background: #fbfaf8; border: 1px solid #e6e3de; }
+.st-theme-preview--light span:first-child { background: #101828; }
+.st-theme-preview--light span:nth-child(2) { background: #d6d2cb; }
+
+.st-theme-preview--dark { background: #0d1421; border: 1px solid #28324a; }
+.st-theme-preview--dark span:first-child { background: #e9edf5; }
+.st-theme-preview--dark span:nth-child(2) { background: #3b4763; }
+
+.st-accent-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px 9px 10px;
+  border-radius: 11px;
+  background: var(--gf-paper-warm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--gf-ink);
+  border: 2px solid var(--gf-line);
+}
+.st-accent-swatch[data-active="true"] { border-color: var(--gf-accent); }
+.st-accent-swatch span {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  flex: none;
+  display: block;
+}
+
+/* --------------------------------------------------------------------------
+   Ayarlar hub — kart izgarasi.
+   -------------------------------------------------------------------------- */
+.st-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.st-hub-card {
+  text-align: left;
+  background: var(--gf-paper);
+  border: 1px solid var(--gf-line);
+  border-radius: 14px;
+  padding: var(--layout-card-pad);
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.16s, transform 0.16s, box-shadow 0.16s;
+}
+.st-hub-card:hover {
+  border-color: var(--gf-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--gf-shadow-lg);
+}
+
+.st-hub-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.st-hub-glyph {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--gf-accent-soft);
+  color: var(--gf-accent-ink);
+  display: grid;
+  place-items: center;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 14px;
+  flex: none;
+}
+
+.st-hub-card-head strong {
+  font-family: var(--gf-font-head);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--gf-ink);
+}
+
+.st-hub-arrow {
+  margin-left: auto;
+  font-size: 15px;
+  color: var(--gf-fainter);
+}
+
+.st-hub-desc {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--gf-muted);
+}
+
 .st-note {
   display: flex;
   gap: 12px;
   align-items: flex-start;
   padding: 16px 18px;
-  border: 1px solid #c8e6e4;
+  border: 1px solid var(--gf-teal-tint);
   border-radius: 14px;
   background: var(--gf-teal-tint);
   font-size: 14px;
   line-height: 1.55;
-  color: #0b5250;
+  color: var(--gf-teal-ink);
 }
 
 .st-note i {
@@ -631,7 +827,7 @@
 
 .st-ok {
   padding: 12px 14px;
-  border: 1px solid #b8ddda;
+  border: 1px solid var(--gf-teal-tint);
   border-radius: 12px;
   background: var(--gf-teal-tint);
   color: var(--gf-teal-ink);
@@ -660,8 +856,8 @@
   height: 52px;
   margin: 0 auto 16px;
   border-radius: 14px;
-  background: var(--gf-navy);
-  color: #fff;
+  background: var(--gf-accent);
+  color: var(--gf-accent-on);
   display: grid;
   place-items: center;
   font-size: 22px;

@@ -3,8 +3,8 @@
 /* Karsilama sihirbazi — marka kilavuzuyla ayni degerler. */
 
 .ob {
-  --navy: var(--gf-navy);
-  --navy-hover: var(--gf-navy-hover);
+  --navy: var(--gf-accent);
+  --navy-hover: var(--gf-accent-hover);
   --ink: var(--gf-ink);
   --label: var(--gf-label);
   --muted: var(--gf-muted);
@@ -93,7 +93,7 @@
 
 .ob-steps li.is-current .ob-step-n {
   background: var(--navy);
-  color: #fff;
+  color: var(--gf-accent-on);
 }
 
 .ob-steps li.is-done {
@@ -155,7 +155,7 @@
 
 .ob-field input:focus {
   border-color: var(--navy);
-  box-shadow: 0 0 0 3px rgba(28, 63, 124, 0.12);
+  box-shadow: 0 0 0 3px var(--gf-accent-soft);
 }
 
 .ob-row {
@@ -186,7 +186,7 @@
 .ob-chips button.is-active {
   border-color: var(--navy);
   background: var(--navy);
-  color: #fff;
+  color: var(--gf-accent-on);
 }
 
 /* Paketler */
@@ -210,7 +210,7 @@
 
 .ob-plan.is-active {
   border-color: var(--navy);
-  background: #f7f9fc;
+  background: var(--gf-accent-soft);
 }
 
 .ob-plan input {
@@ -264,7 +264,7 @@
   border: 1px solid transparent;
   border-radius: 12px;
   background: var(--navy);
-  color: #fff;
+  color: var(--gf-accent-on);
   font-family: inherit;
   font-size: 15.5px;
   font-weight: 700;
@@ -275,7 +275,7 @@
 
 .ob-btn:hover {
   background: var(--navy-hover);
-  color: #fff;
+  color: var(--gf-accent-on);
 }
 
 .ob-btn[disabled] {

@@ -89,7 +89,7 @@ export default function DepartmentsPage() {
             <button
               type="button"
               className="st-btn st-btn--ghost st-btn--sm"
-              onClick={() => navigate('/settings/authorization')}
+              onClick={() => navigate('/settings/users?tab=roles')}
             >
               Yetki ayarlarına git →
             </button>
