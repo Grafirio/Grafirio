@@ -45,14 +45,14 @@
 .pl-grid {
   display: grid;
   grid-template-columns: 1fr 1.2fr;
-  gap: 18px;
+  gap: var(--layout-gap);
   align-items: start;
 }
 
 .pl-card,
 .pl-loading,
 .pl-empty {
-  padding: 24px;
+  padding: var(--layout-card-pad);
   border: 1px solid var(--gf-line);
   border-radius: 18px;
   background: var(--gf-paper);

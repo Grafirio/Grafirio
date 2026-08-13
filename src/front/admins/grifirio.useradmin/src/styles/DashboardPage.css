@@ -92,7 +92,7 @@
 .db-kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: var(--layout-gap);
 }
 
 .db-kpi {
@@ -100,7 +100,7 @@
   border: 1px solid var(--gf-line);
   border-top: 4px solid var(--accent, var(--gf-navy));
   border-radius: 16px;
-  padding: 20px;
+  padding: var(--layout-card-pad);
 }
 
 .db-kpi-label {
@@ -203,7 +203,7 @@
   background: var(--gf-paper);
   border: 1px solid var(--gf-line);
   border-radius: 18px;
-  padding: 22px;
+  padding: var(--layout-card-pad);
 }
 
 .db-card-head {
@@ -253,7 +253,7 @@
 .db-canvas-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
-  gap: 12px;
+  gap: var(--layout-gap);
 }
 
 .db-canvas-tile {
@@ -384,7 +384,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 13px 0;
+  padding: var(--layout-row-pad) 0;
   border-bottom: 1px solid var(--gf-line-soft);
 }
 
