@@ -14,26 +14,28 @@ import '../../styles/Nav.css';
  */
 const insideDesktopApp = () => Boolean(window.__GRAFIRIO_DESKTOP__);
 
-// Menu hiyerarsisi tasarim taslagindaki ile birebir ayni ve her giris kendi
-// sayfasina gidiyor. Onceden "Kullanici Ayarlari" da "Yetkili kullanicilar"
-// gibi /company-info?tab=users'a cikiyordu; menude iki ayri baslik ayni
-// ekrani acinca kullanici hangisinin ne yaptigini anlayamiyordu.
-const COMPANY_MENU = [
-  { to: '/company-info?tab=info', label: 'Şirket profili' },
-  { to: '/company-info?tab=users', label: 'Yetkili kullanıcılar' },
-  { to: '/company-info?tab=tree', label: 'Alt şirketler' },
-];
-
-const SETTINGS_MENU = [
-  { to: '/settings/company', label: 'Şirket Ayarları' },
+// Veri kaynagi islerinin hepsi kendi basligi altinda: veriyi nereden
+// aldigimiz (SQL baglantisi) ile elle veri girisi ayni ise ait, ayarlarin
+// icinde kaybolmalari kullaniciyi bagliyordu.
+const CONNECTION_MENU = [
   { to: '/settings/data-input', label: 'Veri Girdisi' },
   { to: '/settings/sql-connection', label: 'SQL Bağlantı Ayarları' },
+];
+
+// Sirket profili ve alt sirketler menuden cikarildi; ikisi de Sirket
+// Ayarlari sayfasinin icinde yasayacak. Ayrica "Kullanici Ayarlari" ile
+// "Yetkili kullanicilar" ayni ekrani aciyordu, tek baslik birakildi.
+const SETTINGS_MENU = [
+  { to: '/settings/company', label: 'Şirket Ayarları' },
+  { to: '/company-info?tab=users', label: 'Yetkili Kullanıcılar' },
   { divider: true },
   { to: '/settings/department', label: 'Departman Ayarları' },
   { to: '/settings/authorization', label: 'Yetki Ayarları' },
-  { to: '/settings/user', label: 'Kullanıcı Ayarları' },
+  { divider: true },
   { to: '/settings/membership', label: 'Üyelik Bilgileri' },
 ];
+
+const CONNECTION_PATHS = CONNECTION_MENU.map((item) => item.to);
 
 function useOutsideClick(ref, onOutside) {
   useEffect(() => {
@@ -95,8 +97,10 @@ export default function Nav() {
   const location = useLocation();
 
   const atDashboard = location.pathname === '/' || location.pathname === '/dashboard';
-  const atCompany = location.pathname === '/company-info';
-  const atSettings = location.pathname.startsWith('/settings');
+  const atConnection = CONNECTION_PATHS.includes(location.pathname);
+  const atSettings =
+    (location.pathname.startsWith('/settings') && !atConnection) ||
+    location.pathname === '/company-info';
 
   const initials = (user?.name || user?.email || '?')
     .split(/\s+/)
@@ -127,7 +131,7 @@ export default function Nav() {
             </NavLink>
           </div>
 
-          <NavDropdown label="Şirket Bilgileri" items={COMPANY_MENU} active={atCompany} />
+          <NavDropdown label="Bağlantı Ayarları" items={CONNECTION_MENU} active={atConnection} />
           <NavDropdown label="Ayarlar" items={SETTINGS_MENU} active={atSettings} />
         </nav>
 
