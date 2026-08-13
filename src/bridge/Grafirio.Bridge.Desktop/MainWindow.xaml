@@ -1,4 +1,4 @@
-﻿<Window x:Class="Grafirio.Bridge.Desktop.MainWindow"
+<Window x:Class="Grafirio.Bridge.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
@@ -9,13 +9,26 @@
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI">
 
+    <!--
+      Uc satir: icerik, durum seridi, gunluk.
+
+      Serit ve gunluk panelin USTUNE degil ALTINA konuyor. WebView2 bir
+      HwndHost: uzerine cizilen WPF icerigi gorunmez olurdu ve hata mesaji
+      tam da panel acikken lazim.
+    -->
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
         <!--
           Giris ekrani: logo ve tek bir dugme. Baska hicbir sey yok — kurulum
           kodu, durum karti, baglanti listesi hepsi kalkti. Kullanicinin bu
           ekranda verecegi tek karar var, o da girmek.
         -->
-        <Grid x:Name="LoginView">
+        <Grid x:Name="LoginView" Grid.Row="0">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <Image Source="{StaticResource BrandMark}" Width="88" Height="88"
                        HorizontalAlignment="Center" />
@@ -33,29 +46,6 @@
                            TextWrapping="Wrap" FontSize="12"
                            Foreground="{StaticResource Muted}"
                            Visibility="Collapsed" />
-
-                <!--
-                  Varsayilan olarak kapali: normal akista kimsenin gunluk
-                  okumasi gerekmiyor. Hata olunca kendiliginden aciliyor —
-                  onceki surumde "Giriş tamamlanamadı"dan baska hicbir sey
-                  yazmiyordu ve sebep ekranda hic gorunmuyordu.
-                -->
-                <Expander x:Name="DetailsPanel"
-                          Margin="0,22,0,0" MaxWidth="620"
-                          HorizontalAlignment="Center"
-                          FontSize="11"
-                          Foreground="{StaticResource Muted}"
-                          Header="Ayrıntılar">
-                    <Border Margin="0,8,0,0" Padding="10" CornerRadius="6"
-                            Background="#0f1720">
-                        <ScrollViewer x:Name="LogScroller" Height="150"
-                                      VerticalScrollBarVisibility="Auto">
-                            <TextBlock x:Name="LogText"
-                                       FontFamily="Consolas" FontSize="11"
-                                       Foreground="#cbd5e1" TextWrapping="Wrap" />
-                        </ScrollViewer>
-                    </Border>
-                </Expander>
             </StackPanel>
         </Grid>
 
@@ -63,6 +53,56 @@
           Girisden sonrasi: panelin kendisi. Yeniden yazilmadi, gomuldu —
           yazilsaydi "web'dekiyle ayni" olmasi ilk degisiklige kadar surerdi.
         -->
-        <wv2:WebView2 x:Name="Panel" Visibility="Collapsed" />
+        <wv2:WebView2 x:Name="Panel" Grid.Row="0" Visibility="Collapsed" />
+
+        <!--
+          Durum seridi. Yalnizca bir sey ters gittiginde beliriyor ve iki
+          ekranda da ayni yerde duruyor: sorun cogu zaman panel acildiktan
+          sonra ortaya cikiyor (bu bilgisayarin kaydi arka planda yuruyor) ve
+          o anda giris ekranindaki metin coktan gorunmez olmus oluyor.
+        -->
+        <Border x:Name="StatusBar" Grid.Row="1"
+                Visibility="Collapsed"
+                Background="{StaticResource Surface}"
+                BorderBrush="{StaticResource Line}"
+                BorderThickness="0,1,0,0"
+                Padding="16,10">
+            <DockPanel>
+                <Button x:Name="RetryButton" DockPanel.Dock="Right"
+                        Style="{StaticResource QuietButton}"
+                        Margin="8,0,0,0" Padding="12,6" FontSize="12"
+                        Visibility="Collapsed"
+                        Content="Tekrar dene"
+                        Click="RetryButton_Click" />
+
+                <Button x:Name="DetailsButton" DockPanel.Dock="Right"
+                        Style="{StaticResource QuietButton}"
+                        Margin="8,0,0,0" Padding="12,6" FontSize="12"
+                        Content="Ayrıntılar"
+                        Click="DetailsButton_Click" />
+
+                <TextBlock x:Name="StatusText"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" FontSize="12"
+                           Foreground="{StaticResource Ink}" />
+            </DockPanel>
+        </Border>
+
+        <!--
+          Gunluk. Varsayilan olarak kapali: normal akista kimsenin okumasi
+          gerekmiyor, hata olunca kendiliginden aciliyor — onceki surumde
+          "Giriş tamamlanamadı"dan baska hicbir sey yazmiyordu ve sebep
+          ekranda hic gorunmuyordu.
+        -->
+        <Border x:Name="LogView" Grid.Row="2"
+                Visibility="Collapsed"
+                Background="#0f1720" Padding="12">
+            <ScrollViewer x:Name="LogScroller" Height="150"
+                          VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="LogText"
+                           FontFamily="Consolas" FontSize="11"
+                           Foreground="#cbd5e1" TextWrapping="Wrap" />
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>
