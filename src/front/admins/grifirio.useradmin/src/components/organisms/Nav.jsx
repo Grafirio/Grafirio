@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { roleName } from '../../services/companyService';
+import { fetchCompanies, roleName } from '../../services/companyService';
 import { bridgeInstallerUrl } from '../../services/dataAnalysisService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
@@ -17,10 +18,17 @@ const insideDesktopApp = () => Boolean(window.__GRAFIRIO_DESKTOP__);
 // Onceden iki acilir menu vardi (Baglanti Ayarlari, Ayarlar). Yeni tasarim
 // bunlari ustte sekmeye ceviriyor: Ayarlar artik kendi kart-hub sayfasini
 // aciyor, alt basliklari secmek icin tikla-bekle-sec akisina gerek kalmiyor.
+// Uyelik ayri bir sekme: taslakta da ust seviyede, Ayarlar hub'inin icine
+// gomulunce "faturami nasil gorurum" sorusu iki tikla cevaplaniyordu.
 const TABS = [
   { to: '/dashboard', label: 'Dashboard', match: (p) => p === '/' || p === '/dashboard' },
   { to: '/data', label: 'Veri kaynakları', match: (p) => p.startsWith('/data') },
-  { to: '/settings', label: 'Ayarlar', match: (p) => p.startsWith('/settings') },
+  {
+    to: '/settings',
+    label: 'Ayarlar',
+    match: (p) => p.startsWith('/settings') && !p.startsWith('/settings/membership'),
+  },
+  { to: '/settings/membership', label: 'Üyelik', match: (p) => p.startsWith('/settings/membership') },
 ];
 
 export default function Nav() {
@@ -43,6 +51,26 @@ export default function Nav() {
   const businessRoles = keycloak.tokenParsed?.business_roles;
   const role = Array.isArray(businessRoles) ? businessRoles[0] : businessRoles;
 
+  // Sirket rozeti: taslakta "Enco Endustri A.S." sabit yaziyordu, biz
+  // gercek sirket adini okuyoruz — yoksa rozet hic gorunmez, uydurma isim
+  // konmaz.
+  const companyId = keycloak.tokenParsed?.company_id;
+  const [companyName, setCompanyName] = useState('');
+  useEffect(() => {
+    if (!companyId) return undefined;
+    let cancelled = false;
+    fetchCompanies(keycloak.token)
+      .then((list) => {
+        if (cancelled) return;
+        const company = list.find((c) => c.id === companyId);
+        if (company?.name) setCompanyName(company.name);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, keycloak.token]);
+
   return (
     <header className="nv">
       <div className="nv-inner">
@@ -50,6 +78,18 @@ export default function Nav() {
           <GMark size={28} />
           <span>GRAFIRIO</span>
         </NavLink>
+
+        {companyName && (
+          <button
+            type="button"
+            className="nv-company"
+            onClick={() => navigate('/settings/company')}
+            title="Şirket ayarları"
+          >
+            <span className="nv-company-mark">{companyName[0]}</span>
+            {companyName}
+          </button>
+        )}
 
         <nav className="nv-tabs">
           {TABS.map((t) => {
@@ -86,6 +126,16 @@ export default function Nav() {
             aria-label="Temayı değiştir"
           >
             {theme === 'dark' ? '☀' : '☾'}
+          </button>
+
+          <button
+            type="button"
+            className="nv-theme-toggle"
+            onClick={() => navigate('/settings/notifications')}
+            title="Bildirimler"
+            aria-label="Bildirimler"
+          >
+            🔔
           </button>
 
           <div className="nv-user">

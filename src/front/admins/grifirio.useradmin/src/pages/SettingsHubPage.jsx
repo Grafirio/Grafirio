@@ -10,8 +10,9 @@ const CARDS = [
   { to: '/settings/department', glyph: 'D', title: 'Departmanlar', desc: 'Kullanıcının hangi analizleri göreceğini belirler.' },
   { to: '/settings/theme', glyph: 'G', title: 'Görünüm ve Tema', desc: 'Açık/karanlık mod, marka rengi ve yoğunluk.' },
   { to: '/settings/notifications', glyph: 'B', title: 'Bildirimler', desc: 'Hangi olay, kime, hangi kanaldan.' },
-  { to: '/settings/membership', glyph: 'Ü', title: 'Üyelik', desc: 'Plan, kullanım ve abonelik geçmişi.' },
 ];
+// Üyelik burada değil: taşıma taslağında da üst seviyede kendi sekmesi
+// var (bkz. Nav.jsx TABS) — faturayı görmek iki tıklık bir iş olmasın diye.
 
 export default function SettingsHubPage() {
   const navigate = useNavigate();

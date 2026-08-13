@@ -4,14 +4,48 @@ import { useKeycloak } from '@react-keycloak/web';
 import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
 import '../styles/DashboardPage.css';
 
+// Kapak isareti: marka isaretindeki gibi merkezden disa acilan dilimler, ama
+// her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
+// hash'ten turetiliyor (rastgele degil — ayni analiz her acilista ayni
+// gorunur). Sabit grafik paletini (--gf-c01.. ) sirayla tuketir; veriyle
+// bir ilgisi yok, yalnizca izgarada kartlari birbirinden ayirt ettiren bir
+// susleme.
+const PALETTE = ['--gf-c01', '--gf-c02', '--gf-c03', '--gf-c04', '--gf-c05', '--gf-c06', '--gf-c07', '--gf-c08', '--gf-c09'];
+
+function hashSeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i += 1) h = (Math.imul(h, 31) + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function spokesFor(seedStr, tableCount) {
+  const h = hashSeed(seedStr || 'x');
+  const n = Math.min(9, Math.max(5, tableCount || 6));
+  const step = 360 / n;
+  return Array.from({ length: n }, (_, i) => {
+    const len = 8 + ((h >> (i * 3)) % 12);
+    const inner = 8 + (len % 3) * 3;
+    const reach = 22 + (len - 11) * 1.1;
+    return {
+      a: `${(i * step - 90).toFixed(1)}deg`,
+      x: `${(50 + inner).toFixed(1)}%`,
+      l: `${Math.max(8, reach - inner).toFixed(1)}%`,
+      t: `${(4.2 + (len % 4) * 0.9).toFixed(1)}%`,
+      c: `var(${PALETTE[i % PALETTE.length]})`,
+    };
+  });
+}
+
 /**
- * Panel ana ekrani. Tasarim taslagindaki yerlesim: baslik, sayaclar, veri
- * kaynagi izgarasi, son analizler ve baglanti tablosu.
+ * Panel ana ekrani. Tasarim taslagindaki iki bolume ayrilmis: "Analizlerim"
+ * (tamamlanmis analizler, kapak-isaretli izgara) ve "Veri kaynaklari"
+ * (kayitli baglantilar, satir listesi). Onceki surumde bu ikisi ve ayrica
+ * bir de baglanti tablosu ust uste uc bolume yayilmisti; ayni veriyi iki
+ * kez gostermek yerine taslaktaki gibi ikiye indirildi.
  *
- * Taslakta bunlarin yaninda "islenen satir", "otomatik yorum", "Grafirio
- * yorumu", "bekleyen isler" ve "depolama" kartlari da var. Onlari almadim:
- * hicbirini besleyen bir uc yok ve sabit "2,41M / 5M" yazmak, veriymis gibi
- * gorunen bir dekordan ibaret olurdu. Servisleri yazildiginda yerleri hazir.
+ * "Islenen satir" ve "Otomatik yorum" kartlari taslakta da "taslak"
+ * etiketiyle duruyor — biz de ayni durustlugu koruyoruz: sayi uydurmuyoruz,
+ * kart yerinde duruyor ve servis gelince dolacagi acikca yaziyor.
  *
  * Analizler sunucudan okunuyor. Onceden localStorage'daydilar: baska bir
  * makineden girildiginde ya da gecmis temizlendiginde panel "hic analiz yok"
@@ -66,7 +100,7 @@ const DashboardPage = () => {
     return () => clearInterval(interval);
   }, [loadConnections, loadAnalyses]);
 
-  const companyName = keycloak.tokenParsed?.company_name || 'Çalışma alanınız';
+  const firstName = (keycloak.tokenParsed?.name || keycloak.tokenParsed?.preferred_username || '').split(/\s+/)[0];
 
   const fmtDate = (str) =>
     str
@@ -77,11 +111,13 @@ const DashboardPage = () => {
     <div className="db">
       <div className="db-head">
         <div>
-          <p className="db-eyebrow">Panel · {companyName}</p>
-          <h1>Analiz kanvasları</h1>
+          <p className="db-eyebrow">Panel · Çalışma Alanınız</p>
+          <h1>{firstName ? `Merhaba ${firstName}.` : 'Analiz kanvasları'}</h1>
           <p className="db-lead">
-            Kayıtlı bir analize <strong>çift tıklayarak</strong> kanvası açın; yeni bir veri
-            kaynağı bağlamak için sağdaki butonu kullanın.
+            {loadingConns
+              ? 'Veri kaynaklarınız yükleniyor…'
+              : `${connections.length} veri kaynağın bağlı, ${completedAnalyses.length} analiz edilmiş.`}{' '}
+            Bir analizi açmak için üzerine <strong>çift tıklayın</strong>.
           </p>
         </div>
         <div className="db-head-actions">
@@ -89,14 +125,14 @@ const DashboardPage = () => {
             Veri yükle
           </button>
           <button className="db-btn" onClick={() => navigate('/data?tab=connections')}>
-            + Yeni Analiz
+            Yeni analiz
           </button>
         </div>
       </div>
 
       <div className="db-kpis">
         <div className="db-kpi" style={{ '--accent': 'var(--gf-navy)' }}>
-          <span className="db-kpi-label">Aktif kanvas</span>
+          <span className="db-kpi-label">Aktif analiz</span>
           <strong>{completedAnalyses.length}</strong>
           <span className="db-kpi-note">
             {activeAnalyses.length > 0
@@ -107,7 +143,23 @@ const DashboardPage = () => {
         <div className="db-kpi" style={{ '--accent': 'var(--gf-teal)' }}>
           <span className="db-kpi-label">Bağlı veritabanı</span>
           <strong>{loadingConns ? '—' : connections.length}</strong>
-          <span className="db-kpi-note">kayıtlı bağlantı</span>
+          <span className="db-kpi-note">
+            {loadingConns ? '—' : `${connections.length} doğrudan bağlantı`}
+          </span>
+        </div>
+        <div className="db-kpi db-kpi--draft">
+          <span className="db-kpi-label">
+            İşlenen satır <span className="db-kpi-tag">taslak</span>
+          </span>
+          <strong>—</strong>
+          <span className="db-kpi-note">servis bekleniyor</span>
+        </div>
+        <div className="db-kpi db-kpi--draft">
+          <span className="db-kpi-label">
+            Otomatik yorum <span className="db-kpi-tag">taslak</span>
+          </span>
+          <strong>—</strong>
+          <span className="db-kpi-note">servis bekleniyor</span>
         </div>
       </div>
 
@@ -123,150 +175,100 @@ const DashboardPage = () => {
         </div>
       )}
 
-      <section className="db-card">
-        <div className="db-card-head">
-          <div>
-            <h2>Veri kaynağı ızgarası</h2>
-            <p className="db-card-sub">
-              Bir bağlantıya <strong>çift tıklayın</strong> — solda yapay zekâ sohbeti,
-              sağda grafik kanvası açılır.
-            </p>
-          </div>
-          <span className="db-hint">firma geneli</span>
-        </div>
-
-        {connError && <div className="db-alert">{connError}</div>}
-
-        <div className="db-grid-wrap">
-          <div className="db-grid">
-            {loadingConns && <div className="db-tile db-tile--muted">Yükleniyor…</div>}
-
-            {!loadingConns &&
-              connections.map((c) => (
-                // Tasarim taslagindaki davranis: baglanti kartina cift tik,
-                // solda sohbet sagda kanvas. Kanvas ana konusma ekrani oldugu
-                // icin buradan dogrudan aciliyor.
-                <div
-                  className="db-tile"
-                  key={c.id}
-                  onDoubleClick={() => navigate(`/canvas?connectionId=${c.id}`)}
-                  title="Kanvası açmak için çift tıklayın"
-                  style={{ cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <div className="db-tile-head">
-                    <span className="db-tile-icon" />
-                    <span className="db-tile-name">
-                      <strong>{c.name}</strong>
-                      <span className="db-tile-sub">
-                        {c.host}
-                        {c.port ? `:${c.port}` : ''}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="db-tile-foot">
-                    <span className="db-badge db-badge--ok">
-                      <i />
-                      {c.lastConnectedAt ? 'Bağlandı' : 'Kayıtlı'}
-                    </span>
-                    <span className="db-tile-db">{c.database}</span>
-                  </div>
-                </div>
-              ))}
-
-            <button
-              className="db-tile db-tile--add"
-              onClick={() => navigate('/data?tab=connections')}
-            >
-              <span className="db-plus">+</span>
-              <span>Bağlantı ekle</span>
+      <section>
+        <div className="db-section-head">
+          <h2>Analizlerim</h2>
+          <span className="db-hint">çift tık → aç</span>
+          {completedAnalyses.length > 0 && (
+            <button className="db-link" style={{ marginLeft: 'auto' }} onClick={() => navigate('/data?tab=connections')}>
+              Tümü →
             </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="db-card">
-        <div className="db-card-head">
-          <h2>Son analizler</h2>
-          <span className="db-hint">{completedAnalyses.length} kanvas</span>
+          )}
         </div>
 
-        {completedAnalyses.length === 0 ? (
-          <p className="db-empty">
-            Henüz analiz yok. SQL Bağlantı Ayarları sayfasından bir bağlantı seçip “Analiz Et”e
-            tıklayın.
-          </p>
-        ) : (
-          <div className="db-analyses">
-            {completedAnalyses.map((a) => (
-              <div
-                key={a.connectionId}
-                className={`db-analysis ${a.status === 'failed' ? 'is-failed' : ''}`}
-                // Kanvas bağlantıdan açılıyor: analiz kaydı zaten bağlantıya
-                // ait ve durumu sunucuda. Ayrı bir "analiz kimliği" yoluna
-                // gerek yok, o yol kaydı tarayıcıdan okuyordu.
-                onDoubleClick={() => navigate(`/canvas?connectionId=${a.connectionId}`)}
-                title="Kanvası açmak için çift tıklayın"
-              >
-                <div className="db-analysis-top">
-                  <span className="db-analysis-name">{a.database}</span>
-                  <span
-                    className={`db-badge ${a.status === 'failed' ? 'db-badge--err' : 'db-badge--ok'}`}
-                  >
+        <div className="db-canvas-grid">
+          {completedAnalyses.map((a) => (
+            <div
+              key={a.connectionId}
+              className="db-canvas-tile"
+              onDoubleClick={() => navigate(`/canvas?connectionId=${a.connectionId}`)}
+              title="Kanvası açmak için çift tıklayın"
+            >
+              <div className="db-canvas-cover">
+                {spokesFor(a.connectionId || a.database, a.tableCount).map((s, i) => (
+                  <span key={i} className="db-spoke" style={{ transform: `rotate(${s.a})` }}>
+                    <span style={{ left: s.x, width: s.l, height: s.t, background: s.c }} />
+                  </span>
+                ))}
+                <span className="db-canvas-center" />
+              </div>
+              <div className="db-canvas-info">
+                <div className="db-canvas-info-top">
+                  <strong>{a.database}</strong>
+                  <span className={`db-badge ${a.status === 'failed' ? 'db-badge--err' : 'db-badge--ok'}`}>
                     <i />
                     {a.status === 'failed' ? 'Başarısız' : 'Hazır'}
                   </span>
                 </div>
-                <div className="db-analysis-meta">
+                <div className="db-canvas-info-meta">
                   <span>{a.tableCount ?? 0} tablo</span>
+                  <span>·</span>
                   <span>{fmtDate(a.updatedAt || a.createdAt)}</span>
                 </div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
+
+          <button className="db-canvas-tile db-canvas-tile--add" onClick={() => navigate('/data?tab=connections')}>
+            <span className="db-plus">+</span>
+            <span>Veri kaynağı bağla</span>
+          </button>
+        </div>
+
+        {completedAnalyses.length === 0 && !loadingConns && (
+          <p className="db-empty">
+            Henüz analiz yok. Veri kaynakları sayfasından bir bağlantı seçip “Analiz Et”e tıklayın.
+          </p>
         )}
       </section>
 
       <section className="db-card">
         <div className="db-card-head">
-          <h2>Veritabanı bağlantıları</h2>
+          <h2>Veri kaynakları</h2>
           <button className="db-link" onClick={() => navigate('/data?tab=connections')}>
-            Tümünü yönet →
+            Yönet →
           </button>
         </div>
 
+        {connError && <div className="db-alert">{connError}</div>}
+
+        {loadingConns && <p className="db-empty">Yükleniyor…</p>}
+
         {!loadingConns && connections.length === 0 && !connError && (
           <p className="db-empty">
-            Henüz kayıtlı bağlantı yok. “Bağlantı ekle” ile ilk veri kaynağınızı tanımlayın.
+            Henüz kayıtlı bağlantı yok. “Veri kaynağı bağla” ile ilk veri kaynağınızı tanımlayın.
           </p>
         )}
 
-        {connections.length > 0 && (
-          <div className="db-table-wrap">
-            <table className="db-table">
-              <thead>
-                <tr>
-                  <th>Bağlantı</th>
-                  <th>Sunucu</th>
-                  <th>Veritabanı</th>
-                  <th>Kullanıcı</th>
-                  <th>Son bağlantı</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connections.map((c) => (
-                  <tr key={c.id}>
-                    <td className="db-strong">{c.name}</td>
-                    <td className="db-mono">
-                      {c.host}
-                      {c.port ? `:${c.port}` : ''}
-                    </td>
-                    <td>{c.database}</td>
-                    <td className="db-mono">{c.username}</td>
-                    <td className="db-mono">{fmtDate(c.lastConnectedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {!loadingConns && connections.length > 0 && (
+          <div className="db-source-list">
+            {connections.map((c) => (
+              <div key={c.id} className="db-source-row">
+                <span className="db-source-icon" />
+                <span className="db-source-text">
+                  <strong>{c.name}</strong>
+                  <span className="db-mono">
+                    {c.host}
+                    {c.port ? `:${c.port}` : ''} · {c.database}
+                  </span>
+                </span>
+                <span className="db-mono db-source-date">{fmtDate(c.lastConnectedAt)}</span>
+                <span className="db-badge db-badge--ok">
+                  <i />
+                  {c.lastConnectedAt ? 'Bağlandı' : 'Kayıtlı'}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </section>
