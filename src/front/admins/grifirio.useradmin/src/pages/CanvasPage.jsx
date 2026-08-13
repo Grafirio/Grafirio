@@ -871,7 +871,7 @@ export default function CanvasPage() {
                         <button
                           className="cp-quick-q"
                           style={{ marginTop: 8, width: '100%' }}
-                          onClick={() => navigate('/settings/sql-connection')}
+                          onClick={() => navigate('/data?tab=connections')}
                         >
                           Ön Analiz’i tamamla →
                         </button>

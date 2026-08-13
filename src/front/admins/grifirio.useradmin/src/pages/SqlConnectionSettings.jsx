@@ -12,7 +12,10 @@ import { useAnalysis } from '../contexts/AnalysisContext';
 import '../styles/SettingsPages.css';
 import '../styles/SqlConnectionSettings.css';
 
-const SqlConnectionSettings = () => {
+// embedded: Veri kaynaklari sayfasi (DataSourcesPage) bu bileseni "Baglantilar"
+// sekmesinin icinde gosteriyor ve kendi sayfa basligini kendisi ciziyor; bu
+// durumda burasi kendi ".st-head" basligini tekrar cizmez.
+const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const navigate = useNavigate();
   // Analiz durumu uygulama seviyesinde: sayfa degisince kaybolmasin.
   const { openFor: openAnalysis } = useAnalysis();
@@ -625,23 +628,35 @@ const SqlConnectionSettings = () => {
     <div className="sql-connection-settings">
       {/* Baslik, diger ayar sayfalariyla ayni kaliptan: eyebrow + buyuk
           baslik + aciklama. Onceki hali Tabler'in kucuk sayfa basligiydi ve
-          menuden gecerken tek basina farkli bir uygulama gibi duruyordu. */}
-      <div className="st-head" style={{ marginBottom: 24 }}>
-        <div>
-          <p className="st-eyebrow">Ayarlar · Bağlantı</p>
-          <h1 style={{ fontFamily: 'var(--gf-font-head)', fontSize: 34, letterSpacing: '-0.025em' }}>
-            SQL Bağlantı Ayarları
-          </h1>
-          <p className="st-lead">
-            Veritabanı bağlantılarınızı yönetin, tablo seçin ve doğrudan analiz başlatın.
-          </p>
+          menuden gecerken tek basina farkli bir uygulama gibi duruyordu.
+          embedded=true iken DataSourcesPage kendi basligini zaten cizdigi
+          icin burasi tekrar cizilmez, yalnizca "+ Yeni Baglanti" butonu
+          sekme pilinin yanina tasinir (bkz. DataSourcesPage.jsx). */}
+      {!embedded && (
+        <div className="st-head" style={{ marginBottom: 24 }}>
+          <div>
+            <p className="st-eyebrow">Ayarlar · Bağlantı</p>
+            <h1 style={{ fontFamily: 'var(--gf-font-head)', fontSize: 34, letterSpacing: '-0.025em' }}>
+              SQL Bağlantı Ayarları
+            </h1>
+            <p className="st-lead">
+              Veritabanı bağlantılarınızı yönetin, tablo seçin ve doğrudan analiz başlatın.
+            </p>
+          </div>
+          <div className="st-head-actions">
+            <button className="st-btn" onClick={handleNewConnection}>
+              + Yeni Bağlantı
+            </button>
+          </div>
         </div>
-        <div className="st-head-actions">
+      )}
+      {embedded && (
+        <div className="st-head-actions" style={{ marginBottom: 16, justifyContent: 'flex-end', display: 'flex' }}>
           <button className="st-btn" onClick={handleNewConnection}>
             + Yeni Bağlantı
           </button>
         </div>
-      </div>
+      )}
 
       {testStatus.message && (
         <div className={`gf-alert gf-alert--${testStatus.type === 'error' ? 'danger' : testStatus.type}`}>

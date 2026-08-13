@@ -75,7 +75,7 @@
   align-items: center;
   justify-content: center;
   min-height: 500px;
-  background: white;
+  background: var(--gf-paper);
   border: 2px dashed var(--border);
   border-radius: 16px;
   padding: 60px 20px;
@@ -108,7 +108,7 @@
 }
 
 .analysis-result-card {
-  background: white;
+  background: var(--gf-paper);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 28px;
@@ -346,7 +346,7 @@
 }
 
 .btn-secondary {
-  background: white;
+  background: var(--gf-paper);
   color: var(--accent);
   border: 2px solid var(--accent);
 }

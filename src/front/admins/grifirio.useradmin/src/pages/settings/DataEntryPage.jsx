@@ -15,7 +15,9 @@ import '../../styles/SettingsPages.css';
  * doldurmadim; ikisi de yukleme kaydi tutan bir servise bagli ve o servis
  * yazildiginda buraya gercek veriyle gelecekler.
  */
-export default function DataEntryPage() {
+// embedded: DataSourcesPage bu bileseni "Dosya yukle" sekmesinde gosterir ve
+// kendi sayfa basligini kendisi cizer.
+export default function DataEntryPage({ embedded = false } = {}) {
   const navigate = useNavigate();
 
   const [connections, setConnections] = useState([]);
@@ -48,19 +50,21 @@ export default function DataEntryPage() {
 
   return (
     <div className="st">
-      <div className="st-head">
-        <div>
-          <p className="st-eyebrow">Ayarlar · Veri</p>
-          <h1>Veri Girdisi</h1>
-          <p className="st-lead">
-            Analiz edilecek veriyi panele bağlayın. Şu an desteklenen yol, okuma yetkisi verilmiş
-            bir veritabanı bağlantısıdır.
-          </p>
+      {!embedded && (
+        <div className="st-head">
+          <div>
+            <p className="st-eyebrow">Ayarlar · Veri</p>
+            <h1>Veri Girdisi</h1>
+            <p className="st-lead">
+              Analiz edilecek veriyi panele bağlayın. Şu an desteklenen yol, okuma yetkisi verilmiş
+              bir veritabanı bağlantısıdır.
+            </p>
+          </div>
+          <span className="st-head-meta">
+            {loading ? '—' : `${connections.length} bağlı kaynak`}
+          </span>
         </div>
-        <span className="st-head-meta">
-          {loading ? '—' : `${connections.length} bağlı kaynak`}
-        </span>
-      </div>
+      )}
 
       <section className="st-dropzone">
         <div className="st-dropzone-icon" aria-hidden="true">
@@ -72,7 +76,7 @@ export default function DataEntryPage() {
           veriyi doğrudan veritabanınızdan çekebilirsiniz.
         </p>
         <div className="st-dropzone-actions">
-          <button type="button" className="st-btn" onClick={() => navigate('/settings/sql-connection')}>
+          <button type="button" className="st-btn" onClick={() => navigate('/data?tab=connections')}>
             Veritabanından çek
           </button>
           <button type="button" className="st-btn st-btn--ghost" disabled>
@@ -84,6 +88,10 @@ export default function DataEntryPage() {
 
       {error && <div className="st-alert">{error}</div>}
 
+      {/* embedded modda (DataSourcesPage icinde) bu tablo "Baglantilar"
+          sekmesiyle birebir ayni veriyi tekrar gostermis olurdu; bu yuzden
+          yalnizca bagimsiz erisimde (eski /settings/data-input) gorunur. */}
+      {!embedded && (
       <section className="st-card">
         <div className="st-card-head">
           <div>
@@ -93,7 +101,7 @@ export default function DataEntryPage() {
               ayarlarına gidin.
             </p>
           </div>
-          <button type="button" className="st-link" onClick={() => navigate('/settings/sql-connection')}>
+          <button type="button" className="st-link" onClick={() => navigate('/data?tab=connections')}>
             Tümünü yönet →
           </button>
         </div>
@@ -136,13 +144,14 @@ export default function DataEntryPage() {
           </div>
         )}
       </section>
+      )}
 
       <div className="st-note">
         <i>i</i>
         <div>
           Yükleme geçmişi ve kolon eşleme ekranı, dosya yükleme ucu yazıldığında bu sayfaya
           eklenecek. O zamana kadar veri kaynağınızın tablolarını{' '}
-          <strong>SQL Bağlantı Ayarları › Tablo Seç</strong> üzerinden belirliyorsunuz.
+          <strong>Bağlantılar sekmesi › Tablo Seç</strong> üzerinden belirliyorsunuz.
         </div>
       </div>
     </div>

@@ -45,11 +45,15 @@
   --text-subtle: var(--gf-faint);
   --text-inverse: #fff;
 
-  /* --- Interaction ------------------------------------------------------ */
-  --accent: var(--gf-navy);
-  --accent-hover: var(--gf-navy-hover);
-  --accent-active: var(--gf-navy-hover);
-  --accent-soft: var(--gf-chip);
+  /* --- Interaction ------------------------------------------------------
+     --gf-accent gelir --gf-navy'ye eşit; Ayarlar › Görünüm ve Tema'dan bir
+     marka rengi seçilirse (bkz. tokens.css [data-accent]) hepsi birden
+     değişir. */
+  --accent: var(--gf-accent);
+  --accent-hover: var(--gf-accent-hover);
+  --accent-active: var(--gf-accent-hover);
+  --accent-soft: var(--gf-accent-soft);
+  --accent-on: var(--gf-accent-on);
   --focus-ring: rgba(28, 63, 124, 0.18);
 
   /* --- Status ------------------------------------------------------------ */
@@ -92,6 +96,15 @@
   --space-6: 2rem;
   --space-7: 3rem;
 
+  /* Yoğunluk ayarına göre değişen makro ölçüler (sayfa kenarı, kart iç
+     boşluğu, tablo satırı, ızgara aralığı). tokens.css'teki [data-density]
+     bunları besliyor; sabit --space-* ölçüleri (buton/ikon aralığı gibi
+     mikro ölçüler) bundan etkilenmez. */
+  --layout-page-pad: var(--gf-space-page);
+  --layout-card-pad: var(--gf-space-card);
+  --layout-row-pad: var(--gf-space-row);
+  --layout-gap: var(--gf-space-gap);
+
   --radius-sm: var(--gf-radius-sm);
   --radius: var(--gf-radius);
   --radius-lg: var(--gf-radius-lg);
@@ -110,8 +123,10 @@
    Overriding these means every stock Tabler component inherits the theme
    without being restyled one by one.
 
-   Karanlik tema kaldirildi: onu acan bir dugme yoktu (eski Tabler basligiyla
-   birlikte gitmisti), marka temasi da tek isikli surumden ibaret.
+   Karanlik mod geri geldi (Ayarlar › Gorunum ve Tema, bkz. ThemeContext.jsx)
+   ama degerlerin kendisi burada degil tokens.css'teki [data-theme="dark"]
+   blogunda tanimli; bu koprü zaten degisken adi uzerinden okudugu icin
+   ayrica dokunulmadi.
    -------------------------------------------------------------------------- */
 :root {
   --tblr-font-sans-serif: var(--font-sans);
@@ -264,7 +279,7 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
 }
 
 .gf-btn--primary {
-  color: var(--text-inverse);
+  color: var(--accent-on);
   background: var(--accent);
   border-color: var(--accent);
   font-weight: var(--weight-bold);
@@ -272,7 +287,7 @@ code, pre { font-family: var(--font-mono); font-size: var(--text-sm); }
 }
 
 .gf-btn--primary:hover:not(:disabled) {
-  color: var(--text-inverse);
+  color: var(--accent-on);
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }

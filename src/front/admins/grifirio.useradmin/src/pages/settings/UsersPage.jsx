@@ -23,7 +23,9 @@ import '../../styles/SettingsPages.css';
  * belirlemesini istiyor. Dogrusu e-posta daveti gonderip kisinin kendi
  * parolasini kurmasi; o uc yazilana kadar buraya yarim bir akis koymadim.
  */
-export default function UsersPage() {
+// embedded: UsersRolesPage bu bileseni "Kullanicilar" sekmesinde gosterir ve
+// kendi sayfa basligini kendisi cizer.
+export default function UsersPage({ embedded = false } = {}) {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
   const companyId = keycloak.tokenParsed?.company_id;
@@ -110,13 +112,15 @@ export default function UsersPage() {
 
   if (!companyId) {
     return (
-      <div className="st">
-        <div className="st-head">
-          <div>
-            <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
-            <h1>Kullanıcı Ayarları</h1>
+      <div className={embedded ? undefined : 'st'}>
+        {!embedded && (
+          <div className="st-head">
+            <div>
+              <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
+              <h1>Kullanıcı Ayarları</h1>
+            </div>
           </div>
-        </div>
+        )}
         <div className="st-card">
           <p className="st-empty">Hesabınız henüz bir şirkete bağlı değil.</p>
         </div>
@@ -125,21 +129,30 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="st">
-      <div className="st-head">
-        <div>
-          <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
-          <h1>Kullanıcı Ayarları</h1>
-          <p className="st-lead">
-            Şirketinizdeki kullanıcıların rollerini değiştirin ya da erişimlerini kaldırın.
-          </p>
+    <div className={embedded ? undefined : 'st'}>
+      {!embedded && (
+        <div className="st-head">
+          <div>
+            <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
+            <h1>Kullanıcı Ayarları</h1>
+            <p className="st-lead">
+              Şirketinizdeki kullanıcıların rollerini değiştirin ya da erişimlerini kaldırın.
+            </p>
+          </div>
+          <div className="st-head-actions">
+            <button type="button" className="st-btn st-btn--ghost" onClick={load} disabled={loading}>
+              {loading ? 'Yükleniyor…' : 'Yenile'}
+            </button>
+          </div>
         </div>
-        <div className="st-head-actions">
+      )}
+      {embedded && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
           <button type="button" className="st-btn st-btn--ghost" onClick={load} disabled={loading}>
             {loading ? 'Yükleniyor…' : 'Yenile'}
           </button>
         </div>
-      </div>
+      )}
 
       {error && <div className="st-alert">{error}</div>}
       {notice && <div className="st-ok">{notice}</div>}

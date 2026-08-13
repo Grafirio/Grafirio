@@ -83,4 +83,95 @@
 
   --gf-wrap: 1180px;
   --gf-pad: 28px;
+
+  /* ---- Vurgu (eylem rengi) — varsayılan: marka lacivert -----------------
+     Aşağıdaki [data-accent] blokları bunu değiştirir; hiçbir data-accent
+     attribute'u set edilmezse (vitrin, projectadmin, Keycloak teması gibi)
+     panel bugünkü gibi lacivert kalır. --gf-navy'nin kendisi değişmez,
+     yalnızca hangi rengin "eylem rengi" olduğu değişir. */
+  --gf-accent: var(--gf-navy);
+  --gf-accent-hover: var(--gf-navy-hover);
+  --gf-accent-soft: #edf1f8;
+  --gf-accent-ink: var(--gf-navy-hover);
+  --gf-accent-on: #ffffff;
+
+  /* ---- Yoğunluk — varsayılan: dengeli ------------------------------------
+     [data-density] set edilmezse bu değerler geçerli olur; mevcut sayfa
+     kenar boşlukları (--gf-pad) bundan etkilenmiyor, yalnızca yeni
+     panel bileşenleri (kart iç boşluğu, satır yüksekliği, ızgara boşluğu)
+     bu değişkenleri okuyacak. */
+  --gf-space-page: 32px;
+  --gf-space-card: 22px;
+  --gf-space-row: 13px;
+  --gf-space-gap: 20px;
+}
+
+/* ==========================================================================
+   Karanlık mod ve yoğunluk — yalnızca [data-theme]/[data-density] attribute'u
+   set eden sayfada devreye girer (şu an yalnızca grifirio.useradmin). Vitrin,
+   projectadmin ve Keycloak teması bu attribute'ları hiç yazmadığı için
+   yukarıdaki :root değerlerini aynen kullanmaya devam eder — bu yüzden
+   değerler burada yeni isimler altında değil, mevcut --gf-* adlarının
+   üzerine yazılarak tanımlanıyor.
+   ========================================================================== */
+[data-theme="dark"] {
+  --gf-ink: #e9edf5;
+  --gf-label: #c4cbda;
+  --gf-muted: #9ba6b9;
+  --gf-faint: #78849b;
+  --gf-fainter: #5e6b83;
+
+  --gf-bg: #0d1421;
+  --gf-paper: #151d2d;
+  --gf-paper-warm: #1a2334;
+  --gf-chip: #202a3e;
+  --gf-line: #28324a;
+  --gf-line-soft: #222b40;
+
+  --gf-teal-tint: #12302f;
+  --gf-danger-bg: #33191c;
+  --gf-danger-line: #4a2529;
+
+  --gf-shadow-sm: 0 2px 10px -2px rgba(0, 0, 0, 0.5);
+  --gf-shadow: 0 20px 44px -26px rgba(0, 0, 0, 0.75);
+  --gf-shadow-lg: 0 30px 60px -30px rgba(0, 0, 0, 0.65);
+}
+
+[data-density="comfortable"] {
+  --gf-space-page: 40px;
+  --gf-space-card: 26px;
+  --gf-space-row: 15px;
+  --gf-space-gap: 24px;
+}
+[data-density="compact"] {
+  --gf-space-page: 24px;
+  --gf-space-card: 16px;
+  --gf-space-row: 9px;
+  --gf-space-gap: 14px;
+}
+
+/* ---- Marka rengi seçici ---------------------------------------------- */
+[data-accent="orange"] {
+  --gf-accent: #d9691f; --gf-accent-hover: #bf5713; --gf-accent-soft: #fdefe4; --gf-accent-ink: #8f3d0c; --gf-accent-on: #ffffff;
+}
+[data-accent="blue"] {
+  --gf-accent: var(--gf-navy); --gf-accent-hover: var(--gf-navy-hover); --gf-accent-soft: #edf1f8; --gf-accent-ink: var(--gf-navy-hover); --gf-accent-on: #ffffff;
+}
+[data-accent="teal"] {
+  --gf-accent: var(--gf-teal); --gf-accent-hover: #0b7371; --gf-accent-soft: var(--gf-teal-tint); --gf-accent-ink: var(--gf-teal-ink); --gf-accent-on: #ffffff;
+}
+[data-accent="violet"] {
+  --gf-accent: #6b3a97; --gf-accent-hover: #582f7d; --gf-accent-soft: #f1ecf7; --gf-accent-ink: #4b2769; --gf-accent-on: #ffffff;
+}
+[data-theme="dark"][data-accent="orange"] {
+  --gf-accent: #f0902b; --gf-accent-hover: #ffa646; --gf-accent-soft: #2e2013; --gf-accent-ink: #f8c630; --gf-accent-on: #17110a;
+}
+[data-theme="dark"][data-accent="blue"] {
+  --gf-accent: #6f9be0; --gf-accent-hover: #8db2ec; --gf-accent-soft: #18243b; --gf-accent-ink: #a8c4ee; --gf-accent-on: #0b1424;
+}
+[data-theme="dark"][data-accent="teal"] {
+  --gf-accent: #2fb5b2; --gf-accent-hover: #4ecac7; --gf-accent-soft: #12302f; --gf-accent-ink: #6fd3d0; --gf-accent-on: #06201f;
+}
+[data-theme="dark"][data-accent="violet"] {
+  --gf-accent: #a978d8; --gf-accent-hover: #bd93e6; --gf-accent-soft: #221a33; --gf-accent-ink: #cfaeed; --gf-accent-on: #14091f;
 }
