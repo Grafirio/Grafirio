@@ -9,11 +9,17 @@ import '../styles/DashboardPage.css';
 // GMark'taki petal sekliyle bire bir ayni (ic/dis yay + iki kisa kenar).
 // Her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
 // hash'ten turetiliyor (rastgele degil — ayni analiz her acilista ayni
-// gorunur). Veri grafiklerinin sabit paleti (--gf-c01..) yerine turuncu/
-// hardal sarisi agirlikli, bu ikona ozel bir palet kullaniyor; veriyle bir
-// ilgisi yok, yalnizca izgarada kartlari birbirinden ayirt ettiren bir
-// susleme.
-const PALETTE = ['#7a4f08', '#96650b', '#b8790e', '#c68a13', '#d99a1c', '#e6a52b', '#eab308', '#f0902b', '#f8c630'];
+// gorunur). Palet dort aile (mavi/yesil/sari/turuncu) ve her ailenin
+// tonlarindan olusuyor, cember boyunca sirayla dizilip yumusak bir renk
+// gecisi veriyor — tek renk ailesi (hardal) donemindeki gibi duz durmuyor.
+// Veri grafiklerinin sabit paleti (--gf-c01..) ile karismasin diye bu ikona
+// ozel; veriyle bir ilgisi yok.
+const PALETTE = [
+  '#1c3f7c', '#2f5fa8', '#3f74bc', // mavi
+  '#0e8f8c', '#2f9e6f', '#4a9d52', // yesil
+  '#d4a017', '#eab308', '#f8c630', // sari
+  '#f0902b', '#e4633c', '#c9701a', // turuncu
+];
 
 function hashSeed(str) {
   let h = 0;
@@ -38,13 +44,13 @@ function petalPath(cx, cy, angleDeg, halfWidthDeg, rInner, rOuter) {
 
 function spokesFor(seedStr) {
   const h = hashSeed(seedStr || 'x');
-  const n = 9;
+  const n = PALETTE.length;
   const step = 360 / n;
   return Array.from({ length: n }, (_, i) => {
-    const v = (h >> (i * 4)) % 12;
+    const v = (h >> (i * 3)) % 10;
     return {
-      d: petalPath(50, 50, i * step - 90, 15, 12, 32 + v),
-      c: PALETTE[i % PALETTE.length],
+      d: petalPath(50, 50, i * step - 90, 11, 12, 30 + v),
+      c: PALETTE[i],
     };
   });
 }
