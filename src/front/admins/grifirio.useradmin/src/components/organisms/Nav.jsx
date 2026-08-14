@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { fetchCompanies, roleName } from '../../services/companyService';
-import { bridgeInstallerUrl } from '../../services/dataAnalysisService';
+import { bridgeInstallerUrl, getSavedConnections, listAnalyses } from '../../services/dataAnalysisService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
 
@@ -16,13 +16,13 @@ import '../../styles/Nav.css';
 const insideDesktopApp = () => Boolean(window.__GRAFIRIO_DESKTOP__);
 
 // Onceden iki acilir menu vardi (Baglanti Ayarlari, Ayarlar). Yeni tasarim
-// bunlari ustte sekmeye ceviriyor: Ayarlar artik kendi kart-hub sayfasini
-// aciyor, alt basliklari secmek icin tikla-bekle-sec akisina gerek kalmiyor.
-// Uyelik ayri bir sekme: taslakta da ust seviyede, Ayarlar hub'inin icine
-// gomulunce "faturami nasil gorurum" sorusu iki tikla cevaplaniyordu.
+// bunlari sekmeye ceviriyor: Ayarlar artik kendi kart-hub sayfasini aciyor,
+// alt basliklari secmek icin tikla-bekle-sec akisina gerek kalmiyor. Uyelik
+// ayri bir sekme: Ayarlar hub'inin icine gomulunce "faturami nasil gorurum"
+// sorusu iki tikla cevaplaniyordu.
 const TABS = [
-  { to: '/dashboard', label: 'Dashboard', match: (p) => p === '/' || p === '/dashboard' },
-  { to: '/data', label: 'Veri kaynakları', match: (p) => p.startsWith('/data') },
+  { to: '/dashboard', label: 'Analizler', match: (p) => p === '/' || p === '/dashboard', countKey: 'analyses' },
+  { to: '/data', label: 'Veri kaynakları', match: (p) => p.startsWith('/data'), countKey: 'connections' },
   {
     to: '/settings',
     label: 'Ayarlar',
@@ -37,6 +37,8 @@ export default function Nav() {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const searchRef = useRef(null);
+  const [search, setSearch] = useState('');
 
   const initials = (user?.name || user?.email || '?')
     .split(/\s+/)
@@ -71,9 +73,57 @@ export default function Nav() {
     };
   }, [companyId, keycloak.token]);
 
+  // Sekme sayaçları (4/3 gibi): taslakta sabit yaziyordu, biz gercek
+  // baglanti/analiz sayisini okuyoruz. Nav sayfalar arasinda hep monte
+  // kaliyor, bu yuzden tek seferlik yukleme yeterli — sayac birkac saniye
+  // eskiyebilir ama uydurma bir sayi degil.
+  const [counts, setCounts] = useState({ connections: null, analyses: null });
+  useEffect(() => {
+    let cancelled = false;
+    getSavedConnections()
+      .then((result) => {
+        if (cancelled) return;
+        const list = result?.connections ?? result?.data ?? [];
+        setCounts((c) => ({ ...c, connections: list.length }));
+      })
+      .catch(() => {});
+    listAnalyses()
+      .then((result) => {
+        if (cancelled) return;
+        const ready = (result?.analyses ?? []).filter((a) => a.status === 'ready').length;
+        setCounts((c) => ({ ...c, analyses: ready }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ⌘K / Ctrl+K: arama kutusuna odaklan. Gercek bir komut paleti degil —
+  // yalniz odak kisayolu, aramanin kendisi asagida gercekten calisiyor.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Arama gercek: yazip Enter'a basinca Dashboard'a gidiyor ve orada
+  // baglanti/analiz adlarina gore filtreliyor (bkz. DashboardPage.jsx
+  // ?q= okuma). Dekoratif bir kutu degil.
+  const submitSearch = (e) => {
+    e.preventDefault();
+    const q = search.trim();
+    navigate(q ? `/dashboard?q=${encodeURIComponent(q)}` : '/dashboard');
+  };
+
   return (
     <header className="nv">
-      <div className="nv-inner">
+      <div className="nv-top">
         <NavLink to="/dashboard" className="nv-brand">
           <GMark size={28} />
           <span>GRAFIRIO</span>
@@ -91,36 +141,22 @@ export default function Nav() {
           </button>
         )}
 
-        <nav className="nv-tabs">
-          {TABS.map((t) => {
-            const active = t.match(location.pathname);
-            return (
-              <button
-                key={t.to}
-                type="button"
-                className={`nv-tab ${active ? 'is-active' : ''}`}
-                onClick={() => navigate(t.to)}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </nav>
+        <form className="nv-search" onSubmit={submitSearch} role="search">
+          <span className="nv-search-icon" aria-hidden="true" />
+          <input
+            ref={searchRef}
+            type="search"
+            placeholder="Ara veya soru sor"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <kbd>⌘K</kbd>
+        </form>
 
         <div className="nv-right">
-          {!insideDesktopApp() && (
-            <a
-              href={bridgeInstallerUrl}
-              className="nv-desktop"
-              title="Veritabanınıza kendi ağınızdan bağlanan masaüstü uygulaması"
-            >
-              Masaüstü uygulamayı indir
-            </a>
-          )}
-
           <button
             type="button"
-            className="nv-theme-toggle"
+            className="nv-icon-btn"
             onClick={toggleTheme}
             title="Açık / karanlık"
             aria-label="Temayı değiştir"
@@ -130,7 +166,7 @@ export default function Nav() {
 
           <button
             type="button"
-            className="nv-theme-toggle"
+            className="nv-icon-btn"
             onClick={() => navigate('/settings/notifications')}
             title="Bildirimler"
             aria-label="Bildirimler"
@@ -149,6 +185,36 @@ export default function Nav() {
             Çıkış
           </button>
         </div>
+      </div>
+
+      <div className="nv-tabbar">
+        <nav className="nv-tabs">
+          {TABS.map((t) => {
+            const active = t.match(location.pathname);
+            const count = t.countKey ? counts[t.countKey] : null;
+            return (
+              <button
+                key={t.to}
+                type="button"
+                className={`nv-tab ${active ? 'is-active' : ''}`}
+                onClick={() => navigate(t.to)}
+              >
+                {t.label}
+                {count != null && <span className="nv-tab-count">{count}</span>}
+              </button>
+            );
+          })}
+        </nav>
+
+        {!insideDesktopApp() && (
+          <a
+            href={bridgeInstallerUrl}
+            className="nv-desktop"
+            title="Veritabanınıza kendi ağınızdan bağlanan masaüstü uygulaması"
+          >
+            Masaüstü uygulaması ↓
+          </a>
+        )}
       </div>
     </header>
   );
