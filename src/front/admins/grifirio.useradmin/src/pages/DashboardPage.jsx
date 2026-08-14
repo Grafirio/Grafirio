@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
 import '../styles/Shell.css';
@@ -74,6 +74,8 @@ function spokesFor(seedStr) {
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { keycloak } = useKeycloak();
+  const [params] = useSearchParams();
+  const q = (params.get('q') || '').trim().toLowerCase();
 
   const [connections, setConnections] = useState([]);
   const [loadingConns, setLoadingConns] = useState(true);
@@ -121,6 +123,18 @@ const DashboardPage = () => {
   }, [loadConnections, loadAnalyses]);
 
   const firstName = (keycloak.tokenParsed?.name || keycloak.tokenParsed?.preferred_username || '').split(/\s+/)[0];
+
+  // Nav'daki arama kutusu buraya ?q= ile dusuyor; gercek bir arama servisi
+  // yok, zaten cekilmis iki listeyi (baglanti/analiz) isimlerine gore
+  // tarayicida suzuyoruz.
+  const visibleAnalyses = useMemo(
+    () => (q ? completedAnalyses.filter((a) => (a.database || '').toLowerCase().includes(q)) : completedAnalyses),
+    [completedAnalyses, q]
+  );
+  const visibleConnections = useMemo(
+    () => (q ? connections.filter((c) => (c.name || '').toLowerCase().includes(q)) : connections),
+    [connections, q]
+  );
 
   const fmtDate = (str) =>
     str
@@ -198,7 +212,7 @@ const DashboardPage = () => {
       <section>
         <div className="db-section-head">
           <h2>Analizlerim</h2>
-          <span className="db-hint">çift tık → aç</span>
+          <span className="db-hint">{q ? `“${q}” için ${visibleAnalyses.length} sonuç` : 'çift tık → aç'}</span>
           {completedAnalyses.length > 0 && (
             <button className="db-link" style={{ marginLeft: 'auto' }} onClick={() => navigate('/data?tab=connections')}>
               Tümü →
@@ -207,7 +221,7 @@ const DashboardPage = () => {
         </div>
 
         <div className="db-canvas-grid">
-          {completedAnalyses.map((a) => (
+          {visibleAnalyses.map((a) => (
             <div
               key={a.connectionId}
               className="db-canvas-tile"
@@ -250,6 +264,9 @@ const DashboardPage = () => {
             Henüz analiz yok. Veri kaynakları sayfasından bir bağlantı seçip “Analiz Et”e tıklayın.
           </p>
         )}
+        {completedAnalyses.length > 0 && visibleAnalyses.length === 0 && (
+          <p className="db-empty">“{q}” ile eşleşen analiz yok.</p>
+        )}
       </section>
 
       <section className="db-card">
@@ -270,9 +287,13 @@ const DashboardPage = () => {
           </p>
         )}
 
-        {!loadingConns && connections.length > 0 && (
+        {!loadingConns && connections.length > 0 && visibleConnections.length === 0 && (
+          <p className="db-empty">“{q}” ile eşleşen veri kaynağı yok.</p>
+        )}
+
+        {!loadingConns && visibleConnections.length > 0 && (
           <div className="db-source-list">
-            {connections.map((c) => (
+            {visibleConnections.map((c) => (
               <div key={c.id} className="db-source-row">
                 <span className="db-source-icon" />
                 <span className="db-source-text">
