@@ -4,13 +4,22 @@ import { useKeycloak } from '@react-keycloak/web';
 import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
 import '../styles/DashboardPage.css';
 
-// Kapak isareti: marka isaretindeki gibi merkezden disa acilan dilimler, ama
-// her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
+// Kapak isareti: marka isaretindeki gibi merkezden disa acilan, iki kavisle
+// sinirlanmis yuvarlak dilimler (duz cubuklar degil) — ayni cizim teknigi
+// GMark'taki petal sekliyle bire bir ayni (ic/dis yay + iki kisa kenar).
+// Her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
 // hash'ten turetiliyor (rastgele degil — ayni analiz her acilista ayni
-// gorunur). Sabit grafik paletini (--gf-c01.. ) sirayla tuketir; veriyle
-// bir ilgisi yok, yalnizca izgarada kartlari birbirinden ayirt ettiren bir
-// susleme.
-const PALETTE = ['--gf-c01', '--gf-c02', '--gf-c03', '--gf-c04', '--gf-c05', '--gf-c06', '--gf-c07', '--gf-c08', '--gf-c09'];
+// gorunur). Palet dort aile (mavi/yesil/sari/turuncu) ve her ailenin
+// tonlarindan olusuyor, cember boyunca sirayla dizilip yumusak bir renk
+// gecisi veriyor — tek renk ailesi (hardal) donemindeki gibi duz durmuyor.
+// Veri grafiklerinin sabit paleti (--gf-c01..) ile karismasin diye bu ikona
+// ozel; veriyle bir ilgisi yok.
+const PALETTE = [
+  '#1c3f7c', '#2f5fa8', '#3f74bc', // mavi
+  '#0e8f8c', '#2f9e6f', '#4a9d52', // yesil
+  '#d4a017', '#eab308', '#f8c630', // sari
+  '#f0902b', '#e4633c', '#c9701a', // turuncu
+];
 
 function hashSeed(str) {
   let h = 0;
@@ -18,20 +27,30 @@ function hashSeed(str) {
   return h;
 }
 
-function spokesFor(seedStr, tableCount) {
+function polar(cx, cy, r, angleDeg) {
+  const a = (angleDeg * Math.PI) / 180;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+
+// Ic ve dis yay + iki kisa kenardan olusan petal — GMark.jsx'teki
+// "A r r 0 0 1 ... L ... A r2 r2 0 0 0 ... Z" kalibinin aynisi.
+function petalPath(cx, cy, angleDeg, halfWidthDeg, rInner, rOuter) {
+  const [x1, y1] = polar(cx, cy, rOuter, angleDeg - halfWidthDeg);
+  const [x2, y2] = polar(cx, cy, rOuter, angleDeg + halfWidthDeg);
+  const [x3, y3] = polar(cx, cy, rInner, angleDeg + halfWidthDeg);
+  const [x4, y4] = polar(cx, cy, rInner, angleDeg - halfWidthDeg);
+  return `M${x1.toFixed(2)},${y1.toFixed(2)} A${rOuter},${rOuter} 0 0 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${x3.toFixed(2)},${y3.toFixed(2)} A${rInner},${rInner} 0 0 0 ${x4.toFixed(2)},${y4.toFixed(2)} Z`;
+}
+
+function spokesFor(seedStr) {
   const h = hashSeed(seedStr || 'x');
-  const n = Math.min(9, Math.max(5, tableCount || 6));
+  const n = PALETTE.length;
   const step = 360 / n;
   return Array.from({ length: n }, (_, i) => {
-    const len = 8 + ((h >> (i * 3)) % 12);
-    const inner = 8 + (len % 3) * 3;
-    const reach = 22 + (len - 11) * 1.1;
+    const v = (h >> (i * 3)) % 10;
     return {
-      a: `${(i * step - 90).toFixed(1)}deg`,
-      x: `${(50 + inner).toFixed(1)}%`,
-      l: `${Math.max(8, reach - inner).toFixed(1)}%`,
-      t: `${(4.2 + (len % 4) * 0.9).toFixed(1)}%`,
-      c: `var(${PALETTE[i % PALETTE.length]})`,
+      d: petalPath(50, 50, i * step - 90, 11, 12, 30 + v),
+      c: PALETTE[i],
     };
   });
 }
@@ -195,12 +214,12 @@ const DashboardPage = () => {
               title="Kanvası açmak için çift tıklayın"
             >
               <div className="db-canvas-cover">
-                {spokesFor(a.connectionId || a.database, a.tableCount).map((s, i) => (
-                  <span key={i} className="db-spoke" style={{ transform: `rotate(${s.a})` }}>
-                    <span style={{ left: s.x, width: s.l, height: s.t, background: s.c }} />
-                  </span>
-                ))}
-                <span className="db-canvas-center" />
+                <svg className="db-canvas-svg" viewBox="0 0 100 100" aria-hidden="true">
+                  {spokesFor(a.connectionId || a.database).map((s, i) => (
+                    <path key={i} d={s.d} fill={s.c} />
+                  ))}
+                  <circle cx="50" cy="50" r="7" fill="var(--gf-paper)" stroke="var(--gf-ink)" strokeWidth="2.4" />
+                </svg>
               </div>
               <div className="db-canvas-info">
                 <div className="db-canvas-info-top">
