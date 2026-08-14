@@ -1020,6 +1020,167 @@
 }
 
 /* --------------------------------------------------------------------------
+   Kilitli alan, ipucu ve tekrarlanan kayit bloklari
+   -------------------------------------------------------------------------- */
+
+/* Sirket kaydi olusturulurken belirlenen alanlar. Yalnizca devre disi
+   birakmak, alanin neden duzenlenemedigini soylemiyor; rozet o bosluğu
+   dolduruyor. */
+.st-lock {
+  margin-left: 7px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--gf-chip);
+  font-family: var(--gf-font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gf-faint);
+  vertical-align: middle;
+}
+
+.st-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gf-faint);
+}
+
+/* Adres ve banka hesabi gibi tekrarlanan kayitlar. Kartin icinde ayri bir
+   kutu degil, ince bir ayirici: ic ice kart gorunumu derinligi artirip
+   okunakliligi dusuruyordu. */
+.st-repeat {
+  padding: 16px 0;
+  border-top: 1px solid var(--gf-line-soft);
+}
+
+.st-repeat:first-of-type {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.st-repeat-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.st-repeat-head > strong {
+  font-family: var(--gf-font-head);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.st-repeat-head select {
+  padding: 8px 12px;
+  border: 1px solid var(--gf-line);
+  border-radius: 9px;
+  background: var(--gf-paper-warm);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--gf-ink);
+}
+
+.st-repeat-head .st-link {
+  margin-left: auto;
+}
+
+.st-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gf-muted);
+  cursor: pointer;
+}
+
+.st-check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gf-accent);
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Belge kartlari ve onizleme
+   -------------------------------------------------------------------------- */
+
+.st-doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.st-doc-card {
+  display: flex;
+  gap: 13px;
+  padding: 13px;
+  border: 1px solid var(--gf-line);
+  border-radius: 13px;
+  background: var(--gf-paper-warm);
+}
+
+/* Ikondan biraz buyuk, belgeyi taniyacak kadar: ~96px. Sabit olcu, cunku
+   degisken yukseklik izgarayi tirtiklastiriyordu. */
+.st-doc-thumb {
+  width: 72px;
+  height: 96px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--gf-line);
+  background: var(--gf-paper);
+  object-fit: cover;
+  object-position: top center;
+}
+
+.st-doc-thumb--empty {
+  display: grid;
+  place-items: center;
+  font-family: var(--gf-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gf-fainter);
+}
+
+.st-doc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.st-doc-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st-doc-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gf-muted);
+  overflow-wrap: anywhere;
+}
+
+.st-doc-body .st-badge {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.st-doc-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+/* --------------------------------------------------------------------------
    Dar ekran
    -------------------------------------------------------------------------- */
 

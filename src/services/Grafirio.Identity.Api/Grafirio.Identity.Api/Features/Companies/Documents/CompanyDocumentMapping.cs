@@ -7,6 +7,8 @@ public class CompanyDocumentMapping : Profile
 {
     public CompanyDocumentMapping()
     {
-        CreateMap<CompanyDocument, CompanyDocumentDto>();
+        CreateMap<CompanyDocument, CompanyDocumentDto>()
+            .ForMember(d => d.HasThumbnail,
+                o => o.MapFrom(s => !string.IsNullOrEmpty(s.ThumbnailFileName)));
     }
 }

@@ -5,7 +5,11 @@ import '../styles/SettingsPages.css';
 // ne ise yaradiklariyla birlikte — kart basligina degil aciklamaya bakip da
 // dogru sayfayi bulmak zorunda kalinmasin diye.
 const CARDS = [
-  { to: '/settings/company', glyph: 'Ş', title: 'Şirket Ayarları', desc: 'Kurum kimliği, bölgesel biçimler ve alt şirket hiyerarşisi.' },
+  { to: '/settings/company', glyph: 'Ş', title: 'Şirket Ayarları', desc: 'Yasal kimlik, vergi ve sicil bilgileri, adresler ve banka hesapları.' },
+  // Belgeler Şirket Ayarları'nın bir sekmesi ama hub'dan doğrudan
+  // açılabiliyor: evrak aramak için önce şirket ayarlarına girip sekme
+  // bulmak gereksiz bir adım.
+  { to: '/settings/company?tab=documents', glyph: 'E', title: 'Belgeler', desc: 'Vergi levhası, imza sirküleri ve sicil evrakı — önizlemeli.' },
   { to: '/settings/users', glyph: 'K', title: 'Kullanıcılar', desc: 'Kim var, hangi rolde, o rol neye izin veriyor.' },
   { to: '/settings/department', glyph: 'D', title: 'Departmanlar', desc: 'Kullanıcının hangi analizleri göreceğini belirler.' },
   { to: '/settings/theme', glyph: 'G', title: 'Görünüm ve Tema', desc: 'Açık/karanlık mod, marka rengi ve yoğunluk.' },

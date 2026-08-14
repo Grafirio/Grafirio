@@ -15,9 +15,22 @@ namespace Grafirio.Identity.Api.Features.Companies.Onboard;
 /// biri için çalışmaz, dolayısıyla var olan firmaların yanına yeni firma açmanın
 /// yolu değil.
 /// </summary>
+/// <param name="CountryCode">
+/// ISO 3166-1 alpha-2. Burada soruluyor çünkü hangi vergi ve sicil alanlarının
+/// isteneceğini bu belirliyor ve alan bir kez dolduktan sonra kilitleniyor;
+/// kayıt sırasında alınmazsa kullanıcı sonradan kilitli bir alanı doldurmak
+/// zorunda kalırdı.
+/// </param>
+/// <param name="TeamSize">
+/// Önceden <see cref="Description"/> içine "Ekip büyüklüğü: 6–20" diye
+/// yazılıyordu; şirket açıklaması alanında kullanıcının karşısına o çıkıyordu.
+/// </param>
 public record OnboardCompanyCommand(
     string Name,
+    string? LegalName,
     string? Code,
+    string? CountryCode,
+    string? TeamSize,
     string? Description
 ) : IRequestByServiceResult<OnboardCompanyResponse>;
 

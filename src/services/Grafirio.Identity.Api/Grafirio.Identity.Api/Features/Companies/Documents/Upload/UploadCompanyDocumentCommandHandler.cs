@@ -11,10 +11,15 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Upload;
 public class UploadCompanyDocumentCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
-    CompanyDocumentFileStorage storage,
+    ICompanyDocumentStore store,
+    CompanyDocumentThumbnailer thumbnailer,
     IMapper mapper)
     : IRequestHandler<UploadCompanyDocumentCommand, ServiceResult<CompanyDocumentDto>>
 {
+    /// Belge saklama alanı; bir şirketin tüm evrakı buna sığmalı ama tek bir
+    /// dosya diski doldurabilecek boyutta olmamalı.
+    private const long MaxFileSizeBytes = 25 * 1024 * 1024;
+
     public async Task<ServiceResult<CompanyDocumentDto>> Handle(UploadCompanyDocumentCommand request,
         CancellationToken cancellationToken)
     {
@@ -32,22 +37,53 @@ public class UploadCompanyDocumentCommandHandler(
 
         if (request.File.Length == 0)
         {
-            return ServiceResult<CompanyDocumentDto>.Error("File is empty", HttpStatusCode.BadRequest);
+            return ServiceResult<CompanyDocumentDto>.Error("File is empty",
+                "Dosya boş.", HttpStatusCode.BadRequest);
         }
 
-        var storedFileName = await storage.SaveAsync(request.CompanyId, request.File, cancellationToken);
+        if (request.File.Length > MaxFileSizeBytes)
+        {
+            return ServiceResult<CompanyDocumentDto>.Error("File is too large",
+                $"Dosya {MaxFileSizeBytes / 1024 / 1024} MB sınırını aşıyor.", HttpStatusCode.BadRequest);
+        }
+
+        // Dosya belleğe bir kez alınıyor: hem saklamak hem önizleme üretmek
+        // aynı içeriği okuyor, IFormFile akışını iki kez baştan sarmak yerine.
+        using var buffer = new MemoryStream();
+        await request.File.CopyToAsync(buffer, cancellationToken);
+        var content = buffer.ToArray();
+
+        var extension = Path.GetExtension(request.File.FileName);
+        var storedFileName = $"{Guid.NewGuid()}{extension}";
+
+        await store.SaveAsync(request.CompanyId, storedFileName,
+            new MemoryStream(content), cancellationToken);
+
+        // Önizleme üretilemezse belge yine kaydediliyor; kart tipli bir rozetle
+        // görünür, kullanıcı yüklemesini kaybetmez.
+        string? thumbnailFileName = null;
+        var thumbnail = thumbnailer.TryCreate(content, request.File.ContentType, request.File.FileName);
+        if (thumbnail is not null)
+        {
+            thumbnailFileName = $"{Path.GetFileNameWithoutExtension(storedFileName)}-thumb.jpg";
+            await store.SaveAsync(request.CompanyId, thumbnailFileName,
+                new MemoryStream(thumbnail), cancellationToken);
+        }
 
         var document = new CompanyDocument
         {
             Id = NewId.NextSequentialGuid(),
             CompanyId = request.CompanyId,
-            DocumentType = request.DocumentType,
+            DocumentType = string.IsNullOrWhiteSpace(request.DocumentType)
+                ? CompanyDocumentTypes.Other
+                : request.DocumentType,
             OriginalFileName = request.File.FileName,
             StoredFileName = storedFileName,
+            ThumbnailFileName = thumbnailFileName,
             ContentType = request.File.ContentType,
             FileSizeBytes = request.File.Length,
             ExpiryDate = request.ExpiryDate,
-            Note = request.Note,
+            Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
             UploadedAt = DateTime.UtcNow,
             UploadedBy = identityService.UserName
         };

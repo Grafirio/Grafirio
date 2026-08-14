@@ -76,6 +76,22 @@ export const createSubCompany = async (token, { name, code, description, parentC
   return unwrap(data);
 };
 
+/**
+ * Cagiranin kendi sirketi.
+ *
+ * Sayfa bunu once token'daki company_id ile bulup /companies listesinden
+ * esletiyordu; o liste de accessible_companies claim'iyle suzuldugu icin iki
+ * ayri Keycloak ozniteliginin de dogru yazilmis olmasi gerekiyordu ve biri
+ * eksik oldugunda kullanici kayit sirasinda kendi kurdugu sirketi bile
+ * goremiyordu. Bu uc kaynagi Mongo'daki uyelik kaydi.
+ *
+ * { company, role, canEditIdentity } doner.
+ */
+export const fetchCurrentCompany = async (token) => {
+  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies/current`, auth(token));
+  return unwrap(data);
+};
+
 /** Sirket kimlik/yasal/adres/banka alanlarini kaydeder (PUT). */
 export const updateCompany = async (token, companyId, payload) => {
   const { data } = await axios.put(
@@ -86,12 +102,22 @@ export const updateCompany = async (token, companyId, payload) => {
   return unwrap(data);
 };
 
+/**
+ * Belge turleri ulkeden bagimsiz adlandirildi; asagidaki adlar Turkiye'deki
+ * karsiliklari. "Vergi levhasi" yalnizca burada o adla var ama karsiligi olan
+ * mukellefiyet belgesi her yerde var.
+ */
 export const COMPANY_DOCUMENT_TYPES = [
-  { code: 'VERGI_LEVHASI', name: 'Vergi levhası' },
-  { code: 'IMZA_SIRKULERI', name: 'İmza sirküleri' },
-  { code: 'TICARET_SICIL_GAZETESI', name: 'Ticaret sicil gazetesi' },
-  { code: 'FAALIYET_BELGESI', name: 'Faaliyet belgesi' },
-  { code: 'DIGER', name: 'Diğer' },
+  { code: 'TAX_CERTIFICATE', name: 'Vergi levhası / mükellefiyet belgesi' },
+  { code: 'INCORPORATION_CERTIFICATE', name: 'Kuruluş belgesi' },
+  { code: 'REGISTRY_EXTRACT', name: 'Sicil kaydı / faaliyet belgesi' },
+  { code: 'ARTICLES_OF_ASSOCIATION', name: 'Ana sözleşme' },
+  { code: 'SIGNATURE_AUTHORIZATION', name: 'İmza sirküleri' },
+  { code: 'VAT_CERTIFICATE', name: 'KDV kayıt belgesi' },
+  { code: 'BANK_LETTER', name: 'Banka hesap teyidi' },
+  { code: 'INSURANCE', name: 'Sigorta poliçesi' },
+  { code: 'LICENSE', name: 'Lisans / ruhsat' },
+  { code: 'OTHER', name: 'Diğer' },
 ];
 
 export const documentTypeName = (code) =>
@@ -125,6 +151,22 @@ export const deleteCompanyDocument = async (token, companyId, documentId) => {
     `${GATEWAY}/v1/identity/companies/${companyId}/documents/${documentId}`,
     auth(token)
   );
+};
+
+/**
+ * Belgenin kucuk onizlemesi.
+ *
+ * Dogrudan <img src> kullanilamiyor: uc kimlik dogrulama istiyor ve tarayici
+ * img isteklerine Authorization basligi eklemiyor. Blob olarak cekilip nesne
+ * URL'ine cevriliyor — cagiran taraf isi bitince revokeObjectURL ile birakmali,
+ * yoksa her listeleme bellekte birikir.
+ */
+export const fetchCompanyDocumentThumbnail = async (token, companyId, documentId) => {
+  const response = await axios.get(
+    `${GATEWAY}/v1/identity/companies/${companyId}/documents/${documentId}/thumbnail`,
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 20000, responseType: 'blob' }
+  );
+  return window.URL.createObjectURL(response.data);
 };
 
 /** Belgeyi indirir ve tarayicida kaydetme diyalogunu tetikler. */

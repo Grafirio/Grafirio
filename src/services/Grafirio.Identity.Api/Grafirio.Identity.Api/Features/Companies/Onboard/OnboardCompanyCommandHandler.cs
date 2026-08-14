@@ -60,8 +60,13 @@ public class OnboardCompanyCommandHandler(
         {
             Id = NewId.NextSequentialGuid(),
             Name = request.Name.Trim(),
-            Code = string.IsNullOrWhiteSpace(request.Code) ? null : request.Code.Trim(),
-            Description = request.Description,
+            // Yasal ad verilmediyse görünen ad yazılıyor. Boş bırakmak, kilitli
+            // bir alanı sonradan doldurma işini kullanıcıya devretmek olurdu.
+            LegalName = Clean(request.LegalName) ?? request.Name.Trim(),
+            Code = Clean(request.Code),
+            CountryCode = Clean(request.CountryCode)?.ToUpperInvariant(),
+            TeamSize = Clean(request.TeamSize),
+            Description = Clean(request.Description),
             ParentCompanyId = null,
             Level = 0,
             IsActive = true,
@@ -112,4 +117,7 @@ public class OnboardCompanyCommandHandler(
             new OnboardCompanyResponse(company.Id, CompanyRoles.COMPANY_ADMIN),
             $"/api/v1/companies/{company.Id}");
     }
+
+    private static string? Clean(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Delete;
 public class DeleteCompanyDocumentCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
-    CompanyDocumentFileStorage storage)
+    ICompanyDocumentStore store)
     : IRequestHandler<DeleteCompanyDocumentCommand, ServiceResult<bool>>
 {
     public async Task<ServiceResult<bool>> Handle(DeleteCompanyDocumentCommand request,
@@ -32,7 +32,14 @@ public class DeleteCompanyDocumentCommandHandler(
         context.CompanyDocuments.Remove(document);
         await context.SaveChangesAsync(cancellationToken);
 
-        storage.Delete(request.CompanyId, document.StoredFileName);
+        // Kayıt gittikten sonra dosyalar siliniyor; ters sırada yapılıp ikinci
+        // adım düşerse geriye içeriği olmayan bir kayıt kalırdı.
+        await store.DeleteAsync(request.CompanyId, document.StoredFileName, cancellationToken);
+
+        if (!string.IsNullOrEmpty(document.ThumbnailFileName))
+        {
+            await store.DeleteAsync(request.CompanyId, document.ThumbnailFileName, cancellationToken);
+        }
 
         return ServiceResult<bool>.SuccessAsOk(true);
     }

@@ -53,25 +53,38 @@ export default function Nav() {
   const businessRoles = keycloak.tokenParsed?.business_roles;
   const role = Array.isArray(businessRoles) ? businessRoles[0] : businessRoles;
 
-  // Sirket rozeti: taslakta "Enco Endustri A.S." sabit yaziyordu, biz
-  // gercek sirket adini okuyoruz — yoksa rozet hic gorunmez, uydurma isim
+  // Sirket rozeti: taslakta "Enco Endustri A.S." sabit yaziyordu, biz gercek
+  // sirket adini okuyoruz — bulunamazsa rozet hic gorunmez, uydurma isim
   // konmaz.
+  //
+  // Onceden bu blok "company_id claim'i yoksa hic isteme" diye basliyordu ve
+  // rozet bos kaliyordu: keycloak.tokenParsed React state DEGIL, dolayisiyla
+  // token sonradan yenilenip claim gelse bile Nav yeniden render olmuyor ve
+  // effect bir daha calismiyordu. Artik claim'den bagimsiz olarak listeyi
+  // cekiyoruz; eslesme claim varsa onunla, yoksa (kullanicinin tek firmasi
+  // varsa) tek kayitla kuruluyor.
   const companyId = keycloak.tokenParsed?.company_id;
   const [companyName, setCompanyName] = useState('');
   useEffect(() => {
-    if (!companyId) return undefined;
     let cancelled = false;
     fetchCompanies(keycloak.token)
       .then((list) => {
         if (cancelled) return;
-        const company = list.find((c) => c.id === companyId);
+        const company =
+          (companyId && list.find((c) => c.id === companyId)) ||
+          (list.length === 1 ? list[0] : null);
         if (company?.name) setCompanyName(company.name);
       })
-      .catch(() => {});
+      .catch((err) => {
+        // Sessizce yutma: rozetin neden bos oldugu gorunur olsun.
+        console.warn('Şirket adı okunamadı, rozet gizlenecek:', err?.message ?? err);
+      });
     return () => {
       cancelled = true;
     };
-  }, [companyId, keycloak.token]);
+    // location: rota degisiminde tekrar denenir — ilk yuklemede token henuz
+    // hazir degilse rozet sonraki gezinmede kendini toparlar.
+  }, [companyId, keycloak.token, location.pathname]);
 
   // Sekme sayaçları (4/3 gibi): taslakta sabit yaziyordu, biz gercek
   // baglanti/analiz sayisini okuyoruz. Nav sayfalar arasinda hep monte
@@ -141,19 +154,21 @@ export default function Nav() {
           </button>
         )}
 
-        <form className="nv-search" onSubmit={submitSearch} role="search">
-          <span className="nv-search-icon" aria-hidden="true" />
-          <input
-            ref={searchRef}
-            type="search"
-            placeholder="Ara veya soru sor"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <kbd>⌘K</kbd>
-        </form>
-
         <div className="nv-right">
+          {/* Arama, taslakta da sag grupta — tema/bildirim/hesap ile ayni
+              hizada duruyor, solda tek basina degil. */}
+          <form className="nv-search" onSubmit={submitSearch} role="search">
+            <span className="nv-search-icon" aria-hidden="true" />
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder="Ara veya soru sor"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <kbd>⌘K</kbd>
+          </form>
+
           <button
             type="button"
             className="nv-icon-btn"

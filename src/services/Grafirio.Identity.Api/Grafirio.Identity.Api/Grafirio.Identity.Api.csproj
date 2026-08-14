@@ -12,6 +12,12 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.1" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.0" />
     <PackageReference Include="MongoDB.EntityFrameworkCore" Version="8.2.1" />
+    <!-- Belge önizlemesi. PDFtoImage PDF'in ilk sayfasını raster'lıyor,
+         beraberinde gelen SkiaSharp küçültmeyi yapıyor; ikinci bir görüntü
+         kütüphanesi gerekmiyor. NativeAssets paketi olmadan Linux container'da
+         SkiaSharp yüklenemiyor. -->
+    <PackageReference Include="PDFtoImage" Version="4.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
   </ItemGroup>
 
