@@ -16,7 +16,7 @@
    ========================================================================== */
 
 .st {
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
   padding: var(--layout-page-pad) var(--layout-page-pad) 80px;
   display: flex;
@@ -769,10 +769,19 @@
 /* --------------------------------------------------------------------------
    Ayarlar hub — kart izgarasi.
    -------------------------------------------------------------------------- */
+/* auto-fill+minmax dar bir kapta sessizce tek sutuna dusebiliyordu (.st-grid-*
+   ile ayni sorun) — sabit 3 sutuna cevrildi, dar ekranda medya sorgusuyla
+   2/1'e dusuyor. */
 .st-hub-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--layout-gap);
+}
+@media (max-width: 1180px) {
+  .st-hub-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .st-hub-grid { grid-template-columns: 1fr; }
 }
 
 .st-hub-card {
