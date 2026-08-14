@@ -15,7 +15,7 @@
 }
 
 .nv-inner {
-  max-width: 1280px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 12px 28px;
   display: flex;
@@ -37,6 +37,42 @@
   font-size: 18px;
   letter-spacing: 0.045em;
   color: var(--gf-ink);
+}
+
+.nv-company {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 6px 10px 6px 7px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--gf-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nv-company:hover {
+  background: var(--gf-paper-warm);
+  border-color: var(--gf-line);
+}
+
+.nv-company-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--gf-accent);
+  color: var(--gf-accent-on);
+  display: grid;
+  place-items: center;
+  font-family: var(--gf-font-head);
+  font-weight: 700;
+  font-size: 10.5px;
+  flex: none;
 }
 
 .nv-tabs {

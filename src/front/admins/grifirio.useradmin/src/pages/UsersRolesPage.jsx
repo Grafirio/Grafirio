@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import UsersPage from './settings/UsersPage';
 import RolesPage from './settings/RolesPage';
 import '../styles/SettingsPages.css';
@@ -15,6 +15,7 @@ const TABS = [
 ];
 
 export default function UsersRolesPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const tab = TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'users';
 
@@ -22,12 +23,26 @@ export default function UsersRolesPage() {
     <div className="st">
       <div className="st-head">
         <div>
-          <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
+          <button type="button" className="st-back" onClick={() => navigate('/settings')}>
+            ← Ayarlar
+          </button>
           <h1>Kullanıcılar</h1>
           <p className="st-lead">
             Şirketinizdeki kullanıcılar, rolleri ve rollerin neye izin verdiği tek yerde.
           </p>
         </div>
+        {tab === 'users' && (
+          <div className="st-head-actions">
+            <button
+              type="button"
+              className="st-btn"
+              disabled
+              title="Davet gönderme ucu henüz yok — kullanıcılar kendileri kaydolup burada role atanıyor"
+            >
+              Kullanıcı davet et
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="st-tabs" role="tablist">

@@ -78,7 +78,7 @@ export default function RolesPage({ embedded = false } = {}) {
   const countFor = (code) => users.filter((u) => u.role === code).length;
 
   return (
-    <div className={embedded ? undefined : 'st'}>
+    <div className={embedded ? 'st-embed' : 'st'}>
       {!embedded && (
         <div className="st-head">
           <div>
@@ -119,45 +119,68 @@ export default function RolesPage({ embedded = false } = {}) {
           <div>
             <h2>İzin matrisi</h2>
             <p className="st-card-sub">
-              Sunucunun şu an uyguladığı kurallar. Roller sabittir; yeni rol tanımlamak Identity
-              tarafında değişiklik gerektirir.
+              Sunucunun şu an uyguladığı kurallar — açık/kapalı görünümü mockup'takiyle aynı, ama
+              anahtarlar tıklanamaz: rol başına izin güncelleyen bir Identity ucu yok. Yeni rol
+              tanımlamak da Identity tarafında değişiklik gerektirir.
             </p>
           </div>
         </div>
 
         <div className="st-table-wrap">
-          <table className="st-table st-matrix">
+          <table className="st-table">
             <thead>
               <tr>
                 <th>İzin</th>
-                <th>Yönetici</th>
-                <th>Müdür</th>
-                <th>Kullanıcı</th>
+                <th style={{ textAlign: 'center' }}>Yönetici</th>
+                <th style={{ textAlign: 'center' }}>Müdür</th>
+                <th style={{ textAlign: 'center' }}>Kullanıcı</th>
               </tr>
             </thead>
             <tbody>
               {PERMISSIONS.map((p) => (
                 <tr key={p.name}>
-                  <td>
+                  <td className="st-strong">
                     {p.name}
                     {p.note && (
-                      <span className="st-mono st-dim" style={{ display: 'block', fontSize: 11.5 }}>
+                      <span className="st-mono st-dim" style={{ display: 'block', fontSize: 11.5, fontWeight: 500 }}>
                         {p.note}
                       </span>
                     )}
                   </td>
-                  <td style={{ color: p.admin === N ? 'var(--gf-fainter)' : undefined }}>{p.admin}</td>
-                  <td style={{ color: p.manager === N ? 'var(--gf-fainter)' : undefined }}>{p.manager}</td>
-                  <td style={{ color: p.user === N ? 'var(--gf-fainter)' : undefined }}>{p.user}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span
+                      className="st-perm-toggle"
+                      data-on={p.admin === A}
+                      data-locked="true"
+                      title="Salt okunur — sunucuda sabit"
+                    >
+                      <i />
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span
+                      className="st-perm-toggle"
+                      data-on={p.manager === A}
+                      data-locked="true"
+                      title="Salt okunur — sunucuda sabit"
+                    >
+                      <i />
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span
+                      className="st-perm-toggle"
+                      data-on={p.user === A}
+                      data-locked="true"
+                      title="Salt okunur — sunucuda sabit"
+                    >
+                      <i />
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-
-        <div className="st-legend">
-          <span>✓ izinli</span>
-          <span>— izinsiz</span>
         </div>
       </section>
     </div>

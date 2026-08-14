@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
 import {
   COMPANY_ROLES,
@@ -11,17 +11,16 @@ import {
 import '../../styles/SettingsPages.css';
 
 /**
- * Ayarlar › Kullanici Ayarlari.
+ * Ayarlar › Kullanicilar (Kullanicilar sekmesi).
  *
  * Kullanici yonetiminin yapildigi yer burasi: rol degistirme ve erisim
- * kaldirma. Sirket Bilgileri'ndeki "Yetkili kullanicilar" sekmesi ise ayni
- * listeyi yalnizca okuma icin gosteriyor. Onceden menudeki iki baslik da
- * ayni sayfayi aciyordu; ikisi ayni seyi yapinca hangisinin yonetim ekrani
- * oldugu belli olmuyordu.
+ * kaldirma. Arama/rol filtresi sunucuya gitmiyor — zaten cekilmis listeyi
+ * tarayicida suzuyor, bu yuzden uydurma bir "arama servisi" gerekmiyor.
  *
- * Davet bolumu kapali: mevcut kayit ucu, yoneticinin baskasi adina parola
- * belirlemesini istiyor. Dogrusu e-posta daveti gonderip kisinin kendi
- * parolasini kurmasi; o uc yazilana kadar buraya yarim bir akis koymadim.
+ * Davet butonu (ust basliktaki, UsersRolesPage.jsx) kapali: mevcut kayit
+ * ucu, yoneticinin baskasi adina parola belirlemesini istiyor. Dogrusu
+ * e-posta daveti gonderip kisinin kendi parolasini kurmasi; o uc yazilana
+ * kadar buraya yarim bir akis koymadim.
  */
 // embedded: UsersRolesPage bu bileseni "Kullanicilar" sekmesinde gosterir ve
 // kendi sayfa basligini kendisi cizer.
@@ -36,6 +35,8 @@ export default function UsersPage({ embedded = false } = {}) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyUser, setBusyUser] = useState(null);
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('ALL');
 
   const load = useCallback(async () => {
     if (!companyId) {
@@ -110,9 +111,20 @@ export default function UsersPage({ embedded = false } = {}) {
 
   const adminCount = users.filter((u) => u.role === 'COMPANY_ADMIN').length;
 
+  const visibleUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+      if (!q) return true;
+      return displayName(u).toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+    });
+  }, [users, search, roleFilter]);
+
+  const wrapClass = embedded ? 'st-embed' : 'st';
+
   if (!companyId) {
     return (
-      <div className={embedded ? undefined : 'st'}>
+      <div className={wrapClass}>
         {!embedded && (
           <div className="st-head">
             <div>
@@ -129,7 +141,7 @@ export default function UsersPage({ embedded = false } = {}) {
   }
 
   return (
-    <div className={embedded ? undefined : 'st'}>
+    <div className={wrapClass}>
       {!embedded && (
         <div className="st-head">
           <div>
@@ -139,18 +151,6 @@ export default function UsersPage({ embedded = false } = {}) {
               Şirketinizdeki kullanıcıların rollerini değiştirin ya da erişimlerini kaldırın.
             </p>
           </div>
-          <div className="st-head-actions">
-            <button type="button" className="st-btn st-btn--ghost" onClick={load} disabled={loading}>
-              {loading ? 'Yükleniyor…' : 'Yenile'}
-            </button>
-          </div>
-        </div>
-      )}
-      {embedded && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
-          <button type="button" className="st-btn st-btn--ghost" onClick={load} disabled={loading}>
-            {loading ? 'Yükleniyor…' : 'Yenile'}
-          </button>
         </div>
       )}
 
@@ -183,7 +183,7 @@ export default function UsersPage({ embedded = false } = {}) {
       <section className="st-card">
         <div className="st-card-head">
           <div>
-            <h2>Kullanıcılar</h2>
+            <h2>{loading ? 'Kullanıcılar' : `${users.length} kullanıcı`}</h2>
             <p className="st-card-sub">
               Rol değişikliği anında geçerli olur. Kendi rolünüzü değiştiremez ya da kendi
               erişiminizi kaldıramazsınız — şirket yöneticisiz kalabilirdi. Ad ve e-posta
@@ -191,27 +191,60 @@ export default function UsersPage({ embedded = false } = {}) {
               gösteriyor.
             </p>
           </div>
+          <span style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <label className="st-field" style={{ maxWidth: 220 }}>
+              <input
+                type="search"
+                placeholder="İsim veya e-posta"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            <label className="st-field" style={{ maxWidth: 170 }}>
+              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+                <option value="ALL">Tüm roller</option>
+                {COMPANY_ROLES.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="st-btn st-btn--ghost st-btn--sm" onClick={load} disabled={loading}>
+              {loading ? 'Yükleniyor…' : 'Yenile'}
+            </button>
+          </span>
         </div>
 
-        {loading && <p className="st-empty">Yükleniyor…</p>}
-
-        {!loading && users.length === 0 && (
-          <p className="st-empty">Bu şirkette tanımlı kullanıcı yok.</p>
-        )}
-
-        {!loading && users.length > 0 && (
-          <div className="st-table-wrap">
-            <table className="st-table">
-              <thead>
-                <tr>
-                  <th>Kullanıcı</th>
-                  <th>Rol</th>
-                  <th>Tanımlanma</th>
-                  <th className="st-right">İşlem</th>
+        <div className="st-table-wrap">
+          <table className="st-table">
+            <thead>
+              <tr>
+                <th>Kullanıcı</th>
+                <th>Rol</th>
+                <th>Tanımlanma</th>
+                <th className="st-right">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr className="st-table-empty">
+                  <td colSpan={4}>Yükleniyor…</td>
                 </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => {
+              )}
+
+              {!loading && visibleUsers.length === 0 && (
+                <tr className="st-table-empty">
+                  <td colSpan={4}>
+                    {users.length === 0
+                      ? 'Bu şirkette tanımlı kullanıcı yok.'
+                      : 'Aramayla eşleşen kullanıcı yok.'}
+                  </td>
+                </tr>
+              )}
+
+              {!loading &&
+                visibleUsers.map((u) => {
                   const isSelf = u.keycloakUserId === currentUserId;
                   const busy = busyUser === u.keycloakUserId;
                   return (
@@ -263,52 +296,34 @@ export default function UsersPage({ embedded = false } = {}) {
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <div className="st-grid-2">
-        <section className="st-card">
-          <div className="st-card-head">
-            <h2>Kullanıcı davet et</h2>
-          </div>
-          <p className="st-empty">
-            Davet gönderme henüz açık değil. Mevcut kayıt ucu yöneticinin başkası adına parola
-            belirlemesini gerektiriyor; doğru akış, kişiye e-posta daveti gidip parolasını kendisinin
-            kurması. Bu uç yazıldığında davet formu buraya gelecek.
-          </p>
-          <p className="st-empty" style={{ marginTop: 12 }}>
-            O zamana kadar kullanıcılar Grafirio’ya kendileri kaydolabilir; siz de buradan rollerini
-            atarsınız.
-          </p>
-        </section>
-
-        <section className="st-card">
-          <div className="st-card-head">
-            <h2>Oturum güvenliği</h2>
-          </div>
-          <div className="st-switch">
-            <span className="st-switch-text">
-              <strong>İki adımlı doğrulama</strong>
-              <span>Keycloak realm ayarlarından yönetilir</span>
-            </span>
-            <span className="st-switch-knob" aria-hidden="true" />
-          </div>
-          <div className="st-switch">
-            <span className="st-switch-text">
-              <strong>Oturum süresi</strong>
-              <span>Keycloak realm ayarlarından yönetilir</span>
-            </span>
-            <span className="st-switch-knob" aria-hidden="true" />
-          </div>
-          <p className="st-card-sub" style={{ marginTop: 14 }}>
-            Oturum kuralları kimlik sağlayıcının kendi ayarları; panelden değiştirilmesi, iki yerde
-            birden tutulan ve zamanla ayrışan bir kural seti demek olurdu.
-          </p>
-        </section>
-      </div>
+      <section className="st-card">
+        <div className="st-card-head">
+          <h2>Oturum güvenliği</h2>
+        </div>
+        <div className="st-switch">
+          <span className="st-switch-text">
+            <strong>İki adımlı doğrulama</strong>
+            <span>Keycloak realm ayarlarından yönetilir</span>
+          </span>
+          <span className="st-switch-knob" aria-hidden="true" />
+        </div>
+        <div className="st-switch">
+          <span className="st-switch-text">
+            <strong>Oturum süresi</strong>
+            <span>Keycloak realm ayarlarından yönetilir</span>
+          </span>
+          <span className="st-switch-knob" aria-hidden="true" />
+        </div>
+        <p className="st-card-sub" style={{ marginTop: 14 }}>
+          Oturum kuralları kimlik sağlayıcının kendi ayarları; panelden değiştirilmesi, iki yerde
+          birden tutulan ve zamanla ayrışan bir kural seti demek olurdu.
+        </p>
+      </section>
     </div>
   );
 }
