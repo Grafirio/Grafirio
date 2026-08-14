@@ -8,5 +8,6 @@ public class CompanyMapping : Profile
     public CompanyMapping()
     {
         CreateMap<Company, CompanyDto>();
+        CreateMap<CompanyBankAccount, CompanyBankAccountDto>();
     }
 }

@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api;
 using Grafirio.Identity.Api.Features.Companies;
+using Grafirio.Identity.Api.Features.Companies.Documents;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Options;
@@ -12,6 +13,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddOptionsExt();
 builder.Services.AddDatabaseServiceExt();
+builder.Services.AddCompanyDocumentStorage();
 builder.Services.AddCommonServiceExt(typeof(IdentityAssembly));
 builder.Services.AddIdentityServicesExt();
 builder.Services.AddVersioningExt();
