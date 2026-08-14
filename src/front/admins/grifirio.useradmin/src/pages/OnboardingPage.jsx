@@ -7,6 +7,7 @@ import {
   planByCode,
   startSubscription,
 } from '../services/onboardingService';
+import { COUNTRIES } from '../constants/countryProfiles';
 import '../styles/OnboardingPage.css';
 
 const TEAM_SIZES = ['1–5', '6–20', '21–100', '100+'];
@@ -27,7 +28,13 @@ export default function OnboardingPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const [company, setCompany] = useState({ name: '', code: '', teamSize: TEAM_SIZES[1] });
+  const [company, setCompany] = useState({
+    name: '',
+    legalName: '',
+    code: '',
+    countryCode: 'TR',
+    teamSize: TEAM_SIZES[1],
+  });
   const [planCode, setPlanCode] = useState(
     planByCode(preselected) ? preselected : PLANS[0].code
   );
@@ -41,13 +48,19 @@ export default function OnboardingPage() {
       setError('Çalışma alanı adı gerekli.');
       return;
     }
+    if (!company.countryCode) {
+      setError('Ülke seçimi gerekli.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       await onboardCompany(token, {
         name: company.name.trim(),
+        legalName: company.legalName.trim(),
         code: company.code.trim(),
-        description: `Ekip büyüklüğü: ${company.teamSize}`,
+        countryCode: company.countryCode,
+        teamSize: company.teamSize,
       });
       setStep(1);
     } catch (err) {
@@ -132,14 +145,46 @@ export default function OnboardingPage() {
 
             <label className="ob-field">
               <span>
-                Kısa kod <i>isteğe bağlı</i>
+                Yasal unvan <i>isteğe bağlı</i>
               </span>
               <input
-                value={company.code}
-                onChange={(e) => setCompany({ ...company, code: e.target.value })}
-                placeholder="AKDENIZ"
+                value={company.legalName}
+                onChange={(e) => setCompany({ ...company, legalName: e.target.value })}
+                placeholder="Akdeniz Tekstil Sanayi ve Ticaret A.Ş."
               />
             </label>
+
+            <div className="ob-row">
+              <label className="ob-field">
+                <span>Ülke</span>
+                <select
+                  value={company.countryCode}
+                  onChange={(e) => setCompany({ ...company, countryCode: e.target.value })}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="ob-field">
+                <span>
+                  Kısa kod <i>isteğe bağlı</i>
+                </span>
+                <input
+                  value={company.code}
+                  onChange={(e) => setCompany({ ...company, code: e.target.value })}
+                  placeholder="AKDENIZ"
+                />
+              </label>
+            </div>
+
+            <p className="ob-locked-note">
+              Ülke, hangi vergi ve sicil bilgilerinin isteneceğini belirler. Yasal unvan, kısa kod
+              ve ülke kaydedildikten sonra Şirket Ayarları’nda kilitlenir.
+            </p>
 
             <fieldset className="ob-field">
               <span>Ekipte kaç kişi var?</span>

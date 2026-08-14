@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import {
   COMPANY_DOCUMENT_TYPES,
@@ -8,131 +9,210 @@ import {
   documentTypeName,
   downloadCompanyDocument,
   fetchCompanies,
+  fetchCompanyDocumentThumbnail,
   fetchCompanyDocuments,
+  fetchCurrentCompany,
   updateCompany,
   uploadCompanyDocument,
 } from '../../services/companyService';
+import {
+  COUNTRIES,
+  CURRENCIES,
+  IBAN_RE,
+  INDUSTRY_SCHEMES,
+  LOCALES,
+  TIME_ZONES,
+  countryProfile,
+} from '../../constants/countryProfiles';
 import '../../styles/SettingsPages.css';
 
-const COMPANY_TYPES = [
-  { code: 'AS', name: 'Anonim Şirket (A.Ş.)' },
-  { code: 'LTD', name: 'Limited Şirket (Ltd. Şti.)' },
-  { code: 'SAHIS', name: 'Şahıs İşletmesi' },
-  { code: 'KOLEKTIF', name: 'Kolektif Şirket' },
-  { code: 'KOMANDIT', name: 'Komandit Şirket' },
-  { code: 'KOOPERATIF', name: 'Kooperatif' },
-  { code: 'DIGER', name: 'Diğer' },
+const TABS = [
+  { key: 'general', label: 'Genel' },
+  { key: 'legal', label: 'Yasal Kimlik' },
+  { key: 'contact', label: 'İletişim' },
+  { key: 'addresses', label: 'Adresler' },
+  { key: 'bank', label: 'Banka' },
+  { key: 'documents', label: 'Belgeler' },
+  { key: 'tree', label: 'Alt şirketler' },
 ];
 
-const VKN_RE = /^\d{10}$/;
-const IBAN_RE = /^TR\d{24}$/;
+/** Kaydetme çubuğu yalnızca form taşıyan sekmelerde görünür. */
+const FORM_TABS = ['general', 'legal', 'contact', 'addresses', 'bank'];
+
+const ADDRESS_TYPES = [
+  { code: 'REGISTERED', name: 'Kayıtlı adres (tebligat)' },
+  { code: 'BILLING', name: 'Fatura adresi' },
+  { code: 'OPERATIONAL', name: 'Operasyon adresi' },
+  { code: 'SHIPPING', name: 'Sevkiyat adresi' },
+];
+
+const MONTHS = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+];
 
 const toFormDate = (iso) => (iso ? String(iso).slice(0, 10) : '');
 
-const companyToForm = (company) => ({
-  name: company?.name ?? '',
-  code: company?.code ?? '',
-  description: company?.description ?? '',
-  taxNumber: company?.taxNumber ?? '',
-  taxOffice: company?.taxOffice ?? '',
-  tradeRegistryNumber: company?.tradeRegistryNumber ?? '',
-  mersisNumber: company?.mersisNumber ?? '',
-  companyType: company?.companyType ?? '',
-  establishmentDate: toFormDate(company?.establishmentDate),
-  activityCode: company?.activityCode ?? '',
-  activityDescription: company?.activityDescription ?? '',
-  legalAddress: company?.legalAddress ?? '',
-  kepAddress: company?.kepAddress ?? '',
-  authorizedSignatoryName: company?.authorizedSignatoryName ?? '',
-  authorizedSignatoryTitle: company?.authorizedSignatoryTitle ?? '',
-  kvkkRepresentativeName: company?.kvkkRepresentativeName ?? '',
-  kvkkRepresentativeEmail: company?.kvkkRepresentativeEmail ?? '',
-  generalPhone: company?.generalPhone ?? '',
-  generalEmail: company?.generalEmail ?? '',
-  bankAccounts: (company?.bankAccounts ?? []).map((b) => ({
-    bankName: b.bankName ?? '',
-    branchName: b.branchName ?? '',
-    iban: b.iban ?? '',
-    accountHolder: b.accountHolder ?? '',
-  })),
+const emptyAddress = () => ({
+  type: 'REGISTERED',
+  line1: '',
+  line2: '',
+  city: '',
+  region: '',
+  postalCode: '',
+  countryCode: '',
+  isPrimary: false,
 });
 
-const EDITABLE_TABS = ['general', 'legal', 'contact', 'bank'];
+const emptyBankAccount = () => ({
+  bankName: '',
+  branchName: '',
+  accountHolder: '',
+  countryCode: '',
+  currency: '',
+  iban: '',
+  accountNumber: '',
+  routingCode: '',
+  swiftBic: '',
+  isPrimary: false,
+});
+
+const companyToForm = (c) => ({
+  name: c?.name ?? '',
+  legalName: c?.legalName ?? '',
+  code: c?.code ?? '',
+  countryCode: c?.countryCode ?? '',
+  legalForm: c?.legalForm ?? '',
+  registrationNumber: c?.registrationNumber ?? '',
+  taxId: c?.taxId ?? '',
+  incorporationDate: toFormDate(c?.incorporationDate),
+  taxOffice: c?.taxOffice ?? '',
+  secondaryRegistrationNumber: c?.secondaryRegistrationNumber ?? '',
+  leiCode: c?.leiCode ?? '',
+  dunsNumber: c?.dunsNumber ?? '',
+  industryScheme: c?.industryScheme ?? '',
+  industryCode: c?.industryCode ?? '',
+  industryDescription: c?.industryDescription ?? '',
+  description: c?.description ?? '',
+  baseCurrency: c?.baseCurrency ?? '',
+  locale: c?.locale ?? '',
+  timeZoneId: c?.timeZoneId ?? '',
+  fiscalYearStartMonth: c?.fiscalYearStartMonth ? String(c.fiscalYearStartMonth) : '',
+  teamSize: c?.teamSize ?? '',
+  generalPhone: c?.generalPhone ?? '',
+  generalEmail: c?.generalEmail ?? '',
+  website: c?.website ?? '',
+  eInvoiceScheme: c?.eInvoiceScheme ?? '',
+  eInvoiceAddress: c?.eInvoiceAddress ?? '',
+  authorizedSignatoryName: c?.authorizedSignatoryName ?? '',
+  authorizedSignatoryTitle: c?.authorizedSignatoryTitle ?? '',
+  dataProtectionOfficerName: c?.dataProtectionOfficerName ?? '',
+  dataProtectionOfficerEmail: c?.dataProtectionOfficerEmail ?? '',
+  privacyRepresentativeName: c?.privacyRepresentativeName ?? '',
+  privacyRepresentativeEmail: c?.privacyRepresentativeEmail ?? '',
+  privacyRepresentativeCountryCode: c?.privacyRepresentativeCountryCode ?? '',
+  addresses: (c?.addresses ?? []).map((a) => ({ ...emptyAddress(), ...a })),
+  bankAccounts: (c?.bankAccounts ?? []).map((b) => ({ ...emptyBankAccount(), ...b })),
+});
 
 /**
- * Ayarlar › Sirket Ayarlari.
+ * Ayarlar › Şirket Ayarları.
  *
- * Kimlik, yasal/vergi, adres/iletisim ve banka alanlari tek bir form modeli
- * uzerinde tutuluyor ve tek bir PUT /companies/{id} cagrisiyla kaydediliyor
- * (backend'de hepsi ayni Company dokumaninin alanlari). Belgeler sekmesi
- * kendi CRUD'una sahip, ayri kaydediliyor. Alt sirketler sekmesi degismedi.
+ * Şirket bilgisi /companies/current ucundan geliyor; önceki hali token'daki
+ * company_id ve accessible_companies claim'lerine bağlıydı ve biri eksik
+ * olduğunda kullanıcı kayıt sırasında kendi kurduğu şirketi bile göremiyordu.
+ *
+ * Kimlik alanları (yasal ad, kısa kod, ülke, tüzel yapı, sicil ve vergi no)
+ * bir kez dolduktan sonra kilitleniyor. Buradaki kilit yalnızca görsel; asıl
+ * kural sunucuda (UpdateCompanyCommandHandler), çünkü salt-okunur bir input
+ * isteğin doğrudan gönderilmesini engellemez.
  */
 export default function CompanySettingsPage() {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
-  const companyId = keycloak.tokenParsed?.company_id;
 
-  const [tab, setTab] = useState('general');
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TABS.some((t) => t.key === searchParams.get('tab'))
+    ? searchParams.get('tab')
+    : 'general';
+
+  const setTab = (key) => setSearchParams(key === 'general' ? {} : { tab: key });
+
+  const [company, setCompany] = useState(null);
+  const [canEditIdentity, setCanEditIdentity] = useState(false);
+  const [children, setChildren] = useState([]);
   const [form, setForm] = useState(companyToForm(null));
+
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [unassigned, setUnassigned] = useState(false);
 
   const load = useCallback(async () => {
-    if (!companyId) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError('');
     try {
-      const list = await fetchCompanies(token);
-      setCompanies(list);
-      setForm(companyToForm(list.find((c) => c.id === companyId) || null));
+      const result = await fetchCurrentCompany(token);
+      const loaded = result?.company ?? null;
+      setCompany(loaded);
+      setCanEditIdentity(Boolean(result?.canEditIdentity));
+      setForm(companyToForm(loaded));
       setDirty(false);
+      setUnassigned(false);
+
+      // Alt şirket listesi ikincil: bu çağrı token claim'lerine bağlı olduğu
+      // için boş dönebilir, ama sayfanın geri kalanı buna bakmıyor.
+      try {
+        const list = await fetchCompanies(token);
+        setChildren(list.filter((c) => c.parentCompanyId === loaded?.id));
+      } catch {
+        setChildren([]);
+      }
     } catch (err) {
-      setError(describeError(err, 'Şirket bilgileri okunamadı.'));
+      if (err?.response?.status === 404) {
+        setUnassigned(true);
+      } else {
+        setError(describeError(err, 'Şirket bilgileri okunamadı.'));
+      }
     } finally {
       setLoading(false);
     }
-  }, [token, companyId]);
+  }, [token]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const company = companies.find((c) => c.id === companyId) || null;
-  const children = companies.filter((c) => c.parentCompanyId === companyId);
+  const profile = useMemo(() => countryProfile(form.countryCode), [form.countryCode]);
 
-  const setField = (key) => (e) => {
-    const { value } = e.target;
+  /** Kimlik alanı dolu ve kullanıcının değiştirme yetkisi yoksa kilitli. */
+  const locked = (key) => !canEditIdentity && Boolean(company?.[key]);
+
+  const set = (key) => (e) => {
+    const value = e.target.value;
     setForm((f) => ({ ...f, [key]: value }));
     setDirty(true);
   };
 
-  const setBankField = (index, key) => (e) => {
-    const { value } = e.target;
+  const setRow = (listKey, index, key) => (e) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setForm((f) => {
-      const next = f.bankAccounts.slice();
+      const next = f[listKey].slice();
       next[index] = { ...next[index], [key]: value };
-      return { ...f, bankAccounts: next };
+      return { ...f, [listKey]: next };
     });
     setDirty(true);
   };
 
-  const addBankAccount = () => {
-    setForm((f) => ({
-      ...f,
-      bankAccounts: [...f.bankAccounts, { bankName: '', branchName: '', iban: '', accountHolder: '' }],
-    }));
+  const addRow = (listKey, factory) => {
+    setForm((f) => ({ ...f, [listKey]: [...f[listKey], factory()] }));
     setDirty(true);
   };
 
-  const removeBankAccount = (index) => {
-    setForm((f) => ({ ...f, bankAccounts: f.bankAccounts.filter((_, i) => i !== index) }));
+  const removeRow = (listKey, index) => {
+    setForm((f) => ({ ...f, [listKey]: f[listKey].filter((_, i) => i !== index) }));
     setDirty(true);
   };
 
@@ -142,20 +222,33 @@ export default function CompanySettingsPage() {
     setError('');
   };
 
-  const save = async () => {
-    if (!form.name.trim()) {
-      setError('Şirket adı gerekli.');
-      return;
+  const validate = () => {
+    if (!form.name.trim()) return 'Şirket adı gerekli.';
+
+    if (form.taxId && profile.taxIdPattern && !profile.taxIdPattern.test(form.taxId.trim())) {
+      return `${profile.taxIdLabel} biçimi geçersiz${profile.taxIdHint ? ` (${profile.taxIdHint})` : ''}.`;
     }
-    if (form.taxNumber && !VKN_RE.test(form.taxNumber.trim())) {
-      setError('Vergi kimlik numarası 10 haneli olmalı.');
-      return;
-    }
-    const invalidIban = form.bankAccounts.find(
+
+    const badIban = form.bankAccounts.find(
       (b) => b.iban && !IBAN_RE.test(b.iban.replace(/\s/g, '').toUpperCase())
     );
-    if (invalidIban) {
-      setError('IBAN biçimi geçersiz — TR ile başlayan 26 karakter olmalı.');
+    if (badIban) return 'IBAN biçimi geçersiz — ülke kodu + kontrol haneleriyle başlamalı.';
+
+    const emailish = [
+      ['generalEmail', 'Genel e-posta'],
+      ['dataProtectionOfficerEmail', 'Veri koruma sorumlusu e-postası'],
+      ['privacyRepresentativeEmail', 'Gizlilik temsilcisi e-postası'],
+    ];
+    const badEmail = emailish.find(([key]) => form[key] && !form[key].includes('@'));
+    if (badEmail) return `${badEmail[1]} geçerli görünmüyor.`;
+
+    return null;
+  };
+
+  const save = async () => {
+    const problem = validate();
+    if (problem) {
+      setError(problem);
       return;
     }
 
@@ -163,27 +256,10 @@ export default function CompanySettingsPage() {
     setError('');
     setNotice('');
     try {
-      await updateCompany(token, companyId, {
-        name: form.name.trim(),
-        code: form.code.trim() || null,
-        description: form.description.trim() || null,
-        taxNumber: form.taxNumber.trim() || null,
-        taxOffice: form.taxOffice.trim() || null,
-        tradeRegistryNumber: form.tradeRegistryNumber.trim() || null,
-        mersisNumber: form.mersisNumber.trim() || null,
-        companyType: form.companyType || null,
-        establishmentDate: form.establishmentDate || null,
-        activityCode: form.activityCode.trim() || null,
-        activityDescription: form.activityDescription.trim() || null,
-        legalAddress: form.legalAddress.trim() || null,
-        kepAddress: form.kepAddress.trim() || null,
-        authorizedSignatoryName: form.authorizedSignatoryName.trim() || null,
-        authorizedSignatoryTitle: form.authorizedSignatoryTitle.trim() || null,
-        kvkkRepresentativeName: form.kvkkRepresentativeName.trim() || null,
-        kvkkRepresentativeEmail: form.kvkkRepresentativeEmail.trim() || null,
-        generalPhone: form.generalPhone.trim() || null,
-        generalEmail: form.generalEmail.trim() || null,
-        bankAccounts: form.bankAccounts.filter((b) => b.bankName.trim() || b.iban.trim()),
+      await updateCompany(token, company.id, {
+        ...form,
+        fiscalYearStartMonth: form.fiscalYearStartMonth ? Number(form.fiscalYearStartMonth) : null,
+        incorporationDate: form.incorporationDate || null,
       });
       setNotice('Şirket bilgileri kaydedildi.');
       setDirty(false);
@@ -202,32 +278,28 @@ export default function CompanySettingsPage() {
           <p className="st-eyebrow">Ayarlar · Şirket</p>
           <h1>Şirket Ayarları</h1>
           <p className="st-lead">
-            Kurum kimliği, yasal/vergi bilgileri, resmi iletişim, banka hesapları, belgeler ve alt
+            Kurum kimliği, yasal ve vergi bilgileri, adresler, banka hesapları, belgeler ve alt
             şirket hiyerarşisi.
           </p>
         </div>
+        {company?.countryCode && (
+          <span className="st-head-meta">{company.countryCode} · {company.legalForm || '—'}</span>
+        )}
       </div>
 
-      {!loading && companyId && (
+      {!loading && company && (
         <div className="st-tabs" role="tablist">
-          <button type="button" className={tab === 'general' ? 'is-active' : ''} onClick={() => setTab('general')}>
-            Genel
-          </button>
-          <button type="button" className={tab === 'legal' ? 'is-active' : ''} onClick={() => setTab('legal')}>
-            Yasal & Vergi
-          </button>
-          <button type="button" className={tab === 'contact' ? 'is-active' : ''} onClick={() => setTab('contact')}>
-            Adres & İletişim
-          </button>
-          <button type="button" className={tab === 'bank' ? 'is-active' : ''} onClick={() => setTab('bank')}>
-            Banka
-          </button>
-          <button type="button" className={tab === 'documents' ? 'is-active' : ''} onClick={() => setTab('documents')}>
-            Belgeler
-          </button>
-          <button type="button" className={tab === 'tree' ? 'is-active' : ''} onClick={() => setTab('tree')}>
-            Alt şirketler {children.length > 0 && `(${children.length})`}
-          </button>
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={tab === t.key ? 'is-active' : ''}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+              {t.key === 'tree' && children.length > 0 && ` (${children.length})`}
+            </button>
+          ))}
         </div>
       )}
 
@@ -235,7 +307,7 @@ export default function CompanySettingsPage() {
       {notice && <div className="st-ok">{notice}</div>}
       {loading && <div className="st-card st-empty">Yükleniyor…</div>}
 
-      {!loading && !companyId && (
+      {!loading && unassigned && (
         <div className="st-card">
           <p className="st-empty">
             Hesabınız henüz bir şirkete bağlı değil. Çalışma alanınızı kurduktan sonra bu sayfa
@@ -244,174 +316,285 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
-      {!loading && companyId && tab === 'general' && (
+      {!loading && company && tab === 'general' && (
         <div className="st-grid-2">
           <section className="st-card">
             <p className="st-caps">Kimlik</p>
-
             <div className="st-form-grid" style={{ gridTemplateColumns: '1fr' }}>
-              <label className="st-field">
-                <span>Şirket adı</span>
-                <input value={form.name} onChange={setField('name')} placeholder="Akdeniz Tekstil A.Ş." />
-              </label>
+              <Field label="Görünen ad" value={form.name} onChange={set('name')}
+                hint="Panelde ve raporlarda bu ad kullanılır; yasal addan farklı olabilir." />
             </div>
-
             <div className="st-form-grid" style={{ marginTop: 14 }}>
-              <label className="st-field st-field--mono">
-                <span>Kısa kod</span>
-                <input value={form.code} onChange={setField('code')} placeholder="AKD" />
-              </label>
-              <label className="st-field st-field--mono">
-                <span>Hiyerarşi seviyesi</span>
-                <input value={company?.level ?? 0} readOnly disabled />
-              </label>
+              <Field label="Ekip büyüklüğü" value={form.teamSize} onChange={set('teamSize')}
+                placeholder="6–20" />
+              <Field label="Hiyerarşi seviyesi" value={String(company.level ?? 0)} mono disabled />
             </div>
-
             <div className="st-form-grid" style={{ gridTemplateColumns: '1fr', marginTop: 14 }}>
-              <label className="st-field">
-                <span>Açıklama</span>
-                <textarea rows="3" value={form.description} onChange={setField('description')} />
-              </label>
+              <Field label="Açıklama">
+                <textarea rows="3" value={form.description} onChange={set('description')} />
+              </Field>
             </div>
           </section>
 
-          <div className="st-col">
-            <section className="st-card">
-              <p className="st-caps">Bölgesel biçimler</p>
-              <div className="st-form-grid">
-                <label className="st-field">
-                  <span>Dil</span>
-                  <select disabled>
-                    <option>Türkçe</option>
-                  </select>
-                </label>
-                <label className="st-field">
-                  <span>Saat dilimi</span>
-                  <select disabled>
-                    <option>(UTC+03:00) İstanbul</option>
-                  </select>
-                </label>
-                <label className="st-field">
-                  <span>Para birimi</span>
-                  <select disabled>
-                    <option>₺ Türk lirası</option>
-                  </select>
-                </label>
-                <label className="st-field">
-                  <span>Tarih biçimi</span>
-                  <select disabled>
-                    <option>GG.AA.YYYY</option>
-                  </select>
-                </label>
-              </div>
-              <p className="st-card-sub" style={{ marginTop: 14 }}>
-                Panel şu an bu biçimleri sabit kullanıyor; seçim yapılabilmesi için tercihleri
-                saklayacak bir uç gerekiyor.
-              </p>
-            </section>
-          </div>
+          <section className="st-card">
+            <p className="st-caps">Bölgesel biçimler</p>
+            <div className="st-form-grid">
+              <Field label="Para birimi">
+                <select value={form.baseCurrency} onChange={set('baseCurrency')}>
+                  <option value="">Seçin…</option>
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Dil">
+                <select value={form.locale} onChange={set('locale')}>
+                  <option value="">Seçin…</option>
+                  {LOCALES.map((l) => (
+                    <option key={l.code} value={l.code}>{l.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Saat dilimi">
+                <select value={form.timeZoneId} onChange={set('timeZoneId')}>
+                  <option value="">Seçin…</option>
+                  {TIME_ZONES.map((z) => (
+                    <option key={z} value={z}>{z}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Mali yıl başlangıcı">
+                <select value={form.fiscalYearStartMonth} onChange={set('fiscalYearStartMonth')}>
+                  <option value="">Ocak (varsayılan)</option>
+                  {MONTHS.map((m, i) => (
+                    <option key={m} value={String(i + 1)}>{m}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <p className="st-card-sub" style={{ marginTop: 14 }}>
+              Raporlarda ve dışa aktarımlarda kullanılacak varsayılanlar.
+            </p>
+          </section>
         </div>
       )}
 
-      {!loading && companyId && tab === 'legal' && (
+      {!loading && company && tab === 'legal' && (
+        <>
+          {!canEditIdentity && (
+            <div className="st-note">
+              <i>i</i>
+              <div>
+                Kilit işaretli alanlar şirket kaydı oluşturulurken belirlendi ve değiştirilemez.
+                Boş olanları bir kez doldurabilirsiniz; kaydettikten sonra onlar da kilitlenir.
+                Hatalı bir kaydı düzeltmek için platform ekibine başvurun.
+              </div>
+            </div>
+          )}
+
+          <section className="st-card">
+            <p className="st-caps">Tüzel kimlik</p>
+            <div className="st-form-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <Field label="Yasal ad" value={form.legalName} onChange={set('legalName')}
+                locked={locked('legalName')} hint="Sicilde kayıtlı tam unvan." />
+            </div>
+            <div className="st-form-grid" style={{ marginTop: 14 }}>
+              <Field label="Kısa kod" value={form.code} onChange={set('code')}
+                locked={locked('code')} mono />
+              <Field label="Ülke" locked={locked('countryCode')}>
+                <select value={form.countryCode} onChange={set('countryCode')}
+                  disabled={locked('countryCode')}>
+                  <option value="">Seçin…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Tüzel yapı" locked={locked('legalForm')}>
+                <select value={form.legalForm} onChange={set('legalForm')}
+                  disabled={locked('legalForm')}>
+                  <option value="">Seçin…</option>
+                  {profile.legalForms.map((f) => (
+                    <option key={f.code} value={f.code}>{f.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Kuruluş tarihi" locked={locked('incorporationDate')}>
+                <input type="date" value={form.incorporationDate}
+                  onChange={set('incorporationDate')} disabled={locked('incorporationDate')} />
+              </Field>
+            </div>
+          </section>
+
+          <section className="st-card">
+            <p className="st-caps">Vergi ve sicil</p>
+            <div className="st-form-grid">
+              <Field label={profile.taxIdLabel} value={form.taxId} onChange={set('taxId')}
+                locked={locked('taxId')} mono hint={profile.taxIdHint} />
+              <Field label={profile.registrationLabel} value={form.registrationNumber}
+                onChange={set('registrationNumber')} locked={locked('registrationNumber')} mono />
+              <Field label={profile.secondaryRegistrationLabel}
+                value={form.secondaryRegistrationNumber}
+                onChange={set('secondaryRegistrationNumber')} mono />
+              {profile.showTaxOffice && (
+                <Field label={profile.taxOfficeLabel} value={form.taxOffice}
+                  onChange={set('taxOffice')} />
+              )}
+            </div>
+          </section>
+
+          <section className="st-card">
+            <p className="st-caps">Uluslararası tanımlayıcılar ve faaliyet</p>
+            <div className="st-form-grid">
+              <Field label="LEI kodu" value={form.leiCode} onChange={set('leiCode')} mono
+                hint="ISO 17442 — küresel tüzel kişi tanımlayıcısı." />
+              <Field label="DUNS numarası" value={form.dunsNumber} onChange={set('dunsNumber')} mono />
+              <Field label="Faaliyet sınıflandırması">
+                <select value={form.industryScheme} onChange={set('industryScheme')}>
+                  <option value="">Seçin…</option>
+                  {INDUSTRY_SCHEMES.map((s) => (
+                    <option key={s.code} value={s.code}>{s.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Faaliyet kodu" value={form.industryCode} onChange={set('industryCode')} mono />
+            </div>
+            <div className="st-form-grid" style={{ gridTemplateColumns: '1fr', marginTop: 14 }}>
+              <Field label="Faaliyet açıklaması">
+                <textarea rows="2" value={form.industryDescription}
+                  onChange={set('industryDescription')} />
+              </Field>
+            </div>
+          </section>
+        </>
+      )}
+
+      {!loading && company && tab === 'contact' && (
+        <>
+          <section className="st-card">
+            <p className="st-caps">Genel iletişim</p>
+            <div className="st-form-grid">
+              <Field label="Telefon" value={form.generalPhone} onChange={set('generalPhone')}
+                hint="Ülke koduyla: +90…" />
+              <Field label="E-posta" value={form.generalEmail} onChange={set('generalEmail')} />
+              <Field label="Web sitesi" value={form.website} onChange={set('website')} />
+            </div>
+          </section>
+
+          <section className="st-card">
+            <p className="st-caps">Elektronik fatura</p>
+            <div className="st-form-grid">
+              <Field label="Ağ" value={form.eInvoiceScheme} onChange={set('eInvoiceScheme')}
+                placeholder={profile.eInvoiceScheme}
+                hint="KEP (TR), PEC (IT), PEPPOL (AB)." />
+              <Field label={profile.eInvoiceLabel} value={form.eInvoiceAddress}
+                onChange={set('eInvoiceAddress')} mono />
+            </div>
+          </section>
+
+          <section className="st-card">
+            <p className="st-caps">Temsilciler ve uyum</p>
+            <div className="st-form-grid">
+              <Field label="Yetkili imza sahibi" value={form.authorizedSignatoryName}
+                onChange={set('authorizedSignatoryName')} />
+              <Field label="Yetkilinin unvanı" value={form.authorizedSignatoryTitle}
+                onChange={set('authorizedSignatoryTitle')} />
+              <Field label="Veri koruma sorumlusu" value={form.dataProtectionOfficerName}
+                onChange={set('dataProtectionOfficerName')}
+                hint="GDPR md. 37 / KVKK irtibat kişisi." />
+              <Field label="Veri koruma sorumlusu e-postası"
+                value={form.dataProtectionOfficerEmail}
+                onChange={set('dataProtectionOfficerEmail')} />
+              <Field label="Yurt dışı temsilcisi" value={form.privacyRepresentativeName}
+                onChange={set('privacyRepresentativeName')} hint="GDPR md. 27." />
+              <Field label="Temsilci e-postası" value={form.privacyRepresentativeEmail}
+                onChange={set('privacyRepresentativeEmail')} />
+              <Field label="Temsilcinin ülkesi">
+                <select value={form.privacyRepresentativeCountryCode}
+                  onChange={set('privacyRepresentativeCountryCode')}>
+                  <option value="">Seçin…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+          </section>
+        </>
+      )}
+
+      {!loading && company && tab === 'addresses' && (
         <section className="st-card">
-          <p className="st-caps">Yasal ve vergi kimliği</p>
-          <div className="st-form-grid">
-            <label className="st-field st-field--mono">
-              <span>Vergi kimlik numarası (VKN)</span>
-              <input value={form.taxNumber} onChange={setField('taxNumber')} placeholder="1234567890" maxLength={10} />
-            </label>
-            <label className="st-field">
-              <span>Vergi dairesi</span>
-              <input value={form.taxOffice} onChange={setField('taxOffice')} placeholder="Kadıköy V.D." />
-            </label>
-            <label className="st-field st-field--mono">
-              <span>Ticaret sicil no</span>
-              <input value={form.tradeRegistryNumber} onChange={setField('tradeRegistryNumber')} />
-            </label>
-            <label className="st-field st-field--mono">
-              <span>MERSİS no</span>
-              <input value={form.mersisNumber} onChange={setField('mersisNumber')} />
-            </label>
-            <label className="st-field">
-              <span>Şirket türü</span>
-              <select value={form.companyType} onChange={setField('companyType')}>
-                <option value="">Seçin…</option>
-                {COMPANY_TYPES.map((t) => (
-                  <option key={t.code} value={t.code}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="st-field">
-              <span>Kuruluş tarihi</span>
-              <input type="date" value={form.establishmentDate} onChange={setField('establishmentDate')} />
-            </label>
-            <label className="st-field st-field--mono">
-              <span>Faaliyet kodu</span>
-              <input value={form.activityCode} onChange={setField('activityCode')} placeholder="NACE kodu" />
-            </label>
+          <div className="st-card-head">
+            <div>
+              <h2>Adresler</h2>
+              <p className="st-card-sub">
+                Tebligat, fatura ve operasyon adresleri ayrı tutulur; hepsi aynı olabilir.
+              </p>
+            </div>
+            <button type="button" className="st-btn st-btn--sm"
+              onClick={() => addRow('addresses', emptyAddress)}>
+              + Adres ekle
+            </button>
           </div>
-          <div className="st-form-grid" style={{ gridTemplateColumns: '1fr', marginTop: 14 }}>
-            <label className="st-field">
-              <span>Faaliyet açıklaması</span>
-              <textarea rows="2" value={form.activityDescription} onChange={setField('activityDescription')} />
-            </label>
-          </div>
+
+          {form.addresses.length === 0 ? (
+            <p className="st-empty">Henüz adres eklenmedi.</p>
+          ) : (
+            form.addresses.map((a, i) => (
+              <div key={i} className="st-repeat">
+                <div className="st-repeat-head">
+                  <select value={a.type} onChange={setRow('addresses', i, 'type')}>
+                    {ADDRESS_TYPES.map((t) => (
+                      <option key={t.code} value={t.code}>{t.name}</option>
+                    ))}
+                  </select>
+                  <label className="st-check">
+                    <input type="checkbox" checked={a.isPrimary}
+                      onChange={setRow('addresses', i, 'isPrimary')} />
+                    Birincil
+                  </label>
+                  <button type="button" className="st-link"
+                    onClick={() => removeRow('addresses', i)}>Kaldır</button>
+                </div>
+                <div className="st-form-grid">
+                  <Field label="Adres satırı 1" value={a.line1}
+                    onChange={setRow('addresses', i, 'line1')} />
+                  <Field label="Adres satırı 2" value={a.line2}
+                    onChange={setRow('addresses', i, 'line2')} />
+                  <Field label="Şehir" value={a.city} onChange={setRow('addresses', i, 'city')} />
+                  <Field label="İl / eyalet / bölge" value={a.region}
+                    onChange={setRow('addresses', i, 'region')} />
+                  <Field label="Posta kodu" value={a.postalCode}
+                    onChange={setRow('addresses', i, 'postalCode')} mono />
+                  <Field label="Ülke">
+                    <select value={a.countryCode} onChange={setRow('addresses', i, 'countryCode')}>
+                      <option value="">Seçin…</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.name}</option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+              </div>
+            ))
+          )}
         </section>
       )}
 
-      {!loading && companyId && tab === 'contact' && (
-        <section className="st-card">
-          <p className="st-caps">Adres ve resmi iletişim</p>
-          <div className="st-form-grid" style={{ gridTemplateColumns: '1fr' }}>
-            <label className="st-field">
-              <span>Tebligat adresi</span>
-              <textarea rows="2" value={form.legalAddress} onChange={setField('legalAddress')} />
-            </label>
-          </div>
-          <div className="st-form-grid" style={{ marginTop: 14 }}>
-            <label className="st-field st-field--mono">
-              <span>KEP adresi</span>
-              <input value={form.kepAddress} onChange={setField('kepAddress')} placeholder="firma@hs01.kep.tr" />
-            </label>
-            <label className="st-field">
-              <span>Genel telefon</span>
-              <input value={form.generalPhone} onChange={setField('generalPhone')} />
-            </label>
-            <label className="st-field">
-              <span>Genel e-posta</span>
-              <input value={form.generalEmail} onChange={setField('generalEmail')} />
-            </label>
-            <label className="st-field">
-              <span>Yetkili imza sahibi</span>
-              <input value={form.authorizedSignatoryName} onChange={setField('authorizedSignatoryName')} />
-            </label>
-            <label className="st-field">
-              <span>Yetkilinin unvanı</span>
-              <input value={form.authorizedSignatoryTitle} onChange={setField('authorizedSignatoryTitle')} />
-            </label>
-            <label className="st-field">
-              <span>KVKK veri sorumlusu temsilcisi</span>
-              <input value={form.kvkkRepresentativeName} onChange={setField('kvkkRepresentativeName')} />
-            </label>
-            <label className="st-field">
-              <span>KVKK temsilcisi e-posta</span>
-              <input value={form.kvkkRepresentativeEmail} onChange={setField('kvkkRepresentativeEmail')} />
-            </label>
-          </div>
-        </section>
-      )}
-
-      {!loading && companyId && tab === 'bank' && (
+      {!loading && company && tab === 'bank' && (
         <section className="st-card">
           <div className="st-card-head">
             <div>
               <h2>Banka hesapları</h2>
-              <p className="st-card-sub">Faturada gösterilecek hesaplar.</p>
+              <p className="st-card-sub">
+                {profile.usesIban
+                  ? 'IBAN kullanan ülkeler için IBAN, diğerleri için hesap numarası + yönlendirme kodu girin.'
+                  : 'Bu ülkede IBAN kullanılmıyor; hesap numarası ve yönlendirme kodu girin.'}
+              </p>
             </div>
-            <button type="button" className="st-btn st-btn--sm" onClick={addBankAccount}>
+            <button type="button" className="st-btn st-btn--sm"
+              onClick={() => addRow('bankAccounts', emptyBankAccount)}>
               + Hesap ekle
             </button>
           </div>
@@ -420,46 +603,66 @@ export default function CompanySettingsPage() {
             <p className="st-empty">Henüz banka hesabı eklenmedi.</p>
           ) : (
             form.bankAccounts.map((b, i) => (
-              <div
-                key={i}
-                className="st-form-grid"
-                style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--gf-line-soft)' }}
-              >
-                <label className="st-field">
-                  <span>Banka</span>
-                  <input value={b.bankName} onChange={setBankField(i, 'bankName')} />
-                </label>
-                <label className="st-field">
-                  <span>Şube</span>
-                  <input value={b.branchName} onChange={setBankField(i, 'branchName')} />
-                </label>
-                <label className="st-field st-field--mono">
-                  <span>IBAN</span>
-                  <input value={b.iban} onChange={setBankField(i, 'iban')} placeholder="TR…" />
-                </label>
-                <label className="st-field">
-                  <span>Hesap sahibi</span>
-                  <input value={b.accountHolder} onChange={setBankField(i, 'accountHolder')} />
-                </label>
-                <button
-                  type="button"
-                  className="st-link"
-                  style={{ alignSelf: 'flex-end', marginBottom: 11 }}
-                  onClick={() => removeBankAccount(i)}
-                >
-                  Kaldır
-                </button>
+              <div key={i} className="st-repeat">
+                <div className="st-repeat-head">
+                  <strong>{b.bankName || `Hesap ${i + 1}`}</strong>
+                  <label className="st-check">
+                    <input type="checkbox" checked={b.isPrimary}
+                      onChange={setRow('bankAccounts', i, 'isPrimary')} />
+                    Birincil
+                  </label>
+                  <button type="button" className="st-link"
+                    onClick={() => removeRow('bankAccounts', i)}>Kaldır</button>
+                </div>
+                <div className="st-form-grid">
+                  <Field label="Banka" value={b.bankName}
+                    onChange={setRow('bankAccounts', i, 'bankName')} />
+                  <Field label="Şube" value={b.branchName}
+                    onChange={setRow('bankAccounts', i, 'branchName')} />
+                  <Field label="Hesap sahibi" value={b.accountHolder}
+                    onChange={setRow('bankAccounts', i, 'accountHolder')} />
+                  <Field label="IBAN" value={b.iban} onChange={setRow('bankAccounts', i, 'iban')}
+                    mono placeholder="TR…" />
+                  <Field label="Hesap numarası" value={b.accountNumber}
+                    onChange={setRow('bankAccounts', i, 'accountNumber')} mono
+                    hint="IBAN kullanmayan ülkeler için." />
+                  <Field label="Yönlendirme kodu" value={b.routingCode}
+                    onChange={setRow('bankAccounts', i, 'routingCode')} mono
+                    hint="ABA (US), sort code (GB), BSB (AU)." />
+                  <Field label="SWIFT / BIC" value={b.swiftBic}
+                    onChange={setRow('bankAccounts', i, 'swiftBic')} mono />
+                  <Field label="Para birimi">
+                    <select value={b.currency} onChange={setRow('bankAccounts', i, 'currency')}>
+                      <option value="">Seçin…</option>
+                      {CURRENCIES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.name}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Banka ülkesi">
+                    <select value={b.countryCode}
+                      onChange={setRow('bankAccounts', i, 'countryCode')}>
+                      <option value="">Seçin…</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>{c.name}</option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
               </div>
             ))
           )}
         </section>
       )}
 
-      {!loading && companyId && EDITABLE_TABS.includes(tab) && (
+      {!loading && company && FORM_TABS.includes(tab) && (
         <div className="st-savebar">
-          <span className="st-savebar-note">{dirty ? 'kaydedilmemiş değişiklikler var' : 'güncel'}</span>
+          <span className="st-savebar-note">
+            {dirty ? 'kaydedilmemiş değişiklikler var' : 'güncel'}
+          </span>
           <span className="st-savebar-actions">
-            <button type="button" className="st-btn st-btn--ghost" disabled={!dirty || saving} onClick={discard}>
+            <button type="button" className="st-btn st-btn--ghost" disabled={!dirty || saving}
+              onClick={discard}>
               Vazgeç
             </button>
             <button type="button" className="st-btn" disabled={saving} onClick={save}>
@@ -469,36 +672,61 @@ export default function CompanySettingsPage() {
         </div>
       )}
 
-      {!loading && companyId && tab === 'documents' && (
-        <CompanyDocumentsPanel token={token} companyId={companyId} setError={setError} setNotice={setNotice} />
+      {!loading && company && tab === 'documents' && (
+        <DocumentsPanel token={token} companyId={company.id}
+          setError={setError} setNotice={setNotice} />
       )}
 
-      {!loading && companyId && tab === 'tree' && (
-        <SubCompaniesPanel
-          token={token}
-          parentId={companyId}
-          children={children}
-          onCreated={load}
-          setError={setError}
-          setNotice={setNotice}
-        />
+      {!loading && company && tab === 'tree' && (
+        <SubCompaniesPanel token={token} parentId={company.id} items={children}
+          onCreated={load} setError={setError} setNotice={setNotice} />
       )}
     </div>
   );
 }
 
-function CompanyDocumentsPanel({ token, companyId, setError, setNotice }) {
+/**
+ * Etiket + giriş kutusu. Kilitli alanlar görsel olarak da işaretleniyor:
+ * yalnızca devre dışı bırakmak, alanın neden düzenlenemediğini söylemiyor.
+ */
+function Field({ label, value, onChange, locked, disabled, mono, hint, placeholder, children }) {
+  return (
+    <label className={`st-field ${mono ? 'st-field--mono' : ''}`}>
+      <span>
+        {label}
+        {locked && (
+          <span className="st-lock" title="Şirket kaydı oluşturulurken belirlendi">kilitli</span>
+        )}
+      </span>
+      {children ?? (
+        <input
+          value={value}
+          onChange={onChange}
+          disabled={locked || disabled}
+          placeholder={placeholder}
+        />
+      )}
+      {hint && <small className="st-hint">{hint}</small>}
+    </label>
+  );
+}
+
+/** Belge listesi + önizlemeli kart ızgarası. */
+function DocumentsPanel({ token, companyId, setError, setNotice }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState(null);
-  const [form, setForm] = useState({ documentType: COMPANY_DOCUMENT_TYPES[0].code, expiryDate: '', note: '' });
+  const [form, setForm] = useState({
+    documentType: COMPANY_DOCUMENT_TYPES[0].code,
+    expiryDate: '',
+    note: '',
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await fetchCompanyDocuments(token, companyId);
-      setDocuments(list);
+      setDocuments(await fetchCompanyDocuments(token, companyId));
     } catch (err) {
       setError(describeError(err, 'Belgeler okunamadı.'));
     } finally {
@@ -522,6 +750,7 @@ function CompanyDocumentsPanel({ token, companyId, setError, setNotice }) {
     try {
       await uploadCompanyDocument(token, companyId, { file, ...form });
       setFile(null);
+      e.target.reset();
       setForm({ documentType: COMPANY_DOCUMENT_TYPES[0].code, expiryDate: '', note: '' });
       setNotice('Belge yüklendi.');
       await load();
@@ -553,102 +782,158 @@ function CompanyDocumentsPanel({ token, companyId, setError, setNotice }) {
     }
   };
 
-  const fmtDate = (str) =>
-    str ? new Date(str).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-
-  const expiryBadge = (doc) => {
-    if (!doc.expiryDate) return null;
-    const days = (new Date(doc.expiryDate) - new Date()) / 86400000;
-    if (days < 0) return <span className="st-badge st-badge--err">Süresi doldu</span>;
-    if (days < 30) return <span className="st-badge st-badge--warn">Yakında dolacak</span>;
-    return <span className="st-badge st-badge--ok">Geçerli</span>;
-  };
-
   return (
-    <section className="st-card">
-      <p className="st-caps">Belgeler</p>
-
-      {loading && <p className="st-empty">Yükleniyor…</p>}
-
-      {!loading && documents.length === 0 && <p className="st-empty">Henüz belge yüklenmedi.</p>}
-
-      {!loading && documents.length > 0 && (
-        <div className="st-table-wrap">
-          <table className="st-table">
-            <thead>
-              <tr>
-                <th>Belge</th>
-                <th>Tür</th>
-                <th>Geçerlilik</th>
-                <th>Yüklenme</th>
-                <th className="st-right">İşlem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((doc) => (
-                <tr key={doc.id}>
-                  <td className="st-strong">{doc.originalFileName}</td>
-                  <td>{documentTypeName(doc.documentType)}</td>
-                  <td>
-                    {doc.expiryDate ? fmtDate(doc.expiryDate) : '—'} {expiryBadge(doc)}
-                  </td>
-                  <td className="st-mono st-dim">{fmtDate(doc.uploadedAt)}</td>
-                  <td className="st-right">
-                    <button type="button" className="st-link" onClick={() => download(doc)}>
-                      İndir
-                    </button>{' '}
-                    <button type="button" className="st-link" onClick={() => remove(doc)}>
-                      Sil
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <>
+      <section className="st-card">
+        <div className="st-card-head">
+          <div>
+            <h2>Belgeler</h2>
+            <p className="st-card-sub">
+              Vergi levhası, imza sirküleri, sicil kaydı gibi kurumsal evrak.
+            </p>
+          </div>
+          <span className="st-head-meta">{documents.length} belge</span>
         </div>
-      )}
 
-      <form onSubmit={submit} style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <p className="st-caps" style={{ margin: 0 }}>
-          Belge yükle
-        </p>
-        <div className="st-form-grid">
-          <label className="st-field">
-            <span>Belge türü</span>
-            <select value={form.documentType} onChange={(e) => setForm({ ...form, documentType: e.target.value })}>
-              {COMPANY_DOCUMENT_TYPES.map((t) => (
-                <option key={t.code} value={t.code}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="st-field">
-            <span>Geçerlilik tarihi (opsiyonel)</span>
-            <input
-              type="date"
-              value={form.expiryDate}
-              onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
-            />
-          </label>
-          <label className="st-field" style={{ gridColumn: '1 / -1' }}>
-            <span>Not (opsiyonel)</span>
-            <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-          </label>
-          <label className="st-field">
-            <span>Dosya</span>
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </label>
-        </div>
-        <button type="submit" className="st-btn" disabled={uploading} style={{ alignSelf: 'flex-start' }}>
-          {uploading ? 'Yükleniyor…' : '+ Belge yükle'}
-        </button>
-      </form>
-    </section>
+        {loading && <p className="st-empty">Yükleniyor…</p>}
+        {!loading && documents.length === 0 && (
+          <p className="st-empty">Henüz belge yüklenmedi.</p>
+        )}
+
+        {!loading && documents.length > 0 && (
+          <div className="st-doc-grid">
+            {documents.map((doc) => (
+              <DocumentCard key={doc.id} doc={doc} token={token} companyId={companyId}
+                onDownload={() => download(doc)} onRemove={() => remove(doc)} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="st-card">
+        <p className="st-caps">Belge yükle</p>
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="st-form-grid">
+            <Field label="Belge türü">
+              <select value={form.documentType}
+                onChange={(e) => setForm({ ...form, documentType: e.target.value })}>
+                {COMPANY_DOCUMENT_TYPES.map((t) => (
+                  <option key={t.code} value={t.code}>{t.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Geçerlilik tarihi" hint="İsteğe bağlı — süresi dolunca uyarılırsınız.">
+              <input type="date" value={form.expiryDate}
+                onChange={(e) => setForm({ ...form, expiryDate: e.target.value })} />
+            </Field>
+            <Field label="Dosya" hint="PDF ve resimlerin önizlemesi otomatik üretilir.">
+              <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            </Field>
+            <Field label="Not" value={form.note}
+              onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          </div>
+          <button type="submit" className="st-btn" disabled={uploading}
+            style={{ alignSelf: 'flex-start' }}>
+            {uploading ? 'Yükleniyor…' : '+ Belge yükle'}
+          </button>
+        </form>
+      </section>
+    </>
   );
 }
 
-function SubCompaniesPanel({ token, parentId, children, onCreated, setError, setNotice }) {
+const fmtDate = (str) =>
+  str
+    ? new Date(str).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—';
+
+const fmtSize = (bytes) => {
+  if (!bytes) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const expiryState = (doc) => {
+  if (!doc.expiryDate) return null;
+  const days = (new Date(doc.expiryDate) - new Date()) / 86400000;
+  if (days < 0) return { cls: 'st-badge--err', text: 'Süresi doldu' };
+  if (days < 30) return { cls: 'st-badge--warn', text: 'Yakında dolacak' };
+  return { cls: 'st-badge--ok', text: 'Geçerli' };
+};
+
+function DocumentCard({ doc, token, companyId, onDownload, onRemove }) {
+  const expiry = expiryState(doc);
+
+  return (
+    <article className="st-doc-card">
+      <DocumentThumb doc={doc} token={token} companyId={companyId} />
+      <div className="st-doc-body">
+        <strong className="st-doc-name" title={doc.originalFileName}>{doc.originalFileName}</strong>
+        <span className="st-doc-meta">{documentTypeName(doc.documentType)}</span>
+        <span className="st-doc-meta st-mono">
+          {fmtSize(doc.fileSizeBytes)} · {fmtDate(doc.uploadedAt)}
+        </span>
+        {expiry && (
+          <span className={`st-badge ${expiry.cls}`}>
+            {expiry.text} · {fmtDate(doc.expiryDate)}
+          </span>
+        )}
+        {doc.note && <span className="st-doc-meta">{doc.note}</span>}
+        <span className="st-doc-actions">
+          <button type="button" className="st-link" onClick={onDownload}>İndir</button>
+          <button type="button" className="st-link" onClick={onRemove}>Sil</button>
+        </span>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Önizleme görseli.
+ *
+ * Doğrudan <img src> kullanılamıyor: uç kimlik doğrulama istiyor ve tarayıcı
+ * img isteklerine Authorization başlığı eklemiyor. Blob nesne URL'i bileşen
+ * kaldırıldığında serbest bırakılıyor, yoksa her sekme geçişinde bellekte
+ * birikir.
+ */
+function DocumentThumb({ doc, token, companyId }) {
+  const [url, setUrl] = useState(null);
+
+  useEffect(() => {
+    if (!doc.hasThumbnail) return undefined;
+
+    let cancelled = false;
+    let created = null;
+
+    fetchCompanyDocumentThumbnail(token, companyId, doc.id)
+      .then((objectUrl) => {
+        if (cancelled) {
+          window.URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        created = objectUrl;
+        setUrl(objectUrl);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (created) window.URL.revokeObjectURL(created);
+    };
+  }, [doc.id, doc.hasThumbnail, token, companyId]);
+
+  if (url) {
+    return <img className="st-doc-thumb" src={url} alt="" loading="lazy" />;
+  }
+
+  // Önizlemesi olmayan belge (üretilemedi ya da desteklenmeyen biçim) yine de
+  // bir yer kaplamalı; ızgara satırları kaymasın diye aynı ölçüde bir rozet.
+  const ext = (doc.originalFileName.split('.').pop() || '?').toUpperCase().slice(0, 4);
+  return <span className="st-doc-thumb st-doc-thumb--empty">{ext}</span>;
+}
+
+function SubCompaniesPanel({ token, parentId, items, onCreated, setError, setNotice }) {
   const [form, setForm] = useState({ name: '', code: '' });
   const [busy, setBusy] = useState(false);
 
@@ -679,7 +964,16 @@ function SubCompaniesPanel({ token, parentId, children, onCreated, setError, set
 
   return (
     <section className="st-card">
-      {children.length === 0 ? (
+      <div className="st-card-head">
+        <div>
+          <h2>Alt şirketler</h2>
+          <p className="st-card-sub">
+            Her alt şirket ayrı tüzel kişilik sayılır ve kendi yasal bilgilerini taşır.
+          </p>
+        </div>
+      </div>
+
+      {items.length === 0 ? (
         <p className="st-empty">Henüz alt şirket yok.</p>
       ) : (
         <div className="st-table-wrap">
@@ -688,14 +982,16 @@ function SubCompaniesPanel({ token, parentId, children, onCreated, setError, set
               <tr>
                 <th>Ad</th>
                 <th>Kısa kod</th>
+                <th>Ülke</th>
                 <th>Seviye</th>
               </tr>
             </thead>
             <tbody>
-              {children.map((c) => (
+              {items.map((c) => (
                 <tr key={c.id}>
                   <td className="st-strong">{c.name}</td>
                   <td className="st-mono st-dim">{c.code || '—'}</td>
+                  <td className="st-mono st-dim">{c.countryCode || '—'}</td>
                   <td className="st-mono st-dim">{c.level}</td>
                 </tr>
               ))}
@@ -704,27 +1000,19 @@ function SubCompaniesPanel({ token, parentId, children, onCreated, setError, set
         </div>
       )}
 
-      <form onSubmit={submit} style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <form onSubmit={submit}
+        style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p className="st-caps" style={{ margin: 0 }}>Alt şirket ekle</p>
         <div className="st-form-grid">
-          <label className="st-field">
-            <span>Ad</span>
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Akdeniz Tekstil Lojistik"
-            />
-          </label>
-          <label className="st-field st-field--mono">
-            <span>Kısa kod</span>
-            <input
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-              placeholder="AKD-LOJ"
-            />
-          </label>
+          <Field label="Ad" value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            placeholder="Akdeniz Tekstil Lojistik" />
+          <Field label="Kısa kod" value={form.code}
+            onChange={(e) => setForm({ ...form, code: e.target.value })}
+            placeholder="AKD-LOJ" mono />
         </div>
-        <button type="submit" className="st-btn" disabled={busy} style={{ alignSelf: 'flex-start' }}>
+        <button type="submit" className="st-btn" disabled={busy}
+          style={{ alignSelf: 'flex-start' }}>
           {busy ? 'Ekleniyor…' : '+ Alt şirket ekle'}
         </button>
       </form>

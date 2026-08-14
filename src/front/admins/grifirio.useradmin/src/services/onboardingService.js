@@ -50,10 +50,24 @@ export const planByCode = (code) => PLANS.find((p) => p.code === code) || null;
  * adimda 403 ile duruyordu. Bu uc kisiyi kendi kurdugu firmanin yoneticisi
  * yapiyor ve yalnizca uyeligi olmayan biri icin calisiyor.
  */
-export const onboardCompany = async (token, { name, code, description }) => {
+export const onboardCompany = async (token, { name, legalName, code, countryCode, teamSize }) => {
   const { data } = await axios.post(
     `${GATEWAY}/v1/identity/companies/onboard`,
-    { name, code: code || null, description: description || null },
+    {
+      name,
+      legalName: legalName || null,
+      code: code || null,
+      // Ulke burada soruluyor cunku hangi vergi ve sicil alanlarinin
+      // isteneceğini bu belirliyor ve alan bir kez dolduktan sonra kilitleniyor;
+      // kayit sirasinda alinmazsa kullanici sonradan kilitli bir alani
+      // doldurmak zorunda kalirdi.
+      countryCode: countryCode || null,
+      // Ekip buyuklugu artik kendi alaninda. Onceden description'a
+      // "Ekip buyuklugu: 6-20" diye yaziliyordu ve sirket aciklamasi alaninda
+      // kullanicinin karsisina o cikiyordu.
+      teamSize: teamSize || null,
+      description: null,
+    },
     auth(token)
   );
   return data?.data ?? data;

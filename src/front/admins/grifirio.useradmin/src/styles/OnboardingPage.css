@@ -136,7 +136,8 @@
   color: var(--fainter);
 }
 
-.ob-field input {
+.ob-field input,
+.ob-field select {
   height: 46px;
   padding: 0 14px;
   border: 1px solid var(--line);
@@ -153,9 +154,19 @@
   color: var(--fainter);
 }
 
-.ob-field input:focus {
+.ob-field input:focus,
+.ob-field select:focus {
   border-color: var(--navy);
   box-shadow: 0 0 0 3px var(--gf-accent-soft);
+}
+
+/* Kayit sirasinda belirlenip sonradan kilitlenen alanlar. Kullanici bunu
+   ayarlar sayfasinda degistirmeye calisip da yapamadiginda sasirmasin. */
+.ob-locked-note {
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fainter);
 }
 
 .ob-row {

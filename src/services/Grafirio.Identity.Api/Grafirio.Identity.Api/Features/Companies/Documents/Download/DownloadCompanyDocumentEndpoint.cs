@@ -19,6 +19,25 @@ public static class DownloadCompanyDocumentEndpoint
             .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
             .RequireAuthorization("Password");
 
+        group.MapGet("/{companyId:guid}/documents/{documentId:guid}/thumbnail",
+                async (Guid companyId, Guid documentId, IMediator mediator) =>
+                {
+                    var result = await mediator.Send(
+                        new DownloadCompanyDocumentCommand(companyId, documentId, Thumbnail: true));
+
+                    // Önizleme indirilecek bir dosya değil, ekranda gösterilecek
+                    // bir görsel: indirme adı verilmiyor ki tarayıcı kaydetmeye
+                    // kalkmasın.
+                    return result.IsSuccess
+                        ? Results.File(result.Data!.Content, result.Data.ContentType)
+                        : Results.BadRequest(result.Fail);
+                })
+            .WithName("GetCompanyDocumentThumbnail")
+            .Produces(StatusCodes.Status200OK)
+            .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
+            .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
+            .RequireAuthorization("Password");
+
         return group;
     }
 }

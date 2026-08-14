@@ -10,7 +10,8 @@ public static class CompanyDocumentStorageModule
         Directory.CreateDirectory(wwwroot);
         services.AddSingleton<IFileProvider>(new PhysicalFileProvider(wwwroot));
 
-        services.AddScoped<CompanyDocumentFileStorage>();
+        services.AddScoped<ICompanyDocumentStore, LocalDiskCompanyDocumentStore>();
+        services.AddSingleton<CompanyDocumentThumbnailer>();
         return services;
     }
 }

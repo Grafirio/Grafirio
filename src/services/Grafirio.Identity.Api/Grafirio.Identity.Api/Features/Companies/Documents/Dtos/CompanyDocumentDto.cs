@@ -12,4 +12,9 @@ public class CompanyDocumentDto
     public string? Note { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedBy { get; set; }
+
+    /// Önizleme ucunun bu belge için görsel döndüreceği. Dosya adının kendisi
+    /// dışarı verilmiyor; istemcinin ihtiyacı olan tek şey resmi isteyip
+    /// istemeyeceği.
+    public bool HasThumbnail { get; set; }
 }

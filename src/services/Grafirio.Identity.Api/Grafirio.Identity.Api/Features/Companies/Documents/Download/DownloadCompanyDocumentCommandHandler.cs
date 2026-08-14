@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Download;
 public class DownloadCompanyDocumentCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
-    CompanyDocumentFileStorage storage)
+    ICompanyDocumentStore store)
     : IRequestHandler<DownloadCompanyDocumentCommand, ServiceResult<DownloadCompanyDocumentResponse>>
 {
     public async Task<ServiceResult<DownloadCompanyDocumentResponse>> Handle(
@@ -31,17 +31,30 @@ public class DownloadCompanyDocumentCommandHandler(
                 HttpStatusCode.NotFound);
         }
 
-        var fileInfo = storage.GetFileInfo(request.CompanyId, document.StoredFileName);
-        if (!fileInfo.Exists || fileInfo.PhysicalPath is null)
+        // Önizleme istendiğinde ve belgede yoksa 404: istemci küçük resmi
+        // isteyip isteyemeyeceğini listedeki HasThumbnail alanından biliyor,
+        // bu yalnızca yarış durumuna karşı.
+        var fileName = request.Thumbnail ? document.ThumbnailFileName : document.StoredFileName;
+        if (string.IsNullOrEmpty(fileName))
         {
-            return ServiceResult<DownloadCompanyDocumentResponse>.Error("File not found on disk",
+            return ServiceResult<DownloadCompanyDocumentResponse>.Error("Preview not available",
                 HttpStatusCode.NotFound);
         }
 
-        var content = await File.ReadAllBytesAsync(fileInfo.PhysicalPath, cancellationToken);
+        var content = await store.ReadAsync(request.CompanyId, fileName, cancellationToken);
+        if (content is null)
+        {
+            // Yerel disk kalıcı değil: yeni sürüm yayınlandığında kayıt Mongo'da
+            // kalır ama dosyanın kendisi gitmiş olur.
+            return ServiceResult<DownloadCompanyDocumentResponse>.Error("File is no longer stored",
+                "Dosya sunucuda bulunamadı.", HttpStatusCode.NotFound);
+        }
 
-        return ServiceResult<DownloadCompanyDocumentResponse>.SuccessAsOk(
-            new DownloadCompanyDocumentResponse(content, document.ContentType ?? "application/octet-stream",
-                document.OriginalFileName));
+        return request.Thumbnail
+            ? ServiceResult<DownloadCompanyDocumentResponse>.SuccessAsOk(
+                new DownloadCompanyDocumentResponse(content, "image/jpeg", document.OriginalFileName))
+            : ServiceResult<DownloadCompanyDocumentResponse>.SuccessAsOk(
+                new DownloadCompanyDocumentResponse(content,
+                    document.ContentType ?? "application/octet-stream", document.OriginalFileName));
     }
 }

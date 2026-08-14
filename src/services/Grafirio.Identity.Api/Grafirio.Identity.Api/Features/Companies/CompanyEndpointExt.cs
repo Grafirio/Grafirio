@@ -5,6 +5,7 @@ using Grafirio.Identity.Api.Features.Companies.Documents.Download;
 using Grafirio.Identity.Api.Features.Companies.Documents.GetAll;
 using Grafirio.Identity.Api.Features.Companies.Documents.Upload;
 using Grafirio.Identity.Api.Features.Companies.GetAll;
+using Grafirio.Identity.Api.Features.Companies.GetCurrent;
 using Grafirio.Identity.Api.Features.Companies.Onboard;
 using Grafirio.Identity.Api.Features.Companies.Update;
 
@@ -20,6 +21,7 @@ public static class CompanyEndpointExt
             .CreateCompanyGroupItemEndpoint()
             .OnboardCompanyGroupItemEndpoint()
             .GetAllCompaniesGroupItemEndpoint()
+            .GetCurrentCompanyGroupItemEndpoint()
             .UpdateCompanyGroupItemEndpoint()
             .UploadCompanyDocumentGroupItemEndpoint()
             .GetCompanyDocumentsGroupItemEndpoint()
