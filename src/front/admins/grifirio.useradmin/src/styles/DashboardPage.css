@@ -1,20 +1,11 @@
 @import '../../../../shared/theme/tokens.css';
 
 /* Panel ana ekrani — tasarim taslagindaki yerlesim, marka degiskenleriyle.
-   Onceki surum --accent / --surface-sunken gibi tanimsiz degiskenlere
-   dayaniyordu (theme.css'te yoklar), o yuzden renkler tarayicida sessizce
-   dusuyordu. */
-
-.db {
-  max-width: 1800px;
-  margin: 0 auto;
-  padding: var(--layout-page-pad) var(--layout-page-pad) 80px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  font-family: var(--gf-font-body);
-  color: var(--gf-ink);
-}
+   Sayfa kabugu (genislik/kenar bosluu) artik burada tanimli degil: sayfa
+   koku "st" class'ini kullaniyor (bkz. Shell.css .gf-shell / .st) — boylece
+   Dashboard, Ayarlar ve Uyelik ayni genislik tarifini paylasiyor, ayri ayri
+   guncellenip ayrisamiyorlar. Asagidakiler yalnizca bu sayfaya ozgu
+   bilesenler (kart, rozet, izgara). */
 
 /* Baslik */
 .db-head {
@@ -472,10 +463,6 @@
 }
 
 @media (max-width: 720px) {
-  .db {
-    padding: 24px 16px 60px;
-  }
-
   .db-head-actions {
     margin-left: 0;
     width: 100%;

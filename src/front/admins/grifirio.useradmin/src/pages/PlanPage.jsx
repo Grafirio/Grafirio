@@ -57,7 +57,7 @@ export default function PlanPage() {
     : null;
 
   return (
-    <div className="pl">
+    <div className="st">
       <div className="pl-head">
         <div>
           <p className="pl-eyebrow">Ayarlar · Abonelik</p>
