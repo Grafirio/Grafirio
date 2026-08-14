@@ -76,6 +76,73 @@ export const createSubCompany = async (token, { name, code, description, parentC
   return unwrap(data);
 };
 
+/** Sirket kimlik/yasal/adres/banka alanlarini kaydeder (PUT). */
+export const updateCompany = async (token, companyId, payload) => {
+  const { data } = await axios.put(
+    `${GATEWAY}/v1/identity/companies/${companyId}`,
+    payload,
+    auth(token)
+  );
+  return unwrap(data);
+};
+
+export const COMPANY_DOCUMENT_TYPES = [
+  { code: 'VERGI_LEVHASI', name: 'Vergi levhası' },
+  { code: 'IMZA_SIRKULERI', name: 'İmza sirküleri' },
+  { code: 'TICARET_SICIL_GAZETESI', name: 'Ticaret sicil gazetesi' },
+  { code: 'FAALIYET_BELGESI', name: 'Faaliyet belgesi' },
+  { code: 'DIGER', name: 'Diğer' },
+];
+
+export const documentTypeName = (code) =>
+  COMPANY_DOCUMENT_TYPES.find((t) => t.code === code)?.name ?? code;
+
+export const fetchCompanyDocuments = async (token, companyId) => {
+  const { data } = await axios.get(
+    `${GATEWAY}/v1/identity/companies/${companyId}/documents`,
+    auth(token)
+  );
+  return unwrap(data) ?? [];
+};
+
+export const uploadCompanyDocument = async (token, companyId, { file, documentType, expiryDate, note }) => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('documentType', documentType);
+  if (expiryDate) form.append('expiryDate', expiryDate);
+  if (note) form.append('note', note);
+
+  const { data } = await axios.post(
+    `${GATEWAY}/v1/identity/companies/${companyId}/documents`,
+    form,
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 }
+  );
+  return unwrap(data);
+};
+
+export const deleteCompanyDocument = async (token, companyId, documentId) => {
+  await axios.delete(
+    `${GATEWAY}/v1/identity/companies/${companyId}/documents/${documentId}`,
+    auth(token)
+  );
+};
+
+/** Belgeyi indirir ve tarayicida kaydetme diyalogunu tetikler. */
+export const downloadCompanyDocument = async (token, companyId, documentId, fileName) => {
+  const response = await axios.get(
+    `${GATEWAY}/v1/identity/companies/${companyId}/documents/${documentId}/download`,
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 30000, responseType: 'blob' }
+  );
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName || 'belge';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 export const describeError = (err, fallback) =>
   err?.response?.data?.detail ||
   err?.response?.data?.title ||

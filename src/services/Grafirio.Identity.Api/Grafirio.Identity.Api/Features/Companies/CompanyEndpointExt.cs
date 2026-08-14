@@ -1,7 +1,12 @@
 using Asp.Versioning.Builder;
 using Grafirio.Identity.Api.Features.Companies.Create;
+using Grafirio.Identity.Api.Features.Companies.Documents.Delete;
+using Grafirio.Identity.Api.Features.Companies.Documents.Download;
+using Grafirio.Identity.Api.Features.Companies.Documents.GetAll;
+using Grafirio.Identity.Api.Features.Companies.Documents.Upload;
 using Grafirio.Identity.Api.Features.Companies.GetAll;
 using Grafirio.Identity.Api.Features.Companies.Onboard;
+using Grafirio.Identity.Api.Features.Companies.Update;
 
 namespace Grafirio.Identity.Api.Features.Companies;
 
@@ -15,6 +20,11 @@ public static class CompanyEndpointExt
             .CreateCompanyGroupItemEndpoint()
             .OnboardCompanyGroupItemEndpoint()
             .GetAllCompaniesGroupItemEndpoint()
+            .UpdateCompanyGroupItemEndpoint()
+            .UploadCompanyDocumentGroupItemEndpoint()
+            .GetCompanyDocumentsGroupItemEndpoint()
+            .DownloadCompanyDocumentGroupItemEndpoint()
+            .DeleteCompanyDocumentGroupItemEndpoint()
             .MapToApiVersion(1, 0);
     }
 }

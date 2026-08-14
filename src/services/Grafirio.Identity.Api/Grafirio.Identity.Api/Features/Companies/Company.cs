@@ -31,4 +31,37 @@ public class Company : BaseEntity
     /// Onay alınırken kullanıcıya gösterilen metnin sürümü — metin değişirse
     /// eski onayların neyi kapsadığı belirsiz kalmasın.
     public string? SaAccessConsentTextVersion { get; set; }
+
+    // Yasal/vergi kimlik bilgileri. Alt şirketler genelde ayrı tüzel kişilik
+    // olduğundan bu alanlar hiyerarşi seviyesinden bağımsız, her Company
+    // kendi bilgisini taşır (miras alınmaz).
+    public string? TaxNumber { get; set; }
+    public string? TaxOffice { get; set; }
+    public string? TradeRegistryNumber { get; set; }
+    public string? MersisNumber { get; set; }
+    public string? CompanyType { get; set; }
+    public DateTime? EstablishmentDate { get; set; }
+    public string? ActivityCode { get; set; }
+    public string? ActivityDescription { get; set; }
+
+    // Adres ve resmi iletişim
+    public string? LegalAddress { get; set; }
+    public string? KepAddress { get; set; }
+    public string? AuthorizedSignatoryName { get; set; }
+    public string? AuthorizedSignatoryTitle { get; set; }
+    public string? KvkkRepresentativeName { get; set; }
+    public string? KvkkRepresentativeEmail { get; set; }
+    public string? GeneralPhone { get; set; }
+    public string? GeneralEmail { get; set; }
+
+    // Banka hesapları — Mongo dokümanına gömülü liste. Null: hiç girilmemiş.
+    public List<CompanyBankAccount>? BankAccounts { get; set; }
+}
+
+public class CompanyBankAccount
+{
+    public string? BankName { get; set; }
+    public string? BranchName { get; set; }
+    public string? Iban { get; set; }
+    public string? AccountHolder { get; set; }
 }
