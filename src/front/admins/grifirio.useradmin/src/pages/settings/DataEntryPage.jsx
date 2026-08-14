@@ -49,7 +49,7 @@ export default function DataEntryPage({ embedded = false } = {}) {
     str ? new Date(str).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
   return (
-    <div className="st">
+    <div className={embedded ? 'st-embed' : 'st'}>
       {!embedded && (
         <div className="st-head">
           <div>

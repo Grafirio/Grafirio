@@ -1,10 +1,15 @@
 /* SQL Connection Settings — layout only.
    Colour, type and shared widgets come from theme.css tokens/primitives. */
 
+/* Bu bilesen artik yalnizca DataSourcesPage.jsx icinde, embedded=true ile
+   gosteriliyor (bkz. routes/index.jsx — eski /settings/sql-connection yolu
+   /data'ya yonlendiriyor). Sayfa genisligini/kenar bosluguunu disaridaki
+   ".st" zaten veriyor; burada AYRICA bir max-width/padding tanimlamak
+   "Baglantilar" sekmesini "Dosya yukle" sekmesinden daha dar gosteriyordu. */
 .sql-connection-settings {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 34px 28px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 /* --- Connection form ----------------------------------------------------- */

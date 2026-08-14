@@ -26,6 +26,32 @@
   color: var(--gf-ink);
 }
 
+/* Gomulu icerik (ornegin UsersRolesPage'in "Kullanicilar" sekmesi
+   icindeki UsersPage). Ayni dikey ritmi (flex + gap) verir ama sayfa
+   genisligi/kenar bosluguna DOKUNMAZ — o zaten disaridaki .st'de bir kere
+   uygulanmis. Onceden buraya hicbir class verilmiyordu (className=
+   undefined); bu da bolumler arasindaki bosluu sessizce kaldiriyordu. */
+.st-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* "← Ayarlar" gibi geri donus baglantilari. */
+.st-back {
+  display: inline-block;
+  margin-bottom: 10px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--gf-faint);
+  cursor: pointer;
+}
+.st-back:hover { color: var(--gf-accent); }
+
 /* --------------------------------------------------------------------------
    Baslik
    -------------------------------------------------------------------------- */
@@ -194,9 +220,28 @@
   align-items: start;
 }
 
-.st-grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-.st-grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-.st-grid-4 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+/* auto-fit + minmax, genis ekranda dogru calisiyordu ama toplam genislik
+   (320*2 + bosluk) esigin altina duserse sessizce tek sutuna coken bir
+   davranisi vardi — dar bir pencerede "yan yana degil alt alta" izlenimi
+   buradan geliyordu. Sabit 2/3/4 sutuna sabitlendi, kucuk ekranda asagidaki
+   media query tek sutuna dusuruyor. */
+.st-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.st-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.st-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+@media (max-width: 860px) {
+  .st-grid-2,
+  .st-grid-3,
+  .st-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+@media (min-width: 861px) and (max-width: 1180px) {
+  .st-grid-3,
+  .st-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 
 .st-split {
   display: grid;
@@ -840,6 +885,51 @@
   font-size: 14px;
   line-height: 1.6;
   color: var(--gf-muted);
+}
+
+/* Veri yokken de tablo govdesi kalir — baslik satiri kaybolup yerine
+   duz bir metin gelmez, o zaman kullanicinin "burada bir tablo olacakti"
+   beklentisi karsilanmiyordu. Bu, tbody icinde tum sutunlari kaplayan tek
+   satirlik bos-durum hucresi. */
+.st-table-empty td {
+  padding: 22px 0 !important;
+  text-align: center;
+  color: var(--gf-faint);
+  font-size: 13.5px;
+  border-top: 1px solid var(--gf-line-soft);
+}
+
+/* Izin matrisi hucreleri: mockup'taki gibi anahtar gorunumlu ama
+   TIKLANAMAZ — sunucuda rol-izin guncelleme ucu yok, gorunup de hicbir
+   sey kaydetmeyen bir anahtar koymak yaniltici olurdu. */
+.st-perm-toggle {
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 21px;
+  padding: 2px;
+  border-radius: 99px;
+  border: 1px solid var(--gf-line);
+  background: var(--gf-paper-warm);
+  cursor: default;
+}
+.st-perm-toggle i {
+  width: 15px;
+  height: 15px;
+  border-radius: 99px;
+  background: var(--gf-fainter);
+  display: block;
+}
+.st-perm-toggle[data-on="true"] {
+  justify-content: flex-end;
+  background: var(--gf-accent);
+  border-color: transparent;
+}
+.st-perm-toggle[data-on="true"] i {
+  background: var(--gf-accent-on);
+}
+.st-perm-toggle[data-locked="true"] {
+  opacity: 0.55;
 }
 
 .st-dropzone {
