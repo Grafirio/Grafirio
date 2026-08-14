@@ -88,11 +88,18 @@
   color: var(--gf-accent);
 }
 
-/* Sayaclar */
+/* Sayaclar — 4 sabit sutun. auto-fit+minmax dar bir pencerede 3+1 gibi
+   garip bir bolunmeye dusebiliyordu; simdi net esiklerde 4/2/1'e dusuyor. */
 .db-kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--layout-gap);
+}
+@media (max-width: 1180px) {
+  .db-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .db-kpis { grid-template-columns: 1fr; }
 }
 
 .db-kpi {

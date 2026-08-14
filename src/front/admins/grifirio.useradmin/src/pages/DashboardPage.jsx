@@ -18,19 +18,20 @@ function hashSeed(str) {
   return h;
 }
 
-function spokesFor(seedStr, tableCount) {
+function spokesFor(seedStr) {
   const h = hashSeed(seedStr || 'x');
-  const n = Math.min(9, Math.max(5, tableCount || 6));
+  // Taslaktaki isaret 9 kalin dilimle merkezi dolduruyor; onceki surum
+  // dilimleri merkeze cok yakin ve cok ince baslatiyordu, kucuk ve dagilmis
+  // duruyordu. Sayi sabit 9, yalnizca uzunluk/kalinlik varyasyonu hash'ten.
+  const n = 9;
   const step = 360 / n;
   return Array.from({ length: n }, (_, i) => {
-    const len = 8 + ((h >> (i * 3)) % 12);
-    const inner = 8 + (len % 3) * 3;
-    const reach = 22 + (len - 11) * 1.1;
+    const v = (h >> (i * 4)) % 12;
     return {
       a: `${(i * step - 90).toFixed(1)}deg`,
-      x: `${(50 + inner).toFixed(1)}%`,
-      l: `${Math.max(8, reach - inner).toFixed(1)}%`,
-      t: `${(4.2 + (len % 4) * 0.9).toFixed(1)}%`,
+      x: '56%',
+      l: `${(34 + v).toFixed(1)}%`,
+      t: `${(5.5 + (v % 4) * 0.6).toFixed(1)}%`,
       c: `var(${PALETTE[i % PALETTE.length]})`,
     };
   });
@@ -195,7 +196,7 @@ const DashboardPage = () => {
               title="Kanvası açmak için çift tıklayın"
             >
               <div className="db-canvas-cover">
-                {spokesFor(a.connectionId || a.database, a.tableCount).map((s, i) => (
+                {spokesFor(a.connectionId || a.database).map((s, i) => (
                   <span key={i} className="db-spoke" style={{ transform: `rotate(${s.a})` }}>
                     <span style={{ left: s.x, width: s.l, height: s.t, background: s.c }} />
                   </span>
