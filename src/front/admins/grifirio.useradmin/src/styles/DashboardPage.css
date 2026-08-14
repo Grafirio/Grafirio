@@ -289,33 +289,10 @@
   overflow: hidden;
 }
 
-.db-spoke {
-  position: absolute;
-  inset: 0;
-}
-
-.db-spoke span {
-  position: absolute;
-  top: 50%;
-  border-radius: 99px;
-  transform: translateY(-50%);
-}
-
-.db-canvas-center {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
-
-.db-canvas-center::after {
-  content: '';
-  width: 13%;
-  height: 13%;
-  border-radius: 22%;
-  background: var(--gf-paper);
-  border: 2px solid var(--gf-ink);
+.db-canvas-svg {
   display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .db-canvas-info {

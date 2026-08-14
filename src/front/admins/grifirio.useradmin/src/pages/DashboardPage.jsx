@@ -4,8 +4,10 @@ import { useKeycloak } from '@react-keycloak/web';
 import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
 import '../styles/DashboardPage.css';
 
-// Kapak isareti: marka isaretindeki gibi merkezden disa acilan dilimler, ama
-// her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
+// Kapak isareti: marka isaretindeki gibi merkezden disa acilan, iki kavisle
+// sinirlanmis yuvarlak dilimler (duz cubuklar degil) — ayni cizim teknigi
+// GMark'taki petal sekliyle bire bir ayni (ic/dis yay + iki kisa kenar).
+// Her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
 // hash'ten turetiliyor (rastgele degil — ayni analiz her acilista ayni
 // gorunur). Veri grafiklerinin sabit paleti (--gf-c01..) yerine turuncu/
 // hardal sarisi agirlikli, bu ikona ozel bir palet kullaniyor; veriyle bir
@@ -19,20 +21,29 @@ function hashSeed(str) {
   return h;
 }
 
+function polar(cx, cy, r, angleDeg) {
+  const a = (angleDeg * Math.PI) / 180;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+
+// Ic ve dis yay + iki kisa kenardan olusan petal — GMark.jsx'teki
+// "A r r 0 0 1 ... L ... A r2 r2 0 0 0 ... Z" kalibinin aynisi.
+function petalPath(cx, cy, angleDeg, halfWidthDeg, rInner, rOuter) {
+  const [x1, y1] = polar(cx, cy, rOuter, angleDeg - halfWidthDeg);
+  const [x2, y2] = polar(cx, cy, rOuter, angleDeg + halfWidthDeg);
+  const [x3, y3] = polar(cx, cy, rInner, angleDeg + halfWidthDeg);
+  const [x4, y4] = polar(cx, cy, rInner, angleDeg - halfWidthDeg);
+  return `M${x1.toFixed(2)},${y1.toFixed(2)} A${rOuter},${rOuter} 0 0 1 ${x2.toFixed(2)},${y2.toFixed(2)} L${x3.toFixed(2)},${y3.toFixed(2)} A${rInner},${rInner} 0 0 0 ${x4.toFixed(2)},${y4.toFixed(2)} Z`;
+}
+
 function spokesFor(seedStr) {
   const h = hashSeed(seedStr || 'x');
-  // Taslaktaki isaret 9 kalin dilimle merkezi dolduruyor; onceki surum
-  // dilimleri merkeze cok yakin ve cok ince baslatiyordu, kucuk ve dagilmis
-  // duruyordu. Sayi sabit 9, yalnizca uzunluk/kalinlik varyasyonu hash'ten.
   const n = 9;
   const step = 360 / n;
   return Array.from({ length: n }, (_, i) => {
     const v = (h >> (i * 4)) % 12;
     return {
-      a: `${(i * step - 90).toFixed(1)}deg`,
-      x: '56%',
-      l: `${(34 + v).toFixed(1)}%`,
-      t: `${(5.5 + (v % 4) * 0.6).toFixed(1)}%`,
+      d: petalPath(50, 50, i * step - 90, 15, 12, 32 + v),
       c: PALETTE[i % PALETTE.length],
     };
   });
@@ -197,12 +208,12 @@ const DashboardPage = () => {
               title="Kanvası açmak için çift tıklayın"
             >
               <div className="db-canvas-cover">
-                {spokesFor(a.connectionId || a.database).map((s, i) => (
-                  <span key={i} className="db-spoke" style={{ transform: `rotate(${s.a})` }}>
-                    <span style={{ left: s.x, width: s.l, height: s.t, background: s.c }} />
-                  </span>
-                ))}
-                <span className="db-canvas-center" />
+                <svg className="db-canvas-svg" viewBox="0 0 100 100" aria-hidden="true">
+                  {spokesFor(a.connectionId || a.database).map((s, i) => (
+                    <path key={i} d={s.d} fill={s.c} />
+                  ))}
+                  <circle cx="50" cy="50" r="7" fill="var(--gf-paper)" stroke="var(--gf-ink)" strokeWidth="2.4" />
+                </svg>
               </div>
               <div className="db-canvas-info">
                 <div className="db-canvas-info-top">
