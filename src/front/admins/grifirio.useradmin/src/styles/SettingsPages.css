@@ -1,4 +1,5 @@
 @import '../../../../shared/theme/tokens.css';
+@import './Shell.css';
 
 /* ==========================================================================
    Ayar sayfalari — ortak yerlesim
@@ -10,32 +11,12 @@
    bu ortakligi bes kopyaya bolerdi; degisen bir olcu bes yerde guncellenmek
    zorunda kalirdi.
 
-   Sayfaya ozgu olan sey (ornegin izin matrisi, agac gorunumu) yine burada
-   ama kendi bolumunde duruyor — hepsi ayni tasarim dilinden geldigi icin
-   ayirmanin faydasi yok.
+   .st ve .st-embed'in kendisi artik burada tanimli degil — Shell.css'teki
+   .gf-shell / .gf-shell-embed ile ayni kural blogunu paylasiyorlar (bkz.
+   Shell.css). Sayfaya ozgu olan sey (ornegin izin matrisi, agac gorunumu)
+   yine burada ama kendi bolumunde duruyor — hepsi ayni tasarim dilinden
+   geldigi icin ayirmanin faydasi yok.
    ========================================================================== */
-
-.st {
-  max-width: 1800px;
-  margin: 0 auto;
-  padding: var(--layout-page-pad) var(--layout-page-pad) 80px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  font-family: var(--gf-font-body);
-  color: var(--gf-ink);
-}
-
-/* Gomulu icerik (ornegin UsersRolesPage'in "Kullanicilar" sekmesi
-   icindeki UsersPage). Ayni dikey ritmi (flex + gap) verir ama sayfa
-   genisligi/kenar bosluguna DOKUNMAZ — o zaten disaridaki .st'de bir kere
-   uygulanmis. Onceden buraya hicbir class verilmiyordu (className=
-   undefined); bu da bolumler arasindaki bosluu sessizce kaldiriyordu. */
-.st-embed {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
 
 /* "← Ayarlar" gibi geri donus baglantilari. */
 .st-back {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { getSavedConnections, listAnalyses } from '../services/dataAnalysisService';
+import '../styles/Shell.css';
 import '../styles/DashboardPage.css';
 
 // Kapak isareti: marka isaretindeki gibi merkezden disa acilan, iki kavisle
@@ -127,7 +128,7 @@ const DashboardPage = () => {
       : '—';
 
   return (
-    <div className="db">
+    <div className="st">
       <div className="db-head">
         <div>
           <p className="db-eyebrow">Panel · Çalışma Alanınız</p>

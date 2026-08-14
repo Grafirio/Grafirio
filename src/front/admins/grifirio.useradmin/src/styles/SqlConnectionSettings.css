@@ -103,10 +103,14 @@
 
 .checkbox-label input { accent-color: var(--accent); width: 1rem; height: 1rem; }
 
-/* --- Connection cards ---------------------------------------------------- */
+/* --- Connection cards -----------------------------------------------------
+   auto-fill, tek bir baglanti oldugunda o kartin yalnizca ilk sutunu
+   kaplamasina ve satirin geri kalanini bombos birakmasina sebep oluyordu
+   (bos sutunlar da yer ayiriyor). auto-fit ile bos sutunlar 0'a coker,
+   var olan kart(lar) 1fr sayesinde satiri gercekten dolduruyor. */
 .connections-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: var(--space-4);
 }
 

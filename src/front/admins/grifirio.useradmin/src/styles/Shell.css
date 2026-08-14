@@ -1,0 +1,83 @@
+@import '../../../../shared/theme/tokens.css';
+
+/* ==========================================================================
+   Panel genelinde TEK sayfa kabuğu ve TEK grid sistemi.
+   ==========================================================================
+
+   Öncesinde her sayfa (Dashboard, Ayarlar, Üyelik, Veri kaynakları) kendi
+   max-width/padding/grid tanımını ayrı ayrı tekrarlıyordu (.db, .pl, .st,
+   .sql-connection-settings). Değerler aynı başlıyor ama zamanla ayrışıyordu
+   — bir sayfada genişlik güncellenince öbüründe unutuluyordu, sonuçta
+   sayfalar yan yana konunca farklı genişlikte görünüyordu.
+
+   Artık tek kaynak burası. Şirket Ayarları sayfasının ölçüleri referans
+   alındı (kullanıcı onayıyla): 1800px, dengeli yoğunlukta kenar boşluğu.
+   Diğer sayfa dosyaları (.db, .pl vb.) artık kendi kabuk ölçülerini
+   tanımlamıyor, yalnızca kendi bileşenlerine (kart, rozet, ikon) ait
+   stilleri tutuyor.
+   ========================================================================== */
+
+.gf-shell,
+.st {
+  max-width: 1800px;
+  margin: 0 auto;
+  padding: var(--layout-page-pad) var(--layout-page-pad) 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-family: var(--gf-font-body);
+  color: var(--gf-ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Gömülü içerik (bir sekmenin içinde başka bir sayfa bileşeni gösterildiğinde,
+   örn. Ayarlar > Kullanıcılar sekmesindeki UsersPage). Aynı dikey ritmi
+   (flex + gap) verir ama kabuğun kendi genişliğini/kenar boşluğunu bir daha
+   uygulamaz — o zaten dışarıdaki .gf-shell'de bir kere uygulanmış olur. */
+.gf-shell-embed,
+.st-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Grid — Bootstrap'taki row/col mantığının CSS Grid karşılığı: 12 eşit
+   sütun, .gf-col-N kaç sütun kaplayacağını söyler.
+
+   auto-fit / auto-fill KULLANILMIYOR: o desen, içerik grid'i doldurmaya
+   yetmediğinde (ör. tek bağlantı kartı, tek kanvas) sessizce boş sütun
+   ayırıp satırın geri kalanını bomboş bırakıyordu — "Veri kaynakları"
+   sayfasındaki tek kartın neden dar durduğu buydu. Sabit 12 sütun +
+   span, içerik kaç öge olursa olsun satırı gerçekten dolduruyor.
+   -------------------------------------------------------------------------- */
+.gf-row {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--layout-gap);
+  width: 100%;
+}
+
+.gf-col-1 { grid-column: span 1; }
+.gf-col-2 { grid-column: span 2; }
+.gf-col-3 { grid-column: span 3; }
+.gf-col-4 { grid-column: span 4; }
+.gf-col-5 { grid-column: span 5; }
+.gf-col-6 { grid-column: span 6; }
+.gf-col-7 { grid-column: span 7; }
+.gf-col-8 { grid-column: span 8; }
+.gf-col-9 { grid-column: span 9; }
+.gf-col-10 { grid-column: span 10; }
+.gf-col-11 { grid-column: span 11; }
+.gf-col-12 { grid-column: span 12; }
+
+@media (max-width: 1180px) {
+  .gf-col-3, .gf-col-4 { grid-column: span 6; }
+  .gf-col-5, .gf-col-6, .gf-col-7, .gf-col-8,
+  .gf-col-9, .gf-col-10, .gf-col-11 { grid-column: span 12; }
+}
+@media (max-width: 720px) {
+  .gf-row > * { grid-column: span 12 !important; }
+}
