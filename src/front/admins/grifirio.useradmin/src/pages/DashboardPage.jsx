@@ -7,10 +7,11 @@ import '../styles/DashboardPage.css';
 // Kapak isareti: marka isaretindeki gibi merkezden disa acilan dilimler, ama
 // her analiz kendi siluetini alsin diye analizin kimligine bagli sabit bir
 // hash'ten turetiliyor (rastgele degil — ayni analiz her acilista ayni
-// gorunur). Sabit grafik paletini (--gf-c01.. ) sirayla tuketir; veriyle
-// bir ilgisi yok, yalnizca izgarada kartlari birbirinden ayirt ettiren bir
+// gorunur). Veri grafiklerinin sabit paleti (--gf-c01..) yerine turuncu/
+// hardal sarisi agirlikli, bu ikona ozel bir palet kullaniyor; veriyle bir
+// ilgisi yok, yalnizca izgarada kartlari birbirinden ayirt ettiren bir
 // susleme.
-const PALETTE = ['--gf-c01', '--gf-c02', '--gf-c03', '--gf-c04', '--gf-c05', '--gf-c06', '--gf-c07', '--gf-c08', '--gf-c09'];
+const PALETTE = ['#7a4f08', '#96650b', '#b8790e', '#c68a13', '#d99a1c', '#e6a52b', '#eab308', '#f0902b', '#f8c630'];
 
 function hashSeed(str) {
   let h = 0;
@@ -32,7 +33,7 @@ function spokesFor(seedStr) {
       x: '56%',
       l: `${(34 + v).toFixed(1)}%`,
       t: `${(5.5 + (v % 4) * 0.6).toFixed(1)}%`,
-      c: `var(${PALETTE[i % PALETTE.length]})`,
+      c: PALETTE[i % PALETTE.length],
     };
   });
 }
