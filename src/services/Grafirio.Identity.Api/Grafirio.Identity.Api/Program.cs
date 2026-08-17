@@ -31,6 +31,12 @@ var app = builder.Build();
 // Global Exception Handling & Logging
 app.UseGlobalExceptionHandling();
 
+// Tohum verisinden once ve bilerek beklenerek: bu onarim tamamlanmadan
+// yapilan her sirket okumasi "mapped collection but missing" ile duser, yani
+// arkasindan gelen her sey buna bagli. Seed'in ates-et-unut kalibi burada
+// kullanilamaz.
+await app.RepairCompanyEmbeddedListsExt();
+
 app.AddSeedDataExt().ContinueWith(x =>
 {
     Console.WriteLine(x.IsFaulted ? x.Exception?.Message : "Seed data has been saved successfully");

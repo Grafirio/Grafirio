@@ -121,8 +121,13 @@ public class Company : BaseEntity
 
     // ── Listeler ──────────────────────────────────────────────────────────
 
-    public List<CompanyAddress>? Addresses { get; set; }
-    public List<CompanyBankAccount>? BankAccounts { get; set; }
+    // Bos dizi olarak baslatiliyor, null olarak degil: EF sağlayıcısı
+    // <c>OwnsMany</c> ile eslenmis bir diziyi belgede bulamazsa okumayi
+    // tamamen kiriyor ("mapped collection but missing"). Yeni kayitlarin bu
+    // duruma hic dusmemesi icin alan her zaman yaziliyor; eski kayitlari
+    // <see cref="Repositories.CompanyEmbeddedListRepair"/> onariyor.
+    public List<CompanyAddress>? Addresses { get; set; } = [];
+    public List<CompanyBankAccount>? BankAccounts { get; set; } = [];
 
     // ── Hiyerarşi ve durum ────────────────────────────────────────────────
 
