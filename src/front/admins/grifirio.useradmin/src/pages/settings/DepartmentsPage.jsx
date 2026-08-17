@@ -11,6 +11,7 @@ import {
   updateDepartment,
 } from '../../services/departmentService';
 import { useCompany } from '../../contexts/companyContext';
+import { MODULES, moduleName } from '../../constants/modules';
 import '../../styles/SettingsPages.css';
 
 const emptyForm = () => ({
@@ -19,6 +20,7 @@ const emptyForm = () => ({
   description: '',
   managerKeycloakUserId: '',
   costCenter: '',
+  modules: [],
 });
 
 /**
@@ -95,6 +97,7 @@ export default function DepartmentsPage() {
       description: d.description ?? '',
       managerKeycloakUserId: d.managerKeycloakUserId ?? '',
       costCenter: d.costCenter ?? '',
+      modules: d.modules ?? [],
     });
     setFormOpen(true);
   };
@@ -115,6 +118,7 @@ export default function DepartmentsPage() {
         description: form.description.trim() || null,
         managerKeycloakUserId: form.managerKeycloakUserId || null,
         costCenter: form.costCenter.trim() || null,
+        modules: form.modules,
       };
 
       if (editingId) {
@@ -240,6 +244,40 @@ export default function DepartmentsPage() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </label>
+
+            <fieldset className="st-field" style={{ border: 0, margin: 0, padding: 0 }}>
+              <span>Erişilebilecek modüller</span>
+              <div className="st-module-grid">
+                {MODULES.map((m) => {
+                  const on = form.modules.includes(m.key);
+                  return (
+                    <label key={m.key} className="st-module-item" data-on={on}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          setForm({
+                            ...form,
+                            modules: on
+                              ? form.modules.filter((k) => k !== m.key)
+                              : [...form.modules, m.key],
+                          })
+                        }
+                      />
+                      <span>
+                        <strong>{m.name}</strong>
+                        <small>{m.description}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <small className="st-hint">
+                Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
+                eklenen bir modül, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
+                muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
+              </small>
+            </fieldset>
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="submit" className="st-btn" disabled={busy}>
                 {busy ? 'Kaydediliyor…' : editingId ? 'Kaydet' : '+ Ekle'}
@@ -284,7 +322,7 @@ export default function DepartmentsPage() {
                     <th>Ad</th>
                     <th>Kod</th>
                     <th>Yönetici</th>
-                    <th>Maliyet merkezi</th>
+                    <th>Modüller</th>
                     <th>Üye</th>
                     <th className="st-right">İşlem</th>
                   </tr>
@@ -297,7 +335,19 @@ export default function DepartmentsPage() {
                       <td className="st-dim">
                         {d.managerKeycloakUserId ? userLabel(d.managerKeycloakUserId) : '—'}
                       </td>
-                      <td className="st-mono st-dim">{d.costCenter || '—'}</td>
+                      <td className="st-dim">
+                        {(d.modules ?? []).length === 0 ? (
+                          // Bos liste "kisit yok" degil "hicbir modul" demek;
+                          // yanlis okunmasin diye acikca yaziliyor.
+                          <span className="st-badge st-badge--warn">modül seçilmedi</span>
+                        ) : (
+                          <span className="st-module-tags">
+                            {d.modules.map((m) => (
+                              <span key={m} className="st-chip">{moduleName(m)}</span>
+                            ))}
+                          </span>
+                        )}
+                      </td>
                       <td className="st-mono st-dim">{d.memberCount}</td>
                       <td className="st-right">
                         <button

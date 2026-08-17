@@ -1,22 +1,22 @@
 using AutoMapper;
-using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Companies.Documents.Dtos;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Companies.Documents.GetAll;
 
-public class GetCompanyDocumentsQueryHandler(AppDbContext context, ICompanyAccessService access, IMapper mapper)
+public class GetCompanyDocumentsQueryHandler(AppDbContext context, IPermissionService permissions, IMapper mapper)
     : IRequestHandler<GetCompanyDocumentsQuery, ServiceResult<List<CompanyDocumentDto>>>
 {
     public async Task<ServiceResult<List<CompanyDocumentDto>>> Handle(GetCompanyDocumentsQuery request,
         CancellationToken cancellationToken)
     {
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppModules.Documents, cancellationToken))
         {
-            return ServiceResult<List<CompanyDocumentDto>>.Error("Access denied to company",
-                HttpStatusCode.Forbidden);
+            return ServiceResult<List<CompanyDocumentDto>>.Error("Access denied to module",
+                "Belgeler modülüne erişiminiz yok.", HttpStatusCode.Forbidden);
         }
 
         var documents = await context.CompanyDocuments

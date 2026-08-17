@@ -33,6 +33,19 @@ public class Department : BaseEntity
     /// Maliyet merkezi kodu; raporlarda kırılım için.
     public string? CostCenter { get; set; }
 
+    /// <summary>
+    /// Bu departmandaki kullanıcıların girebileceği modüller
+    /// (bkz. <see cref="Permissions.AppModules"/>).
+    ///
+    /// Departman rolün tavanını <b>daraltır</b>, genişletemez: buraya "Üyelik"
+    /// eklenmiş olması sıradan kullanıcıya fatura ekranını açmaz.
+    ///
+    /// Boş liste "kısıt yok" demek değil, "hiçbir modül" demek. Hiç departmanı
+    /// olmayan kullanıcı ise rol tavanına düşüyor — departman atamak bilinçli
+    /// bir daraltma, atamamak varsayılan.
+    /// </summary>
+    public List<string> Modules { get; set; } = [];
+
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }

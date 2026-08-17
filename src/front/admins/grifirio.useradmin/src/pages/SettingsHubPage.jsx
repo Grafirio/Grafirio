@@ -1,25 +1,31 @@
 import { useNavigate } from 'react-router-dom';
+import { useCompany } from '../contexts/companyContext';
+import { MODULE } from '../constants/modules';
 import '../styles/SettingsPages.css';
 
 // Yedi ayar sayfasi onceden iki acilir menude sakliydi. Artik hepsi burada,
 // ne ise yaradiklariyla birlikte — kart basligina degil aciklamaya bakip da
 // dogru sayfayi bulmak zorunda kalinmasin diye.
+// module: kart yalnizca o modulle gorunur. Tema ve bildirimler kisisel
+// tercihler oldugu icin modulsuz — herkes kendi gorunumunu ayarlayabilmeli.
 const CARDS = [
-  { to: '/settings/company', glyph: 'Ş', title: 'Şirket Ayarları', desc: 'Yasal kimlik, vergi ve sicil bilgileri, adresler ve banka hesapları.' },
+  { to: '/settings/company', glyph: 'Ş', title: 'Şirket Ayarları', desc: 'Yasal kimlik, vergi ve sicil bilgileri, adresler ve banka hesapları.', module: MODULE.COMPANY_SETTINGS },
   // Belgeler Şirket Ayarları'nın bir sekmesi ama hub'dan doğrudan
   // açılabiliyor: evrak aramak için önce şirket ayarlarına girip sekme
   // bulmak gereksiz bir adım.
-  { to: '/settings/company?tab=documents', glyph: 'E', title: 'Belgeler', desc: 'Vergi levhası, imza sirküleri ve sicil evrakı — önizlemeli.' },
-  { to: '/settings/users', glyph: 'K', title: 'Kullanıcılar', desc: 'Kim var, hangi rolde, o rol neye izin veriyor.' },
-  { to: '/settings/department', glyph: 'D', title: 'Departmanlar', desc: 'Kullanıcının hangi analizleri göreceğini belirler.' },
-  { to: '/settings/theme', glyph: 'G', title: 'Görünüm ve Tema', desc: 'Açık/karanlık mod, marka rengi ve yoğunluk.' },
-  { to: '/settings/notifications', glyph: 'B', title: 'Bildirimler', desc: 'Hangi olay, kime, hangi kanaldan.' },
+  { to: '/settings/company?tab=documents', glyph: 'E', title: 'Belgeler', desc: 'Vergi levhası, imza sirküleri ve sicil evrakı — önizlemeli.', module: MODULE.DOCUMENTS },
+  { to: '/settings/users', glyph: 'K', title: 'Kullanıcılar', desc: 'Kim var, hangi rolde, o rol neye izin veriyor.', module: MODULE.USERS_ROLES },
+  { to: '/settings/department', glyph: 'D', title: 'Departmanlar', desc: 'Organizasyon birimleri ve hangi modüllere girebilecekleri.', module: MODULE.DEPARTMENTS },
+  { to: '/settings/theme', glyph: 'G', title: 'Görünüm ve Tema', desc: 'Açık/karanlık mod, marka rengi ve yoğunluk.', module: null },
+  { to: '/settings/notifications', glyph: 'B', title: 'Bildirimler', desc: 'Hangi olay, kime, hangi kanaldan.', module: null },
 ];
 // Üyelik burada değil: taşıma taslağında da üst seviyede kendi sekmesi
 // var (bkz. Nav.jsx TABS) — faturayı görmek iki tıklık bir iş olmasın diye.
 
 export default function SettingsHubPage() {
   const navigate = useNavigate();
+  const { can } = useCompany();
+  const cards = CARDS.filter((c) => c.module === null || can(c.module));
 
   return (
     <div className="st">
@@ -32,7 +38,7 @@ export default function SettingsHubPage() {
       </div>
 
       <div className="st-hub-grid">
-        {CARDS.map((c) => (
+        {cards.map((c) => (
           <button key={c.to} type="button" className="st-hub-card" onClick={() => navigate(c.to)}>
             <span className="st-hub-card-head">
               <span className="st-hub-glyph">{c.glyph}</span>

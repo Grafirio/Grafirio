@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { roleName } from '../../services/companyService';
 import { useCompany } from '../../contexts/companyContext';
+import { MODULE } from '../../constants/modules';
 import { bridgeInstallerUrl, getSavedConnections, listAnalyses } from '../../services/dataAnalysisService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
@@ -21,15 +22,31 @@ const insideDesktopApp = () => Boolean(window.__GRAFIRIO_DESKTOP__);
 // alt basliklari secmek icin tikla-bekle-sec akisina gerek kalmiyor. Uyelik
 // ayri bir sekme: Ayarlar hub'inin icine gomulunce "faturami nasil gorurum"
 // sorusu iki tikla cevaplaniyordu.
+// modules: sekmenin gorunmesi icin bunlardan en az birine izin gerekiyor.
+// Ayarlar birden fazla modulun kapisi oldugu icin listesi genis; hub sayfasi
+// kartlari ayrica kendi iznine gore suzuyor.
 const TABS = [
-  { to: '/dashboard', label: 'Analizler', match: (p) => p === '/' || p === '/dashboard', countKey: 'analyses' },
-  { to: '/data', label: 'Veri kaynakları', match: (p) => p.startsWith('/data'), countKey: 'connections' },
+  {
+    to: '/dashboard', label: 'Analizler', countKey: 'analyses',
+    match: (p) => p === '/' || p === '/dashboard',
+    modules: [MODULE.ANALYSIS],
+  },
+  {
+    to: '/data', label: 'Veri kaynakları', countKey: 'connections',
+    match: (p) => p.startsWith('/data'),
+    modules: [MODULE.DATA_SOURCES],
+  },
   {
     to: '/settings',
     label: 'Ayarlar',
     match: (p) => p.startsWith('/settings') && !p.startsWith('/settings/membership'),
+    modules: [MODULE.COMPANY_SETTINGS, MODULE.USERS_ROLES, MODULE.DEPARTMENTS, MODULE.DOCUMENTS],
   },
-  { to: '/settings/membership', label: 'Üyelik', match: (p) => p.startsWith('/settings/membership') },
+  {
+    to: '/settings/membership', label: 'Üyelik',
+    match: (p) => p.startsWith('/settings/membership'),
+    modules: [MODULE.BILLING],
+  },
 ];
 
 export default function Nav() {
@@ -61,7 +78,8 @@ export default function Nav() {
   // Onceki hali token'daki company_id claim'ine bakiyordu ve claim gelmeyince
   // rozet bos kaliyordu. Liste artik sunucudaki uyelik kayitlarindan geliyor
   // (bkz. /companies/accessible), claim'e hic bakilmiyor.
-  const { companies, selected, selectCompany } = useCompany();
+  const { companies, selected, selectCompany, can } = useCompany();
+  const visibleTabs = TABS.filter((t) => t.modules.some((m) => can(m)));
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   // Disari tiklayinca kapansin; menu acikken sayfanin baska yerine tiklamak
@@ -228,7 +246,7 @@ export default function Nav() {
 
       <div className="nv-tabbar">
         <nav className="nv-tabs">
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const active = t.match(location.pathname);
             const count = t.countKey ? counts[t.countKey] : null;
             return (

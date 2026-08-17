@@ -1,6 +1,6 @@
 using AutoMapper;
-using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Departments.Dtos;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -9,18 +9,19 @@ namespace Grafirio.Identity.Api.Features.Departments.GetByCompany;
 
 public class GetCompanyDepartmentsQueryHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IMapper mapper)
     : IRequestHandler<GetCompanyDepartmentsQuery, ServiceResult<List<DepartmentDto>>>
 {
     public async Task<ServiceResult<List<DepartmentDto>>> Handle(GetCompanyDepartmentsQuery request,
         CancellationToken cancellationToken)
     {
-        // Gormek icin sirkete erisim yeterli; degistirmek yonetici isi.
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        // Modul izni sirkete erisimi de kapsiyor: erisimi olmayanin rolu null,
+        // rolu null olanin modulu yok. Degistirmek ayrica yonetici isi.
+        if (!await permissions.CanAsync(request.CompanyId, AppModules.Departments, cancellationToken))
         {
-            return ServiceResult<List<DepartmentDto>>.Error("Access denied to company",
-                HttpStatusCode.Forbidden);
+            return ServiceResult<List<DepartmentDto>>.Error("Access denied to module",
+                "Departman modülüne erişiminiz yok.", HttpStatusCode.Forbidden);
         }
 
         var departments = await context.Departments
