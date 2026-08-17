@@ -1,5 +1,5 @@
 using AutoMapper;
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +10,7 @@ namespace Grafirio.Identity.Api.Features.Companies.Update;
 public class UpdateCompanyCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IMapper mapper)
     : IRequestHandler<UpdateCompanyCommand, ServiceResult<UpdateCompanyResponse>>
 {
@@ -19,10 +19,10 @@ public class UpdateCompanyCommandHandler(
     {
         var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
 
-        if (!await access.CanAccessAsync(request.Id, cancellationToken))
+        if (!await permissions.CanAsync(request.Id, AppModules.CompanySettings, cancellationToken))
         {
-            return ServiceResult<UpdateCompanyResponse>.Error("Access denied to company",
-                HttpStatusCode.Forbidden);
+            return ServiceResult<UpdateCompanyResponse>.Error("Access denied to module",
+                "Şirket ayarları modülüne erişiminiz yok.", HttpStatusCode.Forbidden);
         }
 
         var company = await context.Companies.FirstOrDefaultAsync(x => x.Id == request.Id, cancellationToken);

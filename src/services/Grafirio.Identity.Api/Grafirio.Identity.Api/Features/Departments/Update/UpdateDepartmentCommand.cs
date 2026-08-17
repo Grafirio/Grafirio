@@ -6,5 +6,6 @@ public record UpdateDepartmentCommand(
     string? Code,
     string? Description,
     string? ManagerKeycloakUserId,
-    string? CostCenter
+    string? CostCenter,
+    List<string>? Modules
 ) : IRequestByServiceResult<bool>;

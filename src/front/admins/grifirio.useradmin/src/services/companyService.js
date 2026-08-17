@@ -108,6 +108,21 @@ export const fetchAccessibleCompanies = async (token) => {
 };
 
 /**
+ * Cagiranin bu sirketteki etkin izinleri: { companyId, role, modules,
+ * restrictedByDepartment }.
+ *
+ * Menu buna gore ciziliyor ama asil kontrol sunucuda: gizlenmis bir menu,
+ * istegin dogrudan gonderilmesini engellemez.
+ */
+export const fetchMyPermissions = async (token, companyId) => {
+  const { data } = await axios.get(
+    `${GATEWAY}/v1/identity/permissions/me/${companyId}`,
+    auth(token)
+  );
+  return unwrap(data);
+};
+
+/**
  * Bir sirketin dogrudan alt sirketleri.
  *
  * Onceden /companies listesi parentCompanyId'ye gore suzuluyordu, ama o liste

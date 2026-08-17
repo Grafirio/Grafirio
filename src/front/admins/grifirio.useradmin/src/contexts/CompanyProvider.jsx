@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
-import { fetchAccessibleCompanies } from '../services/companyService';
+import { fetchAccessibleCompanies, fetchMyPermissions } from '../services/companyService';
 import { CompanyContext, SELECTED_COMPANY_KEY } from './companyContext';
 
 /**
@@ -62,8 +62,38 @@ export function CompanyProvider({ children }) {
     else localStorage.removeItem(SELECTED_COMPANY_KEY);
   }, [selectedId]);
 
-  const value = useMemo(
-    () => ({
+  // İzinler seçili şirkete bağlı: aynı kullanıcı bir şubede yönetici, başka
+  // birinde sıradan kullanıcı olabiliyor. Şirket değişince yeniden okunuyor.
+  const [permissions, setPermissions] = useState(null);
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
+
+  const loadPermissions = useCallback(async () => {
+    if (!token || !selectedId) {
+      setPermissions(null);
+      setPermissionsLoading(false);
+      return;
+    }
+    setPermissionsLoading(true);
+    try {
+      setPermissions(await fetchMyPermissions(token, selectedId));
+    } catch {
+      // İzin okunamazsa menüyü boş bırakmıyoruz: sunucu her isteği zaten
+      // kendisi denetliyor, burada kilitlemek kullanıcıyı boş bir panele
+      // düşürürdü.
+      setPermissions(null);
+    } finally {
+      setPermissionsLoading(false);
+    }
+  }, [token, selectedId]);
+
+  useEffect(() => {
+    loadPermissions();
+  }, [loadPermissions]);
+
+  const value = useMemo(() => {
+    const modules = permissions?.modules ?? null;
+
+    return {
       companies,
       selectedId,
       selected: companies.find((c) => c.id === selectedId) ?? null,
@@ -71,9 +101,18 @@ export function CompanyProvider({ children }) {
       error,
       selectCompany: setSelectedId,
       reload: load,
-    }),
-    [companies, selectedId, loading, error, load]
-  );
+
+      role: permissions?.role ?? null,
+      modules,
+      restrictedByDepartment: permissions?.restrictedByDepartment ?? false,
+      permissionsLoading,
+      reloadPermissions: loadPermissions,
+
+      // İzinler henüz okunmadıysa (ya da okunamadıysa) menü gizlenmiyor;
+      // sunucu zaten reddediyor, erken gizlemek yanlış boşluk yaratır.
+      can: (module) => (modules === null ? true : modules.includes(module)),
+    };
+  }, [companies, selectedId, loading, error, load, permissions, permissionsLoading, loadPermissions]);
 
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }

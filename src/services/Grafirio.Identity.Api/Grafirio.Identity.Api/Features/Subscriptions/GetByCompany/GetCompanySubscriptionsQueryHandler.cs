@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using AutoMapper;
 using Grafirio.Identity.Api.Features.Subscriptions.Dtos;
 using Grafirio.Identity.Api.Features.Users;
@@ -10,7 +10,7 @@ namespace Grafirio.Identity.Api.Features.Subscriptions.GetByCompany;
 
 public class GetCompanySubscriptionsQueryHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IMapper mapper)
     : IRequestHandler<GetCompanySubscriptionsQuery, ServiceResult<List<SubscriptionDto>>>
 {
@@ -19,7 +19,7 @@ public class GetCompanySubscriptionsQueryHandler(
     {
         // Platform ekibi her firmanın aboneliğini görebilmeli; müşteri yalnızca
         // erişimi olan firmalarınkini.
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppModules.Billing, cancellationToken))
         {
             return ServiceResult<List<SubscriptionDto>>.Error("Access denied to company",
                 HttpStatusCode.Forbidden);

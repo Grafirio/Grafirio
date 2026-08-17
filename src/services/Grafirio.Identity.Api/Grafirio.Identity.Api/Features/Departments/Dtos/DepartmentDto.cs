@@ -9,6 +9,11 @@ public class DepartmentDto
     public string? Description { get; set; }
     public string? ManagerKeycloakUserId { get; set; }
     public string? CostCenter { get; set; }
+
+    /// Bu departmandaki kullanıcıların girebileceği modüller. Rol tavanını
+    /// daraltır, genişletemez.
+    public List<string> Modules { get; set; } = [];
+
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

@@ -1,4 +1,5 @@
 using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
@@ -64,6 +65,10 @@ public class CreateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
             Description = Clean(request.Description),
             ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId),
             CostCenter = Clean(request.CostCenter),
+            // Taninmayan anahtarlar suzuluyor: istemciden gelen serbest metnin
+            // izin kumesine sizmasi, ileride o metin bir modul adina
+            // donustugunde sessiz bir yetki acilisi olurdu.
+            Modules = [.. (request.Modules ?? []).Where(AppModules.IsValid).Distinct()],
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };

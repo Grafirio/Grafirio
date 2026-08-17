@@ -3,6 +3,7 @@ using Grafirio.Identity.Api.Features.Companies;
 using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Companies.Documents;
 using Grafirio.Identity.Api.Features.Departments;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Options;
@@ -18,6 +19,7 @@ builder.Services.AddDatabaseServiceExt();
 builder.Services.AddCompanyDocumentStorage();
 // Yetki kaynagi: token claim'i degil veritabanindaki uyelik kayitlari.
 builder.Services.AddScoped<ICompanyAccessService, CompanyAccessService>();
+builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddCommonServiceExt(typeof(IdentityAssembly));
 builder.Services.AddIdentityServicesExt();
 builder.Services.AddVersioningExt();
@@ -47,6 +49,7 @@ app.AddSeedDataExt().ContinueWith(x =>
 });
 app.AddCompanyGroupEndpointExt(app.AddVersionSetExt());
 app.AddDepartmentGroupEndpointExt(app.AddVersionSetExt());
+app.AddPermissionGroupEndpointExt(app.AddVersionSetExt());
 app.AddUserGroupEndpointExt(app.AddVersionSetExt());
 app.AddSubscriptionGroupEndpointExt(app.AddVersionSetExt());
 

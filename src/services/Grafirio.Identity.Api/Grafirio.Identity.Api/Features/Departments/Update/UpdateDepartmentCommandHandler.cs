@@ -1,4 +1,5 @@
 using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -57,6 +58,8 @@ public class UpdateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
         department.Description = Clean(request.Description);
         department.ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId);
         department.CostCenter = Clean(request.CostCenter);
+        // Taninmayan anahtarlar suzuluyor; bkz. CreateDepartmentCommandHandler.
+        department.Modules = [.. (request.Modules ?? []).Where(AppModules.IsValid).Distinct()];
         department.UpdatedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync(cancellationToken);

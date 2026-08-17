@@ -6,7 +6,8 @@ public record CreateDepartmentCommand(
     string? Code,
     string? Description,
     string? ManagerKeycloakUserId,
-    string? CostCenter
+    string? CostCenter,
+    List<string>? Modules
 ) : IRequestByServiceResult<CreateDepartmentResponse>;
 
 public record CreateDepartmentResponse(Guid Id);

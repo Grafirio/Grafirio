@@ -5,7 +5,7 @@ using MongoDB.Driver;
 namespace Grafirio.Identity.Api.Repositories;
 
 /// <summary>
-/// Şirket belgesine sonradan eklenen dizi alanlarını eski kayıtlara da yazar.
+/// Sonradan eklenen dizi alanlarını eski kayıtlara da yazar.
 ///
 /// MongoDB şemasız ama EF sağlayıcısı değil: eşlenmiş bir dizi belgede hiç
 /// yoksa okuma "Document element 'BankAccounts' is mapped collection but
@@ -20,8 +20,18 @@ namespace Grafirio.Identity.Api.Repositories;
 /// </summary>
 public static class CompanyEmbeddedListRepair
 {
-    /// Boş diziyle doldurulması yeterli olan alanlar.
-    private static readonly string[] EmptyableListFields = ["Addresses", "BankAccounts"];
+    /// <summary>
+    /// Boş diziyle doldurulması yeterli olan alanlar: (koleksiyon, alan).
+    /// Yeni bir gömülü liste eklendiğinde buraya da eklenmezse, alan eklenmeden
+    /// önce yazılmış kayıtlar okunamaz hale gelir.
+    /// </summary>
+    private static readonly (string Collection, string Field)[] EmptyableListFields =
+    [
+        ("Companies", "Addresses"),
+        ("Companies", "BankAccounts"),
+        // Faz 2'de acilmis departmanlarda Modules alani yok.
+        ("Departments", "Modules")
+    ];
 
     public static async Task RepairCompanyEmbeddedListsExt(this WebApplication app)
     {
@@ -29,23 +39,25 @@ public static class CompanyEmbeddedListRepair
 
         var client = scope.ServiceProvider.GetRequiredService<IMongoClient>();
         var options = scope.ServiceProvider.GetRequiredService<MongoOption>();
-        var companies = client.GetDatabase(options.DatabaseName).GetCollection<BsonDocument>("Companies");
+        var database = client.GetDatabase(options.DatabaseName);
 
-        foreach (var field in EmptyableListFields)
+        foreach (var (collectionName, field) in EmptyableListFields)
         {
-            var result = await companies.UpdateManyAsync(
+            var collection = database.GetCollection<BsonDocument>(collectionName);
+
+            var result = await collection.UpdateManyAsync(
                 Builders<BsonDocument>.Filter.Exists(field, false),
                 Builders<BsonDocument>.Update.Set(field, new BsonArray()));
 
             if (result.ModifiedCount > 0)
             {
                 app.Logger.LogInformation(
-                    "Şirket belgelerinde eksik '{Field}' alanı {Count} kayıtta boş diziyle dolduruldu.",
-                    field, result.ModifiedCount);
+                    "{Collection} koleksiyonunda eksik '{Field}' alanı {Count} kayıtta boş diziyle dolduruldu.",
+                    collectionName, field, result.ModifiedCount);
             }
         }
 
-        await BackfillPathsAsync(companies, app.Logger);
+        await BackfillPathsAsync(database.GetCollection<BsonDocument>("Companies"), app.Logger);
     }
 
     /// <summary>
