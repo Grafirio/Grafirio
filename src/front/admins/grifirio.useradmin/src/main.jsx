@@ -5,6 +5,7 @@ import { ReactKeycloakProvider } from '@react-keycloak/web';
 import keycloak from './keycloak';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
+import { CompanyProvider } from './contexts/CompanyProvider';
 import { ThemeProvider } from './contexts/ThemeContext';
 import './styles/theme.css';
 // Bootstrap JS for interactive components
@@ -70,7 +71,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <App />
+          <CompanyProvider>
+            <App />
+          </CompanyProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

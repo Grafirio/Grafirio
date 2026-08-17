@@ -1,4 +1,5 @@
 using Asp.Versioning.Builder;
+using Grafirio.Identity.Api.Features.Companies.Accessible;
 using Grafirio.Identity.Api.Features.Companies.Create;
 using Grafirio.Identity.Api.Features.Companies.Documents.Delete;
 using Grafirio.Identity.Api.Features.Companies.Documents.Download;
@@ -23,6 +24,7 @@ public static class CompanyEndpointExt
             .OnboardCompanyGroupItemEndpoint()
             .GetAllCompaniesGroupItemEndpoint()
             .GetCurrentCompanyGroupItemEndpoint()
+            .GetAccessibleCompaniesGroupItemEndpoint()
             .GetCompanyChildrenGroupItemEndpoint()
             .UpdateCompanyGroupItemEndpoint()
             .UploadCompanyDocumentGroupItemEndpoint()

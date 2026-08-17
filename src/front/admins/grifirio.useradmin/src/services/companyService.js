@@ -87,9 +87,24 @@ export const createSubCompany = async (token, { name, code, description, parentC
  *
  * { company, role, canEditIdentity } doner.
  */
-export const fetchCurrentCompany = async (token) => {
-  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies/current`, auth(token));
+export const fetchCurrentCompany = async (token, companyId) => {
+  const url = companyId
+    ? `${GATEWAY}/v1/identity/companies/current?companyId=${companyId}`
+    : `${GATEWAY}/v1/identity/companies/current`;
+  const { data } = await axios.get(url, auth(token));
   return unwrap(data);
+};
+
+/**
+ * Kullanicinin girebildigi sirketler — sirket degistiriciyi bu besliyor.
+ *
+ * Hiyerarsik: bir subede uye olmak o subenin altindakileri de kapsiyor ama
+ * kardes subeleri ya da ust sirketi kapsamiyor. Kaynak token claim'i degil
+ * sunucudaki uyelik kayitlari.
+ */
+export const fetchAccessibleCompanies = async (token) => {
+  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies/accessible`, auth(token));
+  return unwrap(data) ?? [];
 };
 
 /**

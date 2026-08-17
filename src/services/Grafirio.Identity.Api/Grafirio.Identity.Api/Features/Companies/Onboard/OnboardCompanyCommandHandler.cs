@@ -56,9 +56,13 @@ public class OnboardCompanyCommandHandler(
 
         var now = DateTime.UtcNow;
 
+        var companyId = NewId.NextSequentialGuid();
+
         var company = new Company
         {
-            Id = NewId.NextSequentialGuid(),
+            Id = companyId,
+            // Kok sirket: zincir yalnizca kendisinden ibaret.
+            Path = [companyId],
             Name = request.Name.Trim(),
             // Yasal ad verilmediyse görünen ad yazılıyor. Boş bırakmak, kilitli
             // bir alanı sonradan doldurma işini kullanıcıya devretmek olurdu.

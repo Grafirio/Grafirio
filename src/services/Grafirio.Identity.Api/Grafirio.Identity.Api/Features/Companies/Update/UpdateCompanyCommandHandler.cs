@@ -1,4 +1,5 @@
 using AutoMapper;
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -6,7 +7,11 @@ using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Companies.Update;
 
-public class UpdateCompanyCommandHandler(AppDbContext context, IIdentityService identityService, IMapper mapper)
+public class UpdateCompanyCommandHandler(
+    AppDbContext context,
+    IIdentityService identityService,
+    ICompanyAccessService access,
+    IMapper mapper)
     : IRequestHandler<UpdateCompanyCommand, ServiceResult<UpdateCompanyResponse>>
 {
     public async Task<ServiceResult<UpdateCompanyResponse>> Handle(UpdateCompanyCommand request,
@@ -14,7 +19,7 @@ public class UpdateCompanyCommandHandler(AppDbContext context, IIdentityService 
     {
         var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
 
-        if (!isPlatformAdmin && !identityService.HasCompanyAccess(request.Id))
+        if (!await access.CanAccessAsync(request.Id, cancellationToken))
         {
             return ServiceResult<UpdateCompanyResponse>.Error("Access denied to company",
                 HttpStatusCode.Forbidden);

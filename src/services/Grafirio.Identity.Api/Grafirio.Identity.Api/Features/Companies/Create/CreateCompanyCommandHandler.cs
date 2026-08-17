@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
@@ -9,7 +10,8 @@ namespace Grafirio.Identity.Api.Features.Companies.Create;
 public class CreateCompanyCommandHandler(
     AppDbContext context,
     IKeycloakUserService keycloakService,
-    IIdentityService identityService)
+    IIdentityService identityService,
+    ICompanyAccessService access)
     : IRequestHandler<CreateCompanyCommand, ServiceResult<CreateCompanyResponse>>
 {
     public async Task<ServiceResult<CreateCompanyResponse>> Handle(CreateCompanyCommand request,
@@ -39,6 +41,8 @@ public class CreateCompanyCommandHandler(
         var userId = identityService.UserId.ToString();
 
         int level = 0;
+        List<Guid> parentPath = [];
+
         if (request.ParentCompanyId.HasValue)
         {
             var parentCompany = await context.Companies
@@ -51,28 +55,18 @@ public class CreateCompanyCommandHandler(
             }
 
             // Yetki, token'daki accessible_companies claim'inden degil uyelik
-            // kaydindan okunuyor. Claim iki ayri Keycloak ozniteliginin dogru
-            // yazilip token'a yansimasina bagli ve eksik oldugunda kullanici
-            // kendi firmasinin altina alt sirket bile acamiyordu; kaynak,
-            // yetkinin asil yazildigi yer olmali.
-            if (!isPlatformAdmin)
+            // kayitlarindan okunuyor; ustelik hiyerarsik, yani kok sirketin
+            // yoneticisi herhangi bir subenin altina da sube acabilir.
+            if (!await access.HasRoleAsync(request.ParentCompanyId.Value,
+                    CompanyRoles.COMPANY_ADMIN, cancellationToken))
             {
-                var isParentAdmin = await context.UserCompanyRoles.AnyAsync(
-                    x => x.KeycloakUserId == userId
-                         && x.CompanyId == request.ParentCompanyId.Value
-                         && x.IsActive
-                         && x.Role == CompanyRoles.COMPANY_ADMIN,
-                    cancellationToken);
-
-                if (!isParentAdmin)
-                {
-                    return ServiceResult<CreateCompanyResponse>.Error("Access denied to parent company",
-                        "Alt şirket açmak için üst şirkette yönetici olmanız gerekiyor.",
-                        HttpStatusCode.Forbidden);
-                }
+                return ServiceResult<CreateCompanyResponse>.Error("Access denied to parent company",
+                    "Alt şirket açmak için üst şirkette yönetici olmanız gerekiyor.",
+                    HttpStatusCode.Forbidden);
             }
 
             level = parentCompany.Level + 1;
+            parentPath = parentCompany.Path.Count > 0 ? parentCompany.Path : [parentCompany.Id];
         }
         else
         {
@@ -84,14 +78,19 @@ public class CreateCompanyCommandHandler(
         }
 
         var now = DateTime.UtcNow;
+        var companyId = NewId.NextSequentialGuid();
 
         var company = new Company
         {
-            Id = NewId.NextSequentialGuid(),
+            Id = companyId,
             Name = request.Name,
             Code = request.Code,
             Description = request.Description,
             ParentCompanyId = request.ParentCompanyId,
+            // Yetki hiyerarsik oldugu icin zincir kayit anında yaziliyor;
+            // sonradan hesaplanmasi her erisim kontrolunde agaci tirmanmak
+            // demek olurdu.
+            Path = [.. parentPath, companyId],
             Level = level,
             IsActive = true,
             CreatedAt = now
