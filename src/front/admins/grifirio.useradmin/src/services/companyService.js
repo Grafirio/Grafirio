@@ -92,6 +92,22 @@ export const fetchCurrentCompany = async (token) => {
   return unwrap(data);
 };
 
+/**
+ * Bir sirketin dogrudan alt sirketleri.
+ *
+ * Onceden /companies listesi parentCompanyId'ye gore suzuluyordu, ama o liste
+ * accessible_companies claim'iyle sinirli: yeni acilan alt sirket claim'e
+ * yansiyana kadar gorunmuyor, claim hic yoksa liste bastan bos kaliyordu.
+ * Bu uc hiyerarsiyi dogrudan okuyor.
+ */
+export const fetchCompanyChildren = async (token, companyId) => {
+  const { data } = await axios.get(
+    `${GATEWAY}/v1/identity/companies/${companyId}/children`,
+    auth(token)
+  );
+  return unwrap(data) ?? [];
+};
+
 /** Sirket kimlik/yasal/adres/banka alanlarini kaydeder (PUT). */
 export const updateCompany = async (token, companyId, payload) => {
   const { data } = await axios.put(

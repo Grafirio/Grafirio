@@ -8,7 +8,7 @@ import {
   describeError,
   documentTypeName,
   downloadCompanyDocument,
-  fetchCompanies,
+  fetchCompanyChildren,
   fetchCompanyDocumentThumbnail,
   fetchCompanyDocuments,
   fetchCurrentCompany,
@@ -162,13 +162,16 @@ export default function CompanySettingsPage() {
       setDirty(false);
       setUnassigned(false);
 
-      // Alt şirket listesi ikincil: bu çağrı token claim'lerine bağlı olduğu
-      // için boş dönebilir, ama sayfanın geri kalanı buna bakmıyor.
-      try {
-        const list = await fetchCompanies(token);
-        setChildren(list.filter((c) => c.parentCompanyId === loaded?.id));
-      } catch {
-        setChildren([]);
+      // Alt şirketler hiyerarşiden okunuyor. Önceden /companies listesi
+      // parentCompanyId'ye göre süzülüyordu ama o liste accessible_companies
+      // claim'iyle sınırlıydı: yeni açılan alt şirket claim'e yansıyana kadar
+      // görünmüyor, sanki hiç eklenmemiş gibi duruyordu.
+      if (loaded?.id) {
+        try {
+          setChildren(await fetchCompanyChildren(token, loaded.id));
+        } catch {
+          setChildren([]);
+        }
       }
     } catch (err) {
       if (err?.response?.status === 404) {
