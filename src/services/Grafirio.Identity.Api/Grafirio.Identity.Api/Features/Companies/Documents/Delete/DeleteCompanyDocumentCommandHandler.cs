@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Users;
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -7,15 +7,14 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Delete;
 
 public class DeleteCompanyDocumentCommandHandler(
     AppDbContext context,
-    IIdentityService identityService,
+    ICompanyAccessService access,
     ICompanyDocumentStore store)
     : IRequestHandler<DeleteCompanyDocumentCommand, ServiceResult<bool>>
 {
     public async Task<ServiceResult<bool>> Handle(DeleteCompanyDocumentCommand request,
         CancellationToken cancellationToken)
     {
-        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
-        if (!isPlatformAdmin && !identityService.HasCompanyAccess(request.CompanyId))
+        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
         {
             return ServiceResult<bool>.Error("Access denied to company", HttpStatusCode.Forbidden);
         }

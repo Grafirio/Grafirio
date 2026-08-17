@@ -85,6 +85,91 @@
   flex: none;
 }
 
+/* Sirket degistirici. Rozet artik salt gosterge degil: kullanici birden fazla
+   subeye erisebiliyor ve aralarinda buradan geciyor. */
+.nv-company-wrap {
+  position: relative;
+  flex: none;
+}
+
+.nv-company-caret {
+  font-size: 10px;
+  color: var(--gf-fainter);
+}
+
+.nv-company-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 268px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--gf-line);
+  border-radius: 13px;
+  background: var(--gf-paper);
+  box-shadow: var(--gf-shadow-lg);
+}
+
+.nv-company-menu-caps {
+  margin: 6px 8px 8px;
+  font-family: var(--gf-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gf-fainter);
+}
+
+.nv-company-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--gf-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.nv-company-item:hover {
+  background: var(--gf-paper-warm);
+}
+
+.nv-company-item.is-active {
+  background: var(--gf-accent-soft);
+  color: var(--gf-accent-ink);
+  font-weight: 700;
+}
+
+.nv-company-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nv-company-item-role {
+  flex: none;
+  font-family: var(--gf-font-mono);
+  font-size: 10.5px;
+  color: var(--gf-faint);
+}
+
+.nv-company-item--link {
+  margin-top: 4px;
+  border-top: 1px solid var(--gf-line-soft);
+  border-radius: 0 0 9px 9px;
+  font-weight: 700;
+  color: var(--gf-accent);
+}
+
 /* Arama — gercek: submit olunca Dashboard'a gidip orada filtreliyor
    (bkz. Nav.jsx submitSearch, DashboardPage.jsx ?q= okuma). ⌘K odaklaniyor. */
 .nv-search {

@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Companies.Access;
 using AutoMapper;
 using Grafirio.Identity.Api.Features.Users.Dtos;
 using Grafirio.Identity.Api.Repositories;
@@ -8,16 +9,14 @@ namespace Grafirio.Identity.Api.Features.Users.GetByCompany;
 
 public class GetCompanyUsersQueryHandler(
     AppDbContext context,
-    IIdentityService identityService,
+    ICompanyAccessService access,
     IMapper mapper)
     : IRequestHandler<GetCompanyUsersQuery, ServiceResult<List<UserCompanyRoleDto>>>
 {
     public async Task<ServiceResult<List<UserCompanyRoleDto>>> Handle(
         GetCompanyUsersQuery request, CancellationToken cancellationToken)
     {
-        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
-
-        if (!isPlatformAdmin && !identityService.HasCompanyAccess(request.CompanyId))
+        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
         {
             return ServiceResult<List<UserCompanyRoleDto>>.Error("Access denied to company",
                 HttpStatusCode.Forbidden);

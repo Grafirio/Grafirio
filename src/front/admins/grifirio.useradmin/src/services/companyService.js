@@ -87,9 +87,40 @@ export const createSubCompany = async (token, { name, code, description, parentC
  *
  * { company, role, canEditIdentity } doner.
  */
-export const fetchCurrentCompany = async (token) => {
-  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies/current`, auth(token));
+export const fetchCurrentCompany = async (token, companyId) => {
+  const url = companyId
+    ? `${GATEWAY}/v1/identity/companies/current?companyId=${companyId}`
+    : `${GATEWAY}/v1/identity/companies/current`;
+  const { data } = await axios.get(url, auth(token));
   return unwrap(data);
+};
+
+/**
+ * Kullanicinin girebildigi sirketler — sirket degistiriciyi bu besliyor.
+ *
+ * Hiyerarsik: bir subede uye olmak o subenin altindakileri de kapsiyor ama
+ * kardes subeleri ya da ust sirketi kapsamiyor. Kaynak token claim'i degil
+ * sunucudaki uyelik kayitlari.
+ */
+export const fetchAccessibleCompanies = async (token) => {
+  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies/accessible`, auth(token));
+  return unwrap(data) ?? [];
+};
+
+/**
+ * Bir sirketin dogrudan alt sirketleri.
+ *
+ * Onceden /companies listesi parentCompanyId'ye gore suzuluyordu, ama o liste
+ * accessible_companies claim'iyle sinirli: yeni acilan alt sirket claim'e
+ * yansiyana kadar gorunmuyor, claim hic yoksa liste bastan bos kaliyordu.
+ * Bu uc hiyerarsiyi dogrudan okuyor.
+ */
+export const fetchCompanyChildren = async (token, companyId) => {
+  const { data } = await axios.get(
+    `${GATEWAY}/v1/identity/companies/${companyId}/children`,
+    auth(token)
+  );
+  return unwrap(data) ?? [];
 };
 
 /** Sirket kimlik/yasal/adres/banka alanlarini kaydeder (PUT). */

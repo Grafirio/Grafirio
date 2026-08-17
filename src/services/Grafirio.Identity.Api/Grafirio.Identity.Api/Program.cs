@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api;
 using Grafirio.Identity.Api.Features.Companies;
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Companies.Documents;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
@@ -14,6 +15,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddOptionsExt();
 builder.Services.AddDatabaseServiceExt();
 builder.Services.AddCompanyDocumentStorage();
+// Yetki kaynagi: token claim'i degil veritabanindaki uyelik kayitlari.
+builder.Services.AddScoped<ICompanyAccessService, CompanyAccessService>();
 builder.Services.AddCommonServiceExt(typeof(IdentityAssembly));
 builder.Services.AddIdentityServicesExt();
 builder.Services.AddVersioningExt();

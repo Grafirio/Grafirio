@@ -1,6 +1,6 @@
 using AutoMapper;
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Companies.Documents.Dtos;
-using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +11,7 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Upload;
 public class UploadCompanyDocumentCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
+    ICompanyAccessService access,
     ICompanyDocumentStore store,
     CompanyDocumentThumbnailer thumbnailer,
     IMapper mapper)
@@ -23,8 +24,7 @@ public class UploadCompanyDocumentCommandHandler(
     public async Task<ServiceResult<CompanyDocumentDto>> Handle(UploadCompanyDocumentCommand request,
         CancellationToken cancellationToken)
     {
-        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
-        if (!isPlatformAdmin && !identityService.HasCompanyAccess(request.CompanyId))
+        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
         {
             return ServiceResult<CompanyDocumentDto>.Error("Access denied to company", HttpStatusCode.Forbidden);
         }

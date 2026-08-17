@@ -132,6 +132,22 @@ public class Company : BaseEntity
     // ── Hiyerarşi ve durum ────────────────────────────────────────────────
 
     public Guid? ParentCompanyId { get; set; }
+
+    /// <summary>
+    /// Kökten bu şirkete kadar olan kimlik zinciri: <c>[kökId, …, üstId, kendiId]</c>.
+    ///
+    /// Yetki hiyerarşik: bir şirketteki rol, o şirket ve tüm altları için geçerli.
+    /// Bunu her sorguda ağacı tırmanarak hesaplamak yerine yol burada
+    /// materyalize ediliyor; "erişebildiğim şirketler" tek bir dizi-kesişimi
+    /// sorgusuna dönüşüyor. Alternatifi her yönetici × her alt şirket için ayrı
+    /// üyelik satırı tutmaktı — yeni şube ya da yeni yönetici eklendikçe
+    /// kaçınılmaz olarak kayan bir muhasebe.
+    ///
+    /// Şirket başka bir üstün altına taşınmadığı sürece hiç değişmiyor; taşıma
+    /// diye bir işlem de yok.
+    /// </summary>
+    public List<Guid> Path { get; set; } = [];
+
     public int Level { get; set; } = 0;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

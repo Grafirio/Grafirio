@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,7 @@ namespace Grafirio.Identity.Api.Features.Users.AssignRole;
 
 public class AssignRoleCommandHandler(
     AppDbContext context,
+    ICompanyAccessService access,
     IKeycloakUserService keycloakService,
     IIdentityService identityService)
     : IRequestHandler<AssignRoleCommand, ServiceResult<AssignRoleResponse>>
@@ -31,21 +33,13 @@ public class AssignRoleCommandHandler(
             return ServiceResult<AssignRoleResponse>.Error("Company not found", HttpStatusCode.NotFound);
         }
 
-        if (!isPlatformAdmin)
+        // Yetki dagitmak yonetici isi. Hiyerarsik: kok sirketin yoneticisi
+        // subelerinde de rol atayabilir. Platform ekibi icin servis her zaman
+        // izin veriyor.
+        if (!await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
         {
-            if (!identityService.HasCompanyAccess(request.CompanyId))
-            {
-                return ServiceResult<AssignRoleResponse>.Error("Access denied to company",
-                    HttpStatusCode.Forbidden);
-            }
-
-            // Yetki dagitmak yonetici isi; sıradan kullanıcı kendi firmasında
-            // bile rol atayamaz.
-            if (!identityService.HasBusinessRole(CompanyRoles.COMPANY_ADMIN, request.CompanyId))
-            {
-                return ServiceResult<AssignRoleResponse>.Error("Insufficient permissions",
-                    "Only company admins can assign roles", HttpStatusCode.Forbidden);
-            }
+            return ServiceResult<AssignRoleResponse>.Error("Insufficient permissions",
+                "Rol atamak için bu şirkette yönetici olmanız gerekiyor.", HttpStatusCode.Forbidden);
         }
 
         var existing = await context.UserCompanyRoles

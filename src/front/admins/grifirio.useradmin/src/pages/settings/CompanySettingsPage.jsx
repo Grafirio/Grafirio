@@ -8,7 +8,7 @@ import {
   describeError,
   documentTypeName,
   downloadCompanyDocument,
-  fetchCompanies,
+  fetchCompanyChildren,
   fetchCompanyDocumentThumbnail,
   fetchCompanyDocuments,
   fetchCurrentCompany,
@@ -24,6 +24,7 @@ import {
   TIME_ZONES,
   countryProfile,
 } from '../../constants/countryProfiles';
+import { useCompany } from '../../contexts/companyContext';
 import '../../styles/SettingsPages.css';
 
 const TABS = [
@@ -131,6 +132,10 @@ export default function CompanySettingsPage() {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
 
+  // Hangi şirketin ayarlarına bakıldığı Nav'daki değiştiriciden geliyor;
+  // sayfa artık "kullanıcının tek şirketi" varsayımına dayanmıyor.
+  const { selectedId, reload: reloadAccessibleCompanies } = useCompany();
+
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TABS.some((t) => t.key === searchParams.get('tab'))
     ? searchParams.get('tab')
@@ -154,7 +159,7 @@ export default function CompanySettingsPage() {
     setLoading(true);
     setError('');
     try {
-      const result = await fetchCurrentCompany(token);
+      const result = await fetchCurrentCompany(token, selectedId);
       const loaded = result?.company ?? null;
       setCompany(loaded);
       setCanEditIdentity(Boolean(result?.canEditIdentity));
@@ -162,13 +167,16 @@ export default function CompanySettingsPage() {
       setDirty(false);
       setUnassigned(false);
 
-      // Alt şirket listesi ikincil: bu çağrı token claim'lerine bağlı olduğu
-      // için boş dönebilir, ama sayfanın geri kalanı buna bakmıyor.
-      try {
-        const list = await fetchCompanies(token);
-        setChildren(list.filter((c) => c.parentCompanyId === loaded?.id));
-      } catch {
-        setChildren([]);
+      // Alt şirketler hiyerarşiden okunuyor. Önceden /companies listesi
+      // parentCompanyId'ye göre süzülüyordu ama o liste accessible_companies
+      // claim'iyle sınırlıydı: yeni açılan alt şirket claim'e yansıyana kadar
+      // görünmüyor, sanki hiç eklenmemiş gibi duruyordu.
+      if (loaded?.id) {
+        try {
+          setChildren(await fetchCompanyChildren(token, loaded.id));
+        } catch {
+          setChildren([]);
+        }
       }
     } catch (err) {
       if (err?.response?.status === 404) {
@@ -179,7 +187,7 @@ export default function CompanySettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, selectedId]);
 
   useEffect(() => {
     load();
@@ -679,7 +687,12 @@ export default function CompanySettingsPage() {
 
       {!loading && company && tab === 'tree' && (
         <SubCompaniesPanel token={token} parentId={company.id} items={children}
-          onCreated={load} setError={setError} setNotice={setNotice} />
+          onCreated={async () => {
+            // Yeni şube Nav'daki değiştiricide de görünmeli; oradaki liste
+            // ayrı bir uçtan geliyor ve kendiliğinden tazelenmiyor.
+            await Promise.all([load(), reloadAccessibleCompanies()]);
+          }}
+          setError={setError} setNotice={setNotice} />
       )}
     </div>
   );

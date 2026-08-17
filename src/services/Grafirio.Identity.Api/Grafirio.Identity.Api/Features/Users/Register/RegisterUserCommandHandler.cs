@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,7 @@ namespace Grafirio.Identity.Api.Features.Users.Register;
 
 public class RegisterUserCommandHandler(
     AppDbContext context,
+    ICompanyAccessService access,
     IKeycloakUserService keycloakService,
     IIdentityService identityService)
     : IRequestHandler<RegisterUserCommand, ServiceResult<RegisterUserResponse>>
@@ -31,26 +33,18 @@ public class RegisterUserCommandHandler(
                 HttpStatusCode.NotFound);
         }
 
-        // Platform ekibi musteri adina kullanici acabilmeli; kendi
-        // accessible_companies listesinde olmayan firmalar da dahil.
-        var isPlatformAdmin = identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
+        // Kullanici acmak yonetici ya da mudur isi. Yetki hiyerarsik: kok
+        // sirketin yoneticisi subelerinde de kullanici acabilir. Platform ekibi
+        // icin servis zaten her zaman izin veriyor.
+        var canRegister =
+            await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken)
+            || await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_MANAGER, cancellationToken);
 
-        if (!isPlatformAdmin)
+        if (!canRegister)
         {
-            // Check if current user has access to this company
-            if (!identityService.HasCompanyAccess(request.CompanyId))
-            {
-                return ServiceResult<RegisterUserResponse>.Error("Access denied to company",
-                    HttpStatusCode.Forbidden);
-            }
-
-            // Only admins and managers can register users
-            if (!identityService.HasBusinessRole(CompanyRoles.COMPANY_ADMIN, request.CompanyId) &&
-                !identityService.HasBusinessRole(CompanyRoles.COMPANY_MANAGER, request.CompanyId))
-            {
-                return ServiceResult<RegisterUserResponse>.Error("Insufficient permissions",
-                    "Only company admins and managers can register users", HttpStatusCode.Forbidden);
-            }
+            return ServiceResult<RegisterUserResponse>.Error("Insufficient permissions",
+                "Kullanıcı eklemek için bu şirkette yönetici ya da müdür olmanız gerekiyor.",
+                HttpStatusCode.Forbidden);
         }
 
         // Create user in Keycloak

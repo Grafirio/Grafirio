@@ -3,7 +3,8 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { fetchCompanies, roleName } from '../../services/companyService';
+import { roleName } from '../../services/companyService';
+import { useCompany } from '../../contexts/companyContext';
 import { bridgeInstallerUrl, getSavedConnections, listAnalyses } from '../../services/dataAnalysisService';
 import GMark from './GMark';
 import '../../styles/Nav.css';
@@ -53,38 +54,24 @@ export default function Nav() {
   const businessRoles = keycloak.tokenParsed?.business_roles;
   const role = Array.isArray(businessRoles) ? businessRoles[0] : businessRoles;
 
-  // Sirket rozeti: taslakta "Enco Endustri A.S." sabit yaziyordu, biz gercek
-  // sirket adini okuyoruz — bulunamazsa rozet hic gorunmez, uydurma isim
-  // konmaz.
+  // Sirket rozeti artik salt gosterge degil, sirket degistirici: kullanici
+  // birden fazla subeye erisebiliyor ve actigi alt sirkete girebilmesi
+  // gerekiyor.
   //
-  // Onceden bu blok "company_id claim'i yoksa hic isteme" diye basliyordu ve
-  // rozet bos kaliyordu: keycloak.tokenParsed React state DEGIL, dolayisiyla
-  // token sonradan yenilenip claim gelse bile Nav yeniden render olmuyor ve
-  // effect bir daha calismiyordu. Artik claim'den bagimsiz olarak listeyi
-  // cekiyoruz; eslesme claim varsa onunla, yoksa (kullanicinin tek firmasi
-  // varsa) tek kayitla kuruluyor.
-  const companyId = keycloak.tokenParsed?.company_id;
-  const [companyName, setCompanyName] = useState('');
+  // Onceki hali token'daki company_id claim'ine bakiyordu ve claim gelmeyince
+  // rozet bos kaliyordu. Liste artik sunucudaki uyelik kayitlarindan geliyor
+  // (bkz. /companies/accessible), claim'e hic bakilmiyor.
+  const { companies, selected, selectCompany } = useCompany();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // Disari tiklayinca kapansin; menu acikken sayfanin baska yerine tiklamak
+  // icin once menuyu kapatmak zorunda kalmak rahatsiz edici.
   useEffect(() => {
-    let cancelled = false;
-    fetchCompanies(keycloak.token)
-      .then((list) => {
-        if (cancelled) return;
-        const company =
-          (companyId && list.find((c) => c.id === companyId)) ||
-          (list.length === 1 ? list[0] : null);
-        if (company?.name) setCompanyName(company.name);
-      })
-      .catch((err) => {
-        // Sessizce yutma: rozetin neden bos oldugu gorunur olsun.
-        console.warn('Şirket adı okunamadı, rozet gizlenecek:', err?.message ?? err);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // location: rota degisiminde tekrar denenir — ilk yuklemede token henuz
-    // hazir degilse rozet sonraki gezinmede kendini toparlar.
-  }, [companyId, keycloak.token, location.pathname]);
+    if (!switcherOpen) return undefined;
+    const close = () => setSwitcherOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [switcherOpen]);
 
   // Sekme sayaçları (4/3 gibi): taslakta sabit yaziyordu, biz gercek
   // baglanti/analiz sayisini okuyoruz. Nav sayfalar arasinda hep monte
@@ -142,16 +129,53 @@ export default function Nav() {
           <span>GRAFIRIO</span>
         </NavLink>
 
-        {companyName && (
-          <button
-            type="button"
-            className="nv-company"
-            onClick={() => navigate('/settings/company')}
-            title="Şirket ayarları"
-          >
-            <span className="nv-company-mark">{companyName[0]}</span>
-            {companyName}
-          </button>
+        {selected && (
+          <div className="nv-company-wrap" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="nv-company"
+              onClick={() => setSwitcherOpen((open) => !open)}
+              title="Şirket değiştir"
+              aria-expanded={switcherOpen}
+            >
+              <span className="nv-company-mark">{selected.name[0]}</span>
+              {selected.name}
+              <span className="nv-company-caret" aria-hidden="true">▾</span>
+            </button>
+
+            {switcherOpen && (
+              <div className="nv-company-menu" role="menu">
+                <p className="nv-company-menu-caps">Şirketler</p>
+                {companies.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`nv-company-item ${c.id === selected.id ? 'is-active' : ''}`}
+                    // Alt sirketler hiyerarsideki derinliklerine gore girintili;
+                    // duz bir liste subeleri ana sirketten ayirt ettirmiyordu.
+                    style={{ paddingLeft: 14 + c.level * 14 }}
+                    onClick={() => {
+                      selectCompany(c.id);
+                      setSwitcherOpen(false);
+                    }}
+                  >
+                    <span className="nv-company-item-name">{c.name}</span>
+                    {c.role && <span className="nv-company-item-role">{roleName(c.role)}</span>}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="nv-company-item nv-company-item--link"
+                  onClick={() => {
+                    setSwitcherOpen(false);
+                    navigate('/settings/company');
+                  }}
+                >
+                  Şirket ayarları →
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="nv-right">

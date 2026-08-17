@@ -3,24 +3,25 @@ using Grafirio.Identity.Api.Features.Companies.Dtos;
 namespace Grafirio.Identity.Api.Features.Companies.GetCurrent;
 
 /// <summary>
-/// Çağıranın kendi şirketi.
+/// Panelin üzerinde çalıştığı şirket.
 ///
-/// Panel bu bilgiyi önce token'daki <c>company_id</c> ile bulup
-/// <c>GET /companies</c> listesinden eşleştiriyordu. O liste de
-/// <c>accessible_companies</c> claim'iyle süzüldüğü için, iki ayrı Keycloak
-/// özniteliğinin de doğru yazılmış ve token'a yansımış olması gerekiyordu;
-/// biri eksik olduğunda kullanıcı kayıt sırasında kendi kurduğu şirketi bile
-/// göremiyor, sayfa boş açılıyordu. Burada kaynak Mongo'daki üyelik kaydı,
-/// yani yetkinin asıl yazıldığı yer.
+/// <paramref name="CompanyId"/> verilirse o şirket açılır — şirket
+/// değiştiricinin seçimi buradan geçiyor. Verilmezse kullanıcının erişebildiği
+/// ilk şirkete düşülüyor.
+///
+/// Kaynak, token'daki <c>company_id</c> claim'i değil veritabanındaki üyelik
+/// kayıtları: claim iki ayrı Keycloak özniteliğinin doğru yazılıp token'a
+/// yansımasına bağlıydı ve eksik olduğunda kullanıcı kayıt sırasında kendi
+/// kurduğu şirketi bile göremiyordu.
 /// </summary>
-public record GetCurrentCompanyQuery : IRequestByServiceResult<CurrentCompanyResponse>;
+public record GetCurrentCompanyQuery(Guid? CompanyId = null)
+    : IRequestByServiceResult<CurrentCompanyResponse>;
 
 /// <param name="Company">Şirketin kendisi.</param>
-/// <param name="Role">Çağıranın bu şirketteki rolü.</param>
+/// <param name="Role">Çağıranın bu şirketteki etkin rolü — üst şirketten miras dahil.</param>
 /// <param name="CanEditIdentity">
 /// Dolu kimlik alanlarını değiştirme yetkisi. Şirket yöneticisi boş bir alanı
 /// bir kez doldurabilir ama dolmuş olanı değiştiremez; bu yetki platform
-/// ekibinde. İstemci alanı buna göre kilitli çiziyor, kuralın kendisi yine
-/// sunucuda (bkz. <see cref="Update.UpdateCompanyCommandHandler"/>).
+/// ekibinde. Kuralın kendisi sunucuda (bkz. <see cref="Update.UpdateCompanyCommandHandler"/>).
 /// </param>
 public record CurrentCompanyResponse(CompanyDto Company, string? Role, bool CanEditIdentity);
