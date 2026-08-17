@@ -1,5 +1,5 @@
 using AutoMapper;
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Companies.Documents.Dtos;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
@@ -11,7 +11,7 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Upload;
 public class UploadCompanyDocumentCommandHandler(
     AppDbContext context,
     IIdentityService identityService,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     ICompanyDocumentStore store,
     CompanyDocumentThumbnailer thumbnailer,
     IMapper mapper)
@@ -24,9 +24,9 @@ public class UploadCompanyDocumentCommandHandler(
     public async Task<ServiceResult<CompanyDocumentDto>> Handle(UploadCompanyDocumentCommand request,
         CancellationToken cancellationToken)
     {
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.DocumentsCreate, cancellationToken))
         {
-            return ServiceResult<CompanyDocumentDto>.Error("Access denied to company", HttpStatusCode.Forbidden);
+            return ServiceResult<CompanyDocumentDto>.Error("Insufficient permissions", "Belge yüklemek için bu şirkette belge ekleme izniniz olmalı.", HttpStatusCode.Forbidden);
         }
 
         var companyExists = await context.Companies.AnyAsync(x => x.Id == request.CompanyId, cancellationToken);

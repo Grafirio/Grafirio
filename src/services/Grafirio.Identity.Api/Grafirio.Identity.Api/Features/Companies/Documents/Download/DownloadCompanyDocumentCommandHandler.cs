@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -7,14 +7,14 @@ namespace Grafirio.Identity.Api.Features.Companies.Documents.Download;
 
 public class DownloadCompanyDocumentCommandHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     ICompanyDocumentStore store)
     : IRequestHandler<DownloadCompanyDocumentCommand, ServiceResult<DownloadCompanyDocumentResponse>>
 {
     public async Task<ServiceResult<DownloadCompanyDocumentResponse>> Handle(
         DownloadCompanyDocumentCommand request, CancellationToken cancellationToken)
     {
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.DocumentsRead, cancellationToken))
         {
             return ServiceResult<DownloadCompanyDocumentResponse>.Error("Access denied to company",
                 HttpStatusCode.Forbidden);

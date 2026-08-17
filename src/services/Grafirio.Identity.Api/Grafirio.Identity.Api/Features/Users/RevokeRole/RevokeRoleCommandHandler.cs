@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
@@ -7,7 +7,7 @@ namespace Grafirio.Identity.Api.Features.Users.RevokeRole;
 
 public class RevokeRoleCommandHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IKeycloakUserService keycloakService,
     IIdentityService identityService)
     : IRequestHandler<RevokeRoleCommand, ServiceResult<bool>>
@@ -15,11 +15,12 @@ public class RevokeRoleCommandHandler(
     public async Task<ServiceResult<bool>> Handle(RevokeRoleCommand request,
         CancellationToken cancellationToken)
     {
-        // Yetki almak da vermek gibi yonetici isi ve hiyerarsik.
-        if (!await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        // Yetki almak da vermek gibi ayni izne bagli ve hiyerarsik.
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageRoles, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Yetki kaldırmak için bu şirkette yönetici olmanız gerekiyor.", HttpStatusCode.Forbidden);
+                "Yetki kaldırmak için bu şirkette yetki yönetimi izniniz olmalı.",
+                HttpStatusCode.Forbidden);
         }
 
         var role = await context.UserCompanyRoles

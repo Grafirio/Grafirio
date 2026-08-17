@@ -1,4 +1,3 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
@@ -8,7 +7,7 @@ using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Departments.Create;
 
-public class CreateDepartmentCommandHandler(AppDbContext context, ICompanyAccessService access)
+public class CreateDepartmentCommandHandler(AppDbContext context, IPermissionService permissions)
     : IRequestHandler<CreateDepartmentCommand, ServiceResult<CreateDepartmentResponse>>
 {
     public async Task<ServiceResult<CreateDepartmentResponse>> Handle(CreateDepartmentCommand request,
@@ -16,10 +15,10 @@ public class CreateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
     {
         // Departman kurmak yonetici isi. Yetki hiyerarsik: kok sirketin
         // yoneticisi subelerinde de departman acabilir.
-        if (!await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.DepartmentsCreate, cancellationToken))
         {
             return ServiceResult<CreateDepartmentResponse>.Error("Insufficient permissions",
-                "Departman eklemek için bu şirkette yönetici olmanız gerekiyor.",
+                "Departman eklemek için bu şirkette departman ekleme izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
@@ -56,6 +55,8 @@ public class CreateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
             }
         }
 
+        var granted = AppPermissions.Sanitize(request.Permissions, request.Modules);
+
         var department = new Department
         {
             Id = NewId.NextSequentialGuid(),
@@ -65,10 +66,12 @@ public class CreateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
             Description = Clean(request.Description),
             ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId),
             CostCenter = Clean(request.CostCenter),
-            // Taninmayan anahtarlar suzuluyor: istemciden gelen serbest metnin
-            // izin kumesine sizmasi, ileride o metin bir modul adina
-            // donustugunde sessiz bir yetki acilisi olurdu.
-            Modules = [.. (request.Modules ?? []).Where(AppModules.IsValid).Distinct()],
+            // Taninmayan anahtarlar ve PANEL.READ suzuluyor; bkz.
+            // AppPermissions.Sanitize. Modules izinlerden turetiliyor: iki alan
+            // birbirinden ayrisirsa panel bir sey gosterir, sunucu baskasini
+            // uygular.
+            Permissions = granted,
+            Modules = AppPermissions.ModulesOf(granted),
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };

@@ -18,7 +18,7 @@ public class GetCompanyDepartmentsQueryHandler(
     {
         // Modul izni sirkete erisimi de kapsiyor: erisimi olmayanin rolu null,
         // rolu null olanin modulu yok. Degistirmek ayrica yonetici isi.
-        if (!await permissions.CanAsync(request.CompanyId, AppModules.Departments, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.DepartmentsRead, cancellationToken))
         {
             return ServiceResult<List<DepartmentDto>>.Error("Access denied to module",
                 "Departman modülüne erişiminiz yok.", HttpStatusCode.Forbidden);

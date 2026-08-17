@@ -1,4 +1,3 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
@@ -7,7 +6,7 @@ using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Departments.Update;
 
-public class UpdateDepartmentCommandHandler(AppDbContext context, ICompanyAccessService access)
+public class UpdateDepartmentCommandHandler(AppDbContext context, IPermissionService permissions)
     : IRequestHandler<UpdateDepartmentCommand, ServiceResult<bool>>
 {
     public async Task<ServiceResult<bool>> Handle(UpdateDepartmentCommand request,
@@ -24,10 +23,10 @@ public class UpdateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
         // Yetki departmanin kendi sirketinden sorulur; istekte sirket kimligi
         // tasinmiyor ki cagiran onu degistirerek baska bir sirketin
         // departmanina dokunamasin.
-        if (!await access.HasRoleAsync(department.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsUpdate, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Departman düzenlemek için bu şirkette yönetici olmanız gerekiyor.",
+                "Departman düzenlemek için bu şirkette departman düzenleme izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
@@ -59,7 +58,9 @@ public class UpdateDepartmentCommandHandler(AppDbContext context, ICompanyAccess
         department.ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId);
         department.CostCenter = Clean(request.CostCenter);
         // Taninmayan anahtarlar suzuluyor; bkz. CreateDepartmentCommandHandler.
-        department.Modules = [.. (request.Modules ?? []).Where(AppModules.IsValid).Distinct()];
+        var granted = AppPermissions.Sanitize(request.Permissions, request.Modules);
+        department.Permissions = granted;
+        department.Modules = AppPermissions.ModulesOf(granted);
         department.UpdatedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync(cancellationToken);

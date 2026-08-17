@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Departments.Members;
 
 public class RemoveUserFromDepartmentCommandHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IIdentityService identityService)
     : IRequestHandler<RemoveUserFromDepartmentCommand, ServiceResult<bool>>
 {
@@ -23,10 +23,10 @@ public class RemoveUserFromDepartmentCommandHandler(
             return ServiceResult<bool>.Error("Department not found", HttpStatusCode.NotFound);
         }
 
-        if (!await access.HasRoleAsync(department.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsAssignMembers, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Departmandan kullanıcı çıkarmak için bu şirkette yönetici olmanız gerekiyor.",
+                "Departmandan kullanıcı çıkarmak için üyelik yönetimi izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 

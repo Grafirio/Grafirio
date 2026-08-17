@@ -13,7 +13,7 @@ public class GetCompanyDocumentsQueryHandler(AppDbContext context, IPermissionSe
     public async Task<ServiceResult<List<CompanyDocumentDto>>> Handle(GetCompanyDocumentsQuery request,
         CancellationToken cancellationToken)
     {
-        if (!await permissions.CanAsync(request.CompanyId, AppModules.Documents, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.DocumentsRead, cancellationToken))
         {
             return ServiceResult<List<CompanyDocumentDto>>.Error("Access denied to module",
                 "Belgeler modülüne erişiminiz yok.", HttpStatusCode.Forbidden);

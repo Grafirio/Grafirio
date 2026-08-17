@@ -7,5 +7,8 @@ public record UpdateDepartmentCommand(
     string? Description,
     string? ManagerKeycloakUserId,
     string? CostCenter,
-    List<string>? Modules
+    List<string>? Modules,
+    /// İzin anahtarları (MODÜL.AKSİYON). Boş gelirse <paramref name="Modules"/>
+    /// izne çevriliyor — güncellenmemiş panel departmanı izinsiz bırakmasın.
+    List<string>? Permissions
 ) : IRequestByServiceResult<bool>;
