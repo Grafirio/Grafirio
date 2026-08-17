@@ -3,6 +3,7 @@ using System.Reflection;
 using MongoDB.Driver;
 using Grafirio.Identity.Api.Features.Companies;
 using Grafirio.Identity.Api.Features.Companies.Documents;
+using Grafirio.Identity.Api.Features.Departments;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
 
@@ -12,6 +13,8 @@ namespace Grafirio.Identity.Api.Repositories
     {
         public DbSet<Company> Companies { get; set; }
         public DbSet<CompanyDocument> CompanyDocuments { get; set; }
+        public DbSet<Department> Departments { get; set; }
+        public DbSet<UserDepartment> UserDepartments { get; set; }
         public DbSet<UserCompanyRole> UserCompanyRoles { get; set; }
         public DbSet<Subscription> Subscriptions { get; set; }
 
