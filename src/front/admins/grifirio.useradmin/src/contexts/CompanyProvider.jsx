@@ -92,6 +92,7 @@ export function CompanyProvider({ children }) {
 
   const value = useMemo(() => {
     const modules = permissions?.modules ?? null;
+    const granted = permissions?.permissions ?? null;
 
     return {
       companies,
@@ -104,13 +105,20 @@ export function CompanyProvider({ children }) {
 
       role: permissions?.role ?? null,
       modules,
+      permissions: granted,
       restrictedByDepartment: permissions?.restrictedByDepartment ?? false,
       permissionsLoading,
       reloadPermissions: loadPermissions,
 
       // İzinler henüz okunmadıysa (ya da okunamadıysa) menü gizlenmiyor;
       // sunucu zaten reddediyor, erken gizlemek yanlış boşluk yaratır.
-      can: (module) => (modules === null ? true : modules.includes(module)),
+      //
+      // canModule: menü ve kart görünürlüğü — "bu ekrana girebilir mi".
+      // can: ekran içindeki buton — "bu işi yapabilir mi". İkisi ayrı, çünkü
+      // bir modülü görmek onu değiştirebilmek anlamına gelmiyor; matris tam
+      // olarak bu ayrımı ayarlanabilir yapmak için var.
+      canModule: (module) => (modules === null ? true : modules.includes(module)),
+      can: (permission) => (granted === null ? true : granted.includes(permission)),
     };
   }, [companies, selectedId, loading, error, load, permissions, permissionsLoading, loadPermissions]);
 

@@ -1,23 +1,21 @@
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import UsersPage from './settings/UsersPage';
-import RolesPage from './settings/RolesPage';
+import { useCompany } from '../contexts/companyContext';
 import '../styles/SettingsPages.css';
 
-// Onceden "Kullanici Ayarlari" (/settings/user) ve "Yetki Ayarlari"
-// (/settings/authorization) ayri menu girdileriydi, ustelik Sirket
-// Bilgileri'ndeki "Yetkili kullanicilar" sekmesi de ayni listeyi ucuncu kez
-// gosteriyordu. Uc baslik da "kullanicilar" sorusuna bakiyordu; artik tek
-// sayfa, iki sekme: kim ne yapabilir (roller, salt-okunur matris) ve kim var
-// (kullanicilar, gercek CRUD).
-const TABS = [
-  { key: 'users', label: 'Kullanıcılar' },
-  { key: 'roles', label: 'İzinler ve roller' },
-];
-
+// Onceden bu sayfa iki sekmeliydi: "Kullanicilar" ve "Izinler ve roller".
+// Rol matrisi artik Ayarlar › Izinler sayfasinda, departmanlarla birlikte —
+// "bu kisi ne yapabilir" sorusu tek yerde. Burada kalan soru tek: kim var,
+// hangi rolde, hangi firmalarda yetkili. Eski ?tab=roles baglantilari
+// kirilmasin diye Izinler'e yonlendiriliyor.
 export default function UsersRolesPage() {
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const tab = TABS.some((t) => t.key === params.get('tab')) ? params.get('tab') : 'users';
+  const [params] = useSearchParams();
+  const { can } = useCompany();
+
+  if (params.get('tab') === 'roles') {
+    return <Navigate to="/settings/permissions" replace />;
+  }
 
   return (
     <div className="st">
@@ -28,10 +26,10 @@ export default function UsersRolesPage() {
           </button>
           <h1>Kullanıcılar</h1>
           <p className="st-lead">
-            Şirketinizdeki kullanıcılar, rolleri ve rollerin neye izin verdiği tek yerde.
+            Şirketinizdeki kullanıcılar, rolleri ve yetkili oldukları firmalar.
           </p>
         </div>
-        {tab === 'users' && (
+        {can('USERS_ROLES.CREATE') && (
           <div className="st-head-actions">
             <button
               type="button"
@@ -45,23 +43,7 @@ export default function UsersRolesPage() {
         )}
       </div>
 
-      <div className="st-tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            className={tab === t.key ? 'is-active' : ''}
-            onClick={() => setParams(t.key === 'users' ? {} : { tab: t.key })}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'users' && <UsersPage embedded />}
-      {tab === 'roles' && <RolesPage embedded />}
+      <UsersPage embedded />
     </div>
   );
 }
