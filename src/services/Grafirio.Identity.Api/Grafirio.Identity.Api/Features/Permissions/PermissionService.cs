@@ -11,11 +11,14 @@ public class PermissionService(
     IIdentityService identityService)
     : IPermissionService
 {
-    /// Aynı istek içinde birden çok modül sorulabiliyor; şirket başına bir kez
+    /// Aynı istek içinde birden çok izin sorulabiliyor; şirket başına bir kez
     /// hesaplanıp saklanıyor.
     private readonly Dictionary<Guid, EffectivePermissions> _cache = [];
 
-    public async Task<bool> CanAsync(Guid companyId, string module, CancellationToken ct)
+    public async Task<bool> CanAsync(Guid companyId, string permission, CancellationToken ct)
+        => (await ForCompanyAsync(companyId, ct)).Permissions.Contains(permission);
+
+    public async Task<bool> CanSeeModuleAsync(Guid companyId, string module, CancellationToken ct)
         => (await ForCompanyAsync(companyId, ct)).Modules.Contains(module);
 
     public async Task<EffectivePermissions> ForCompanyAsync(Guid companyId, CancellationToken ct)
@@ -24,21 +27,20 @@ public class PermissionService(
 
         var role = await access.EffectiveRoleAsync(companyId, ct);
 
-        // Şirkete erişimi yoksa modül de yok; çağıran tarafın ayrıca erişim
+        // Şirkete erişimi yoksa izin de yok; çağıran tarafın ayrıca erişim
         // kontrolü yapmasına gerek kalmıyor.
         if (role is null)
         {
-            return _cache[companyId] = new EffectivePermissions(companyId, null, [], false);
+            return Store(new EffectivePermissions(companyId, null, [], [], false));
         }
 
-        var ceiling = AppModules.CeilingForRole(role);
+        var ceiling = AppPermissions.CeilingForRole(role);
 
         // Yönetici departman kısıtından muaf: kendi şirketinde her şeyi
         // görmeli, aksi halde kendi kurduğu daraltmayla kendini kilitleyebilir.
         if (role is PlatformRoles.PLATFORM_ADMIN or CompanyRoles.COMPANY_ADMIN)
         {
-            return _cache[companyId] = new EffectivePermissions(
-                companyId, role, [.. ceiling], false);
+            return Store(Build(companyId, role, ceiling, restricted: false));
         }
 
         var userId = identityService.UserId.ToString();
@@ -53,8 +55,7 @@ public class PermissionService(
         // panelden düşerdi.
         if (memberships.Count == 0)
         {
-            return _cache[companyId] = new EffectivePermissions(
-                companyId, role, [.. ceiling], false);
+            return Store(Build(companyId, role, ceiling, restricted: false));
         }
 
         var departmentIds = memberships.Select(x => x.DepartmentId).Distinct().ToList();
@@ -66,11 +67,25 @@ public class PermissionService(
         // Birden fazla departmandaysa izinler birleşiyor, sonra rol tavanıyla
         // kesişiyor — departman tavanı genişletemez.
         var granted = departments
-            .SelectMany(d => d.Modules)
+            .SelectMany(d => d.EffectivePermissionKeys())
             .Where(ceiling.Contains)
-            .Distinct()
-            .ToList();
+            .ToHashSet();
 
-        return _cache[companyId] = new EffectivePermissions(companyId, role, granted, true);
+        // Panele giriş role bağlı: departman modül ve aksiyonları daraltır ama
+        // kapıyı kapatmaz. Aksi halde yanlış bir departman ataması kullanıcıyı
+        // eksik bir panel yerine tamamen dışarıda bırakır ve durumu düzeltecek
+        // kişi de aynı şekilde kilitlenebilir.
+        if (ceiling.Contains(AppPermissions.PanelRead)) granted.Add(AppPermissions.PanelRead);
+
+        return Store(Build(companyId, role, granted, restricted: true));
     }
+
+    /// Modül listesi ayrı tutulmuyor, izinlerden türetiliyor: iki liste ayrı
+    /// hesaplanırsa menü ile uygulanan kural sessizce ayrışır.
+    private static EffectivePermissions Build(
+        Guid companyId, string role, IReadOnlyCollection<string> permissions, bool restricted)
+        => new(companyId, role, AppPermissions.ModulesOf(permissions), [.. permissions], restricted);
+
+    private EffectivePermissions Store(EffectivePermissions value)
+        => _cache[value.CompanyId] = value;
 }

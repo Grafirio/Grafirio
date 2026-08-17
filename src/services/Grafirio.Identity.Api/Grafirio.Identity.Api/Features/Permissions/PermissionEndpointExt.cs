@@ -24,6 +24,18 @@ public static class PermissionEndpointExt
             .Produces<string[]>(StatusCodes.Status200OK)
             .RequireAuthorization("Password");
 
+        // Departman izin matrisini cizmek icin: hangi modulun hangi aksiyonlari
+        // var. PANEL.READ listeye girmiyor — departmana atanmiyor.
+        group.MapGet("/actions", () => Results.Ok(
+                AppModules.All.Select(module => new
+                {
+                    module,
+                    permissions = AppPermissions.ForModule(module)
+                })))
+            .WithName("GetPermissionActions")
+            .Produces(StatusCodes.Status200OK)
+            .RequireAuthorization("Password");
+
         group.MapToApiVersion(1, 0);
     }
 }

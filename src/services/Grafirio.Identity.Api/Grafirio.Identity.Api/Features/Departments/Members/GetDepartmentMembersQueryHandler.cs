@@ -1,5 +1,5 @@
 using AutoMapper;
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Departments.Dtos;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +9,7 @@ namespace Grafirio.Identity.Api.Features.Departments.Members;
 
 public class GetDepartmentMembersQueryHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IMapper mapper)
     : IRequestHandler<GetDepartmentMembersQuery, ServiceResult<List<DepartmentMemberDto>>>
 {
@@ -25,9 +25,9 @@ public class GetDepartmentMembersQueryHandler(
                 HttpStatusCode.NotFound);
         }
 
-        if (!await access.CanAccessAsync(department.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsRead, cancellationToken))
         {
-            return ServiceResult<List<DepartmentMemberDto>>.Error("Access denied to company",
+            return ServiceResult<List<DepartmentMemberDto>>.Error("Access denied to module",
                 HttpStatusCode.Forbidden);
         }
 

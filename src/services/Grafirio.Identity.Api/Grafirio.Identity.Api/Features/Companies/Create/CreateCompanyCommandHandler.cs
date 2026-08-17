@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
@@ -11,7 +11,7 @@ public class CreateCompanyCommandHandler(
     AppDbContext context,
     IKeycloakUserService keycloakService,
     IIdentityService identityService,
-    ICompanyAccessService access)
+    IPermissionService permissions)
     : IRequestHandler<CreateCompanyCommand, ServiceResult<CreateCompanyResponse>>
 {
     public async Task<ServiceResult<CreateCompanyResponse>> Handle(CreateCompanyCommand request,
@@ -57,11 +57,15 @@ public class CreateCompanyCommandHandler(
             // Yetki, token'daki accessible_companies claim'inden degil uyelik
             // kayitlarindan okunuyor; ustelik hiyerarsik, yani kok sirketin
             // yoneticisi herhangi bir subenin altina da sube acabilir.
-            if (!await access.HasRoleAsync(request.ParentCompanyId.Value,
-                    CompanyRoles.COMPANY_ADMIN, cancellationToken))
+            //
+            // Alt sirket acmak ayri bir izin, sirket bilgisini duzeltmekle ayni
+            // sey degil: yeni bir tuzel kisilik dogurur ve altina kullanici,
+            // departman, abonelik baglanir.
+            if (!await permissions.CanAsync(request.ParentCompanyId.Value,
+                    AppPermissions.CompanySettingsCreateChild, cancellationToken))
             {
                 return ServiceResult<CreateCompanyResponse>.Error("Access denied to parent company",
-                    "Alt şirket açmak için üst şirkette yönetici olmanız gerekiyor.",
+                    "Alt şirket açmak için üst şirkette alt şirket açma izniniz olmalı.",
                     HttpStatusCode.Forbidden);
             }
 

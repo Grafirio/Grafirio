@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -6,7 +6,7 @@ using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Departments.Delete;
 
-public class DeleteDepartmentCommandHandler(AppDbContext context, ICompanyAccessService access)
+public class DeleteDepartmentCommandHandler(AppDbContext context, IPermissionService permissions)
     : IRequestHandler<DeleteDepartmentCommand, ServiceResult<bool>>
 {
     public async Task<ServiceResult<bool>> Handle(DeleteDepartmentCommand request,
@@ -20,10 +20,10 @@ public class DeleteDepartmentCommandHandler(AppDbContext context, ICompanyAccess
             return ServiceResult<bool>.Error("Department not found", HttpStatusCode.NotFound);
         }
 
-        if (!await access.HasRoleAsync(department.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsDelete, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Departman silmek için bu şirkette yönetici olmanız gerekiyor.",
+                "Departman silmek için bu şirkette departman silme izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 

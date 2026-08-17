@@ -7,7 +7,10 @@ public record CreateDepartmentCommand(
     string? Description,
     string? ManagerKeycloakUserId,
     string? CostCenter,
-    List<string>? Modules
+    List<string>? Modules,
+    /// İzin anahtarları (MODÜL.AKSİYON). Boş gelirse <paramref name="Modules"/>
+    /// izne çevriliyor — güncellenmemiş panel departmanı izinsiz bırakmasın.
+    List<string>? Permissions
 ) : IRequestByServiceResult<CreateDepartmentResponse>;
 
 public record CreateDepartmentResponse(Guid Id);

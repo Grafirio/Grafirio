@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using AutoMapper;
 using Grafirio.Identity.Api.Features.Users.Dtos;
 using Grafirio.Identity.Api.Repositories;
@@ -9,16 +9,16 @@ namespace Grafirio.Identity.Api.Features.Users.GetByCompany;
 
 public class GetCompanyUsersQueryHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IMapper mapper)
     : IRequestHandler<GetCompanyUsersQuery, ServiceResult<List<UserCompanyRoleDto>>>
 {
     public async Task<ServiceResult<List<UserCompanyRoleDto>>> Handle(
         GetCompanyUsersQuery request, CancellationToken cancellationToken)
     {
-        if (!await access.CanAccessAsync(request.CompanyId, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersRead, cancellationToken))
         {
-            return ServiceResult<List<UserCompanyRoleDto>>.Error("Access denied to company",
+            return ServiceResult<List<UserCompanyRoleDto>>.Error("Insufficient permissions",
                 HttpStatusCode.Forbidden);
         }
 

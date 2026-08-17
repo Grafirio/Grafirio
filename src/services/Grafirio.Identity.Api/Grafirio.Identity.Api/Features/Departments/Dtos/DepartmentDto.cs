@@ -10,9 +10,13 @@ public class DepartmentDto
     public string? ManagerKeycloakUserId { get; set; }
     public string? CostCenter { get; set; }
 
-    /// Bu departmandaki kullanıcıların girebileceği modüller. Rol tavanını
-    /// daraltır, genişletemez.
+    /// Bu departmandaki kullanıcıların girebileceği modüller. İzinlerden
+    /// türetiliyor; menü çizimi ve güncellenmemiş istemciler için duruyor.
     public List<string> Modules { get; set; } = [];
+
+    /// Departmanın izinleri (MODÜL.AKSİYON). Rol tavanını daraltır,
+    /// genişletemez.
+    public List<string> Permissions { get; set; } = [];
 
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }

@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Users.AssignRole;
 
 public class AssignRoleCommandHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IKeycloakUserService keycloakService,
     IIdentityService identityService)
     : IRequestHandler<AssignRoleCommand, ServiceResult<AssignRoleResponse>>
@@ -33,13 +33,14 @@ public class AssignRoleCommandHandler(
             return ServiceResult<AssignRoleResponse>.Error("Company not found", HttpStatusCode.NotFound);
         }
 
-        // Yetki dagitmak yonetici isi. Hiyerarsik: kok sirketin yoneticisi
-        // subelerinde de rol atayabilir. Platform ekibi icin servis her zaman
-        // izin veriyor.
-        if (!await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken))
+        // Rol atamak ayri bir izin: kullanici acabilen mudurun kimin yonetici
+        // olacagina karar vermesi gerekmiyor. Hiyerarsik oldugu icin kok
+        // sirketin yoneticisi subelerinde de rol atayabilir; platform ekibine
+        // servis her zaman izin veriyor.
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageRoles, cancellationToken))
         {
             return ServiceResult<AssignRoleResponse>.Error("Insufficient permissions",
-                "Rol atamak için bu şirkette yönetici olmanız gerekiyor.", HttpStatusCode.Forbidden);
+                "Rol atamak için bu şirkette yetki yönetimi izniniz olmalı.", HttpStatusCode.Forbidden);
         }
 
         var existing = await context.UserCompanyRoles

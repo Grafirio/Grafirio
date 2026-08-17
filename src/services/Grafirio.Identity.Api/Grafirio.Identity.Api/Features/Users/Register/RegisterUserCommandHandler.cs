@@ -1,4 +1,4 @@
-using Grafirio.Identity.Api.Features.Companies.Access;
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Users.Register;
 
 public class RegisterUserCommandHandler(
     AppDbContext context,
-    ICompanyAccessService access,
+    IPermissionService permissions,
     IKeycloakUserService keycloakService,
     IIdentityService identityService)
     : IRequestHandler<RegisterUserCommand, ServiceResult<RegisterUserResponse>>
@@ -33,17 +33,14 @@ public class RegisterUserCommandHandler(
                 HttpStatusCode.NotFound);
         }
 
-        // Kullanici acmak yonetici ya da mudur isi. Yetki hiyerarsik: kok
-        // sirketin yoneticisi subelerinde de kullanici acabilir. Platform ekibi
-        // icin servis zaten her zaman izin veriyor.
-        var canRegister =
-            await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_ADMIN, cancellationToken)
-            || await access.HasRoleAsync(request.CompanyId, CompanyRoles.COMPANY_MANAGER, cancellationToken);
-
-        if (!canRegister)
+        // Kullanici acmak bir izin, rol degil: kural artik AppPermissions'ta
+        // duruyor ve departman daraltmasi da hesaba katiliyor. Yetki hiyerarsik
+        // oldugu icin kok sirketin yoneticisi subelerinde de kullanici acabilir;
+        // platform ekibine servis zaten her zaman izin veriyor.
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersCreate, cancellationToken))
         {
             return ServiceResult<RegisterUserResponse>.Error("Insufficient permissions",
-                "Kullanıcı eklemek için bu şirkette yönetici ya da müdür olmanız gerekiyor.",
+                "Kullanıcı eklemek için bu şirkette kullanıcı ekleme yetkiniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 

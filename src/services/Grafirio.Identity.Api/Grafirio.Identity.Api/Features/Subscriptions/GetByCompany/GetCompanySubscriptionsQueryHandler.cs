@@ -19,7 +19,7 @@ public class GetCompanySubscriptionsQueryHandler(
     {
         // Platform ekibi her firmanın aboneliğini görebilmeli; müşteri yalnızca
         // erişimi olan firmalarınkini.
-        if (!await permissions.CanAsync(request.CompanyId, AppModules.Billing, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.BillingRead, cancellationToken))
         {
             return ServiceResult<List<SubscriptionDto>>.Error("Access denied to company",
                 HttpStatusCode.Forbidden);
