@@ -126,7 +126,10 @@ public class UpdateCompanyCommandHandler(AppDbContext context, IIdentityService 
             }
         }
 
-        return addresses.Count == 0 ? null : addresses;
+        // Bos liste null'a cevrilmiyor: EF null'i de yaziyor ve okuyabiliyor ama
+        // "hic adres yok" ile "bilinmiyor" arasinda tutulacak bir fark yok, bos
+        // dizi ikisini de dogru anlatiyor.
+        return addresses;
     }
 
     private List<CompanyBankAccount>? MapBankAccounts(UpdateCompanyCommand request)
@@ -148,7 +151,7 @@ public class UpdateCompanyCommandHandler(AppDbContext context, IIdentityService 
             account.Currency = Upper(account.Currency);
         }
 
-        return accounts.Count == 0 ? null : accounts;
+        return accounts;
     }
 
     /// Dolu bir kimlik alanı, yetki yoksa gelen değere bakılmadan korunur.
