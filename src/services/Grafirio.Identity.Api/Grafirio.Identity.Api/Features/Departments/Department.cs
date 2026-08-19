@@ -13,8 +13,8 @@ namespace Grafirio.Identity.Api.Features.Departments;
 /// belirliyor — iki kavram karışırsa "hangi şirkete girebilirim" sorusunun iki
 /// ayrı cevabı olur.
 ///
-/// Bu aşamada departman yalnızca gruplama: veri ve modül izinleri sonraki
-/// fazlarda buraya bağlanacak.
+/// Departman gruplamanın yanında yetkinin de bir parçası: <see cref="Permissions"/>
+/// üyelerinin rol tavanını daraltıyor (bkz. PermissionService).
 /// </summary>
 public class Department : BaseEntity
 {

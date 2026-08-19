@@ -93,6 +93,10 @@ export function CompanyProvider({ children }) {
   const value = useMemo(() => {
     const modules = permissions?.modules ?? null;
 
+    // İzin kümesi Set'e alınıyor: menü, hub kartları ve ekrandaki her düğme
+    // aynı render'da tek tek soruyor.
+    const granted = permissions?.permissions ? new Set(permissions.permissions) : null;
+
     return {
       companies,
       selectedId,
@@ -104,13 +108,25 @@ export function CompanyProvider({ children }) {
 
       role: permissions?.role ?? null,
       modules,
+      permissions: permissions?.permissions ?? null,
       restrictedByDepartment: permissions?.restrictedByDepartment ?? false,
       permissionsLoading,
       reloadPermissions: loadPermissions,
 
-      // İzinler henüz okunmadıysa (ya da okunamadıysa) menü gizlenmiyor;
-      // sunucu zaten reddediyor, erken gizlemek yanlış boşluk yaratır.
-      can: (module) => (modules === null ? true : modules.includes(module)),
+      /**
+       * Tek bir aksiyona izin var mı: can(PERM.DATA_SOURCES_UPDATE).
+       *
+       * İzinler henüz okunmadıysa (ya da okunamadıysa) hiçbir şey gizlenmiyor;
+       * sunucu zaten reddediyor, erken gizlemek kullanıcıyı olmayan bir
+       * kısıtla karşılaştırır — hata mesajı yerine boşluk görür.
+       */
+      can: (permission) => (granted === null ? true : granted.has(permission)),
+
+      /**
+       * Modülün herhangi bir izni var mı — "bu menü görünsün mü".
+       * Ekranı açmak için; ekranda bir şeyi değiştirmek için can() gerekiyor.
+       */
+      canModule: (module) => (modules === null ? true : modules.includes(module)),
     };
   }, [companies, selectedId, loading, error, load, permissions, permissionsLoading, loadPermissions]);
 

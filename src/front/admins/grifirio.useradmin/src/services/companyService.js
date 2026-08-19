@@ -109,10 +109,11 @@ export const fetchAccessibleCompanies = async (token) => {
 
 /**
  * Cagiranin bu sirketteki etkin izinleri: { companyId, role, modules,
- * restrictedByDepartment }.
+ * permissions, restrictedByDepartment }.
  *
- * Menu buna gore ciziliyor ama asil kontrol sunucuda: gizlenmis bir menu,
- * istegin dogrudan gonderilmesini engellemez.
+ * permissions MODUL.AKSIYON anahtarlari, modules onlardan turetilen menu
+ * listesi. Menu ve dugmeler buna gore ciziliyor ama asil kontrol sunucuda:
+ * gizlenmis bir dugme, istegin dogrudan gonderilmesini engellemez.
  */
 export const fetchMyPermissions = async (token, companyId) => {
   const { data } = await axios.get(
@@ -120,6 +121,18 @@ export const fetchMyPermissions = async (token, companyId) => {
     auth(token)
   );
   return unwrap(data);
+};
+
+/**
+ * Modul -> o modulun izin anahtarlari agaci; departman izin matrisini bu
+ * besliyor.
+ *
+ * Liste istemciye kopyalanmiyor sunucudan okunuyor: yeni bir aksiyon
+ * eklendiginde matris kendiliginden buyusun, iki taraf sessizce ayrismasin.
+ */
+export const fetchPermissionActions = async (token) => {
+  const { data } = await axios.get(`${GATEWAY}/v1/identity/permissions/actions`, auth(token));
+  return unwrap(data) ?? [];
 };
 
 /**

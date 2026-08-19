@@ -24,8 +24,8 @@ const CARDS = [
 
 export default function SettingsHubPage() {
   const navigate = useNavigate();
-  const { can } = useCompany();
-  const cards = CARDS.filter((c) => c.module === null || can(c.module));
+  const { canModule } = useCompany();
+  const cards = CARDS.filter((c) => c.module === null || canModule(c.module));
 
   return (
     <div className="st">
