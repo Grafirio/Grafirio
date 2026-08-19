@@ -134,7 +134,16 @@ export default function CompanySettingsPage() {
 
   // Hangi şirketin ayarlarına bakıldığı Nav'daki değiştiriciden geliyor;
   // sayfa artık "kullanıcının tek şirketi" varsayımına dayanmıyor.
-  const { selectedId, reload: reloadAccessibleCompanies } = useCompany();
+  const { selectedId, reload: reloadAccessibleCompanies, can } = useCompany();
+
+  // Sunucu bu üç işi ayrı ayrı soruyor (bkz. UpdateCompanyCommandHandler,
+  // UploadCompanyDocumentCommandHandler, CreateCompanyCommandHandler). Panel
+  // sormadığı için sıradan kullanıcı formu doldurup Kaydet'e bastığında 403
+  // görüyordu: iş bittikten sonra reddedilmek, hiç başlamamaktan kötü.
+  const canUpdate = can('COMPANY_SETTINGS.UPDATE');
+  const canUploadDocuments = can('DOCUMENTS.CREATE');
+  const canDeleteDocuments = can('DOCUMENTS.DELETE');
+  const canCreateChild = can('COMPANY_SETTINGS.CREATE_CHILD');
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = TABS.some((t) => t.key === searchParams.get('tab'))
@@ -666,14 +675,18 @@ export default function CompanySettingsPage() {
       {!loading && company && FORM_TABS.includes(tab) && (
         <div className="st-savebar">
           <span className="st-savebar-note">
-            {dirty ? 'kaydedilmemiş değişiklikler var' : 'güncel'}
+            {!canUpdate
+              ? 'şirket bilgilerini değiştirme yetkiniz yok'
+              : dirty
+                ? 'kaydedilmemiş değişiklikler var'
+                : 'güncel'}
           </span>
           <span className="st-savebar-actions">
             <button type="button" className="st-btn st-btn--ghost" disabled={!dirty || saving}
               onClick={discard}>
               Vazgeç
             </button>
-            <button type="button" className="st-btn" disabled={saving} onClick={save}>
+            <button type="button" className="st-btn" disabled={saving || !canUpdate} onClick={save}>
               {saving ? 'Kaydediliyor…' : 'Kaydet'}
             </button>
           </span>
@@ -682,11 +695,13 @@ export default function CompanySettingsPage() {
 
       {!loading && company && tab === 'documents' && (
         <DocumentsPanel token={token} companyId={company.id}
+          canUpload={canUploadDocuments} canDelete={canDeleteDocuments}
           setError={setError} setNotice={setNotice} />
       )}
 
       {!loading && company && tab === 'tree' && (
         <SubCompaniesPanel token={token} parentId={company.id} items={children}
+          canCreate={canCreateChild}
           onCreated={async () => {
             // Yeni şube Nav'daki değiştiricide de görünmeli; oradaki liste
             // ayrı bir uçtan geliyor ve kendiliğinden tazelenmiyor.
@@ -725,7 +740,7 @@ function Field({ label, value, onChange, locked, disabled, mono, hint, placehold
 }
 
 /** Belge listesi + önizlemeli kart ızgarası. */
-function DocumentsPanel({ token, companyId, setError, setNotice }) {
+function DocumentsPanel({ token, companyId, canUpload, canDelete, setError, setNotice }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -817,12 +832,16 @@ function DocumentsPanel({ token, companyId, setError, setNotice }) {
           <div className="st-doc-grid">
             {documents.map((doc) => (
               <DocumentCard key={doc.id} doc={doc} token={token} companyId={companyId}
+                canDelete={canDelete}
                 onDownload={() => download(doc)} onRemove={() => remove(doc)} />
             ))}
           </div>
         )}
       </section>
 
+      {!canUpload ? (
+        <p className="st-hint">Belge yüklemek için bu şirkette belge ekleme yetkiniz olmalı.</p>
+      ) : (
       <section className="st-card">
         <p className="st-caps">Belge yükle</p>
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -851,6 +870,7 @@ function DocumentsPanel({ token, companyId, setError, setNotice }) {
           </button>
         </form>
       </section>
+      )}
     </>
   );
 }
@@ -875,7 +895,7 @@ const expiryState = (doc) => {
   return { cls: 'st-badge--ok', text: 'Geçerli' };
 };
 
-function DocumentCard({ doc, token, companyId, onDownload, onRemove }) {
+function DocumentCard({ doc, token, companyId, canDelete, onDownload, onRemove }) {
   const expiry = expiryState(doc);
 
   return (
@@ -895,7 +915,9 @@ function DocumentCard({ doc, token, companyId, onDownload, onRemove }) {
         {doc.note && <span className="st-doc-meta">{doc.note}</span>}
         <span className="st-doc-actions">
           <button type="button" className="st-link" onClick={onDownload}>İndir</button>
-          <button type="button" className="st-link" onClick={onRemove}>Sil</button>
+          {canDelete && (
+            <button type="button" className="st-link" onClick={onRemove}>Sil</button>
+          )}
         </span>
       </div>
     </article>
@@ -946,7 +968,7 @@ function DocumentThumb({ doc, token, companyId }) {
   return <span className="st-doc-thumb st-doc-thumb--empty">{ext}</span>;
 }
 
-function SubCompaniesPanel({ token, parentId, items, onCreated, setError, setNotice }) {
+function SubCompaniesPanel({ token, parentId, items, canCreate, onCreated, setError, setNotice }) {
   const [form, setForm] = useState({ name: '', code: '' });
   const [busy, setBusy] = useState(false);
 
@@ -1013,6 +1035,7 @@ function SubCompaniesPanel({ token, parentId, items, onCreated, setError, setNot
         </div>
       )}
 
+      {canCreate && (
       <form onSubmit={submit}
         style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p className="st-caps" style={{ margin: 0 }}>Alt şirket ekle</p>
@@ -1029,6 +1052,7 @@ function SubCompaniesPanel({ token, parentId, items, onCreated, setError, setNot
           {busy ? 'Ekleniyor…' : '+ Alt şirket ekle'}
         </button>
       </form>
+      )}
     </section>
   );
 }

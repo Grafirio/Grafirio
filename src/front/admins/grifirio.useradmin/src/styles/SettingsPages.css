@@ -1280,6 +1280,17 @@
   gap: 8px;
 }
 
+/* Izin duzenleme yetkisi olmayana matris okunur ama tiklanamaz kaliyor:
+   gizlemek "departmanin izni yok" gibi okunurdu. */
+.st-perm-list[data-locked='true'] {
+  opacity: 0.72;
+}
+
+.st-perm-list[data-locked='true'] label,
+.st-perm-list[data-locked='true'] input {
+  cursor: not-allowed;
+}
+
 .st-perm-module {
   border: 1px solid var(--gf-line);
   border-radius: 11px;

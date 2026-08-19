@@ -57,6 +57,19 @@ public class CreateDepartmentCommandHandler(AppDbContext context, IPermissionSer
 
         var granted = AppPermissions.Sanitize(request.Permissions, request.Modules);
 
+        // Izinli bir departman kurmak, kurulmus bir departmanin izinlerini
+        // degistirmekle ayni agirlikta is (bkz. UpdateDepartmentCommandHandler):
+        // ikisi de yetkiyi sekillendiriyor. Izinsiz departman acmak icin bu
+        // yetki gerekmiyor — gruplama yapmak isteyen kimse kilitlenmesin.
+        if (granted.Count > 0 &&
+            !await permissions.CanAsync(request.CompanyId,
+                AppPermissions.DepartmentsManagePermissions, cancellationToken))
+        {
+            return ServiceResult<CreateDepartmentResponse>.Error("Insufficient permissions",
+                "İzin tanımlı bir departman açmak için izin düzenleme yetkiniz olmalı.",
+                HttpStatusCode.Forbidden);
+        }
+
         var department = new Department
         {
             Id = NewId.NextSequentialGuid(),
