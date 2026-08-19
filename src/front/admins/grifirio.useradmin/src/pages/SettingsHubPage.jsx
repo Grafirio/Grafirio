@@ -14,11 +14,11 @@ const CARDS = [
   // açılabiliyor: evrak aramak için önce şirket ayarlarına girip sekme
   // bulmak gereksiz bir adım.
   { to: '/settings/company?tab=documents', glyph: 'E', title: 'Belgeler', desc: 'Vergi levhası, imza sirküleri ve sicil evrakı — önizlemeli.', module: MODULE.DOCUMENTS },
-  { to: '/settings/users', glyph: 'K', title: 'Kullanıcılar', desc: 'Kim var, hangi rolde, hangi firmalarda yetkili.', module: MODULE.USERS_ROLES },
+  { to: '/settings/users', glyph: 'K', title: 'Kullanıcılar', desc: 'Kim üye, kim admin, kimin hangi rolleri var.', module: MODULE.USERS },
   // Yetkiyle ilgili her sey tek kartta: rol tavanlari ve departman
   // daraltmalari ayri menu girdileri oldugunda "bu kisi ne yapabilir" sorusu
   // iki yerden cevaplaniyordu. Departmanlar bu sayfanin bir sekmesi.
-  { to: '/settings/permissions', glyph: 'İ', title: 'İzinler', desc: 'Rollerin verdiği üst sınır, departmanlar ve izin kırılımları.', module: MODULE.DEPARTMENTS },
+  { to: '/settings/permissions', glyph: 'İ', title: 'Roller', desc: 'Şirketin kendi tanımladığı izin kümeleri.', module: MODULE.ROLES },
   { to: '/settings/theme', glyph: 'G', title: 'Görünüm ve Tema', desc: 'Açık/karanlık mod, marka rengi ve yoğunluk.', module: null },
   { to: '/settings/notifications', glyph: 'B', title: 'Bildirimler', desc: 'Hangi olay, kime, hangi kanaldan.', module: null },
 ];

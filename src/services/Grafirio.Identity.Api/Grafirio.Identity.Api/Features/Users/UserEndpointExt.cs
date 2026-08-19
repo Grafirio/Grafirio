@@ -1,9 +1,9 @@
 using Asp.Versioning.Builder;
-using Grafirio.Identity.Api.Features.Users.AssignRole;
+using Grafirio.Identity.Api.Features.Users.SetLevel;
 using Grafirio.Identity.Api.Features.Users.Dtos;
 using Grafirio.Identity.Api.Features.Users.GetByCompany;
 using Grafirio.Identity.Api.Features.Users.Register;
-using Grafirio.Identity.Api.Features.Users.RevokeRole;
+using Grafirio.Identity.Api.Features.Users.Revoke;
 
 namespace Grafirio.Identity.Api.Features.Users;
 
@@ -32,7 +32,9 @@ public static class UserEndpointExt
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .RequireAuthorization("Password");
 
-        group.MapPost("/roles", async (AssignRoleCommand command, IMediator mediator) =>
+        // Uc adi "roles" degil "membership": rol artik sirketin kendi
+        // tanimladigi izin kumesi ve bambaska bir uctan yonetiliyor.
+        group.MapPost("/membership", async (SetMembershipLevelCommand command, IMediator mediator) =>
             {
                 var result = await mediator.Send(command);
 
@@ -40,21 +42,21 @@ public static class UserEndpointExt
                     ? Results.Ok(result.Data)
                     : Results.BadRequest(result.Fail);
             })
-            .WithName("AssignRole")
-            .Produces<AssignRoleResponse>(StatusCodes.Status200OK)
+            .WithName("SetMembershipLevel")
+            .Produces<SetMembershipLevelResponse>(StatusCodes.Status200OK)
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .RequireAuthorization("Password");
 
-        group.MapDelete("/{keycloakUserId}/companies/{companyId:guid}/role",
+        group.MapDelete("/{keycloakUserId}/companies/{companyId:guid}/membership",
                 async (string keycloakUserId, Guid companyId, IMediator mediator) =>
                 {
-                    var result = await mediator.Send(new RevokeRoleCommand(keycloakUserId, companyId));
+                    var result = await mediator.Send(new RevokeMembershipCommand(keycloakUserId, companyId));
 
                     return result.IsSuccess
                         ? Results.NoContent()
                         : Results.BadRequest(result.Fail);
                 })
-            .WithName("RevokeRole")
+            .WithName("RevokeMembership")
             .Produces(StatusCodes.Status204NoContent)
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .Produces<ProblemDetails>(StatusCodes.Status404NotFound)

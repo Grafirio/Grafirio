@@ -1,52 +1,60 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
 import {
-  COMPANY_ROLES,
-  assignRole,
   describeError,
   fetchCompanyUsers,
-  revokeRole,
-  roleName,
+  fetchPermissionActions,
+  revokeMembership,
+  setMembershipLevel,
 } from '../../services/companyService';
+import {
+  assignUserToRole,
+  fetchRoles,
+  fetchUserAccess,
+  removeUserFromRole,
+  setUserPermissions,
+} from '../../services/roleService';
 import { useCompany } from '../../contexts/companyContext';
+import {
+  ASSIGNABLE_LEVELS,
+  LEVEL_HINTS,
+  levelLabel,
+} from '../../constants/permissions';
+import PermissionMatrix from '../../components/organisms/PermissionMatrix';
 import '../../styles/SettingsPages.css';
 
 /**
- * Ayarlar › Kullanicilar (Kullanicilar sekmesi).
+ * Ayarlar › Kullanıcılar.
  *
- * Kullanici yonetiminin yapildigi yer burasi: rol degistirme ve erisim
- * kaldirma. Arama/rol filtresi sunucuya gitmiyor — zaten cekilmis listeyi
- * tarayicida suzuyor, bu yuzden uydurma bir "arama servisi" gerekmiyor.
+ * İki ayrı soru burada cevaplanıyor: kim üye (ve hangi seviyede), ve o kişi ne
+ * yapabiliyor. İkincisi kişi seçilince açılan yetki panelinde: rolleri,
+ * kişisel izinleri ve ikisinin birleşimi.
  *
- * Davet butonu (ust basliktaki, UsersRolesPage.jsx) kapali: mevcut kayit
- * ucu, yoneticinin baskasi adina parola belirlemesini istiyor. Dogrusu
- * e-posta daveti gonderip kisinin kendi parolasini kurmasi; o uc yazilana
- * kadar buraya yarim bir akis koymadim.
+ * Arama sunucuya gitmiyor — zaten çekilmiş listeyi tarayıcıda süzüyor.
  */
-// embedded: UsersRolesPage bu bileseni "Kullanicilar" sekmesinde gosterir ve
-// kendi sayfa basligini kendisi cizer.
 export default function UsersPage({ embedded = false } = {}) {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
-  const currentUserId = keycloak.tokenParsed?.sub;
 
-  // Sirket, token'daki company_id degil Nav'daki secici: ayni kullanici bir
-  // subede yonetici, baskasinda siradan kullanici olabiliyor. Token'dan
-  // okundugunda sube degistirmek listeyi hic etkilemiyordu — panelin geri
-  // kalani secili sirketle calisirken burasi baska bir sirketi gosteriyordu.
-  const { selected: company, companies, can } = useCompany();
+  // Şirket, token'daki company_id değil Nav'daki seçici: aynı kullanıcı bir
+  // şubede admin, başkasında üye olabiliyor.
+  const { selected: company, can } = useCompany();
   const companyId = company?.id;
 
-  const canManageRoles = can('USERS_ROLES.MANAGE_ROLES');
+  const canManageMembership = can('USERS.MANAGE_MEMBERSHIP');
+  const canAssignRoles = can('ROLES.ASSIGN');
+  const canManagePermissions = can('ROLES.MANAGE_PERMISSIONS');
 
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busyUser, setBusyUser] = useState(null);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('ALL');
-  const [companiesFor, setCompaniesFor] = useState(null);
+  const [levelFilter, setLevelFilter] = useState('ALL');
+  const [openUser, setOpenUser] = useState(null);
 
   const load = useCallback(async () => {
     if (!companyId) {
@@ -56,7 +64,14 @@ export default function UsersPage({ embedded = false } = {}) {
     setLoading(true);
     setError('');
     try {
-      setUsers(await fetchCompanyUsers(token, companyId));
+      const [list, roleList, actions] = await Promise.all([
+        fetchCompanyUsers(token, companyId),
+        fetchRoles(token, companyId).catch(() => []),
+        fetchPermissionActions(token).catch(() => []),
+      ]);
+      setUsers(list);
+      setRoles(roleList);
+      setCatalog(actions);
     } catch (err) {
       setError(describeError(err, 'Kullanıcılar okunamadı.'));
     } finally {
@@ -66,33 +81,38 @@ export default function UsersPage({ embedded = false } = {}) {
 
   useEffect(() => {
     load();
+    setOpenUser(null);
   }, [load]);
 
-  const changeRole = async (user, role) => {
+  const changeLevel = async (user, level) => {
     setError('');
     setNotice('');
     setBusyUser(user.keycloakUserId);
     try {
-      await assignRole(token, { keycloakUserId: user.keycloakUserId, companyId, role });
-      setNotice(`Yetki güncellendi: ${roleName(role)}`);
+      await setMembershipLevel(token, {
+        keycloakUserId: user.keycloakUserId,
+        companyId,
+        level,
+      });
+      setNotice(`Üyelik seviyesi güncellendi: ${levelLabel(level)}`);
       await load();
     } catch (err) {
-      setError(describeError(err, 'Yetki güncellenemedi.'));
+      setError(describeError(err, 'Üyelik seviyesi güncellenemedi.'));
     } finally {
       setBusyUser(null);
     }
   };
 
   const removeUser = async (user) => {
-    if (!window.confirm('Bu kullanıcının şirkete erişimi kaldırılsın mı?')) {
-      return;
-    }
+    if (!window.confirm('Bu kullanıcının şirkete erişimi kaldırılsın mı?')) return;
+
     setError('');
     setNotice('');
     setBusyUser(user.keycloakUserId);
     try {
-      await revokeRole(token, { keycloakUserId: user.keycloakUserId, companyId });
-      setNotice('Kullanıcının erişimi kaldırıldı.');
+      await revokeMembership(token, { keycloakUserId: user.keycloakUserId, companyId });
+      setNotice('Kullanıcının erişimi kaldırıldı. Rolleri de kapatıldı.');
+      if (openUser?.keycloakUserId === user.keycloakUserId) setOpenUser(null);
       await load();
     } catch (err) {
       setError(describeError(err, 'Erişim kaldırılamadı.'));
@@ -101,48 +121,25 @@ export default function UsersPage({ embedded = false } = {}) {
     }
   };
 
-  // Ad ve e-posta artik uctan geliyor: Identity bunlari Keycloak'tan okuyup
-  // dondurmeye basladi (KeycloakUserDirectory). Kullanici Keycloak'ta
-  // bulunamazsa — silinmis olabilir, yetki kaydi denetim izi olarak duruyor —
-  // kimlik gosteriliyor; uydurma bir ad uretmektense ne oldugu belli olsun.
+  // Ad ve e-posta uçtan geliyor (KeycloakUserDirectory). Kullanıcı Keycloak'ta
+  // bulunamazsa — silinmiş olabilir, üyelik kaydı denetim izi olarak duruyor —
+  // kimlik gösteriliyor; uydurma bir ad üretmektense ne olduğu belli olsun.
   const displayName = (u) => u.displayName || u.email || u.keycloakUserId;
-
-  const initials = (u) => {
-    const source = u.displayName || u.email;
-    if (!source) return '#';
-    return source
-      .replace(/@.*/, '')
-      .split(/[.\s_-]+/)
-      .map((p) => p[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase();
-  };
-
-  const adminCount = users.filter((u) => u.role === 'COMPANY_ADMIN').length;
 
   const visibleUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     return users.filter((u) => {
-      if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+      if (levelFilter !== 'ALL' && u.level !== levelFilter) return false;
       if (!q) return true;
       return displayName(u).toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
     });
-  }, [users, search, roleFilter]);
+  }, [users, search, levelFilter]);
 
   const wrapClass = embedded ? 'st-embed' : 'st';
 
-  if (!companyId) {
+  if (!loading && !companyId) {
     return (
       <div className={wrapClass}>
-        {!embedded && (
-          <div className="st-head">
-            <div>
-              <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
-              <h1>Kullanıcı Ayarları</h1>
-            </div>
-          </div>
-        )}
         <div className="st-card">
           <p className="st-empty">Hesabınız henüz bir şirkete bağlı değil.</p>
         </div>
@@ -155,10 +152,10 @@ export default function UsersPage({ embedded = false } = {}) {
       {!embedded && (
         <div className="st-head">
           <div>
-            <p className="st-eyebrow">Ayarlar · Kullanıcılar</p>
-            <h1>Kullanıcı Ayarları</h1>
+            <p className="st-eyebrow">Ayarlar · Organizasyon</p>
+            <h1>Kullanıcılar</h1>
             <p className="st-lead">
-              Şirketinizdeki kullanıcıların rollerini değiştirin ya da erişimlerini kaldırın.
+              {company ? `${company.name} üyeleri ve yetkileri.` : 'Kim var, ne yapabiliyor.'}
             </p>
           </div>
         </div>
@@ -166,296 +163,228 @@ export default function UsersPage({ embedded = false } = {}) {
 
       {error && <div className="st-alert">{error}</div>}
       {notice && <div className="st-ok">{notice}</div>}
+      {loading && <div className="st-card st-empty">Yükleniyor…</div>}
 
-      <div className="st-grid-4">
-        <div className="st-kpi">
-          <span className="st-kpi-label">Toplam kullanıcı</span>
-          <strong>{loading ? '—' : users.length}</strong>
-          <span className="st-kpi-note">şirkete tanımlı</span>
-        </div>
-        <div className="st-kpi" style={{ '--accent-line': 'var(--gf-teal)' }}>
-          <span className="st-kpi-label">Yönetici</span>
-          <strong>{loading ? '—' : adminCount}</strong>
-          <span className="st-kpi-note">rol atayabilen</span>
-        </div>
-        <div className="st-kpi" style={{ '--accent-line': 'var(--gf-sun)' }}>
-          <span className="st-kpi-label">Müdür</span>
-          <strong>{loading ? '—' : users.filter((u) => u.role === 'COMPANY_MANAGER').length}</strong>
-          <span className="st-kpi-note">veri kaynağı yöneten</span>
-        </div>
-        <div className="st-kpi" style={{ '--accent-line': 'var(--gf-c06)' }}>
-          <span className="st-kpi-label">Kullanıcı</span>
-          <strong>{loading ? '—' : users.filter((u) => u.role === 'COMPANY_USER').length}</strong>
-          <span className="st-kpi-note">yalnızca görüntüleyen</span>
-        </div>
-      </div>
-
-      <section className="st-card">
-        <div className="st-card-head">
-          <div>
-            <h2>{loading ? 'Kullanıcılar' : `${users.length} kullanıcı`}</h2>
-            <p className="st-card-sub">
-              Rol değişikliği anında geçerli olur. Kendi rolünüzü değiştiremez ya da kendi
-              erişiminizi kaldıramazsınız — şirket yöneticisiz kalabilirdi. “Firmalar” bağlantısı
-              kullanıcının hangi firmalarda yetkili olduğunu gösterir; buradaki liste yalnızca{' '}
-              <strong>{company?.name ?? 'seçili firma'}</strong> içindir.
-            </p>
+      {!loading && (
+        <section className="st-card">
+          <div className="st-card-head">
+            <div>
+              <h2>Üyeler</h2>
+              <p className="st-card-sub">
+                Kurucu ve adminler izin kümesinin dışında; her şeye erişirler. Üyelerin yetkisi
+                rollerinden ve kişisel izinlerinden gelir.
+              </p>
+            </div>
+            <span className="st-head-meta">{users.length} kişi</span>
           </div>
-          <span style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <label className="st-field" style={{ maxWidth: 220 }}>
+
+          <div className="st-form-grid" style={{ marginBottom: 16 }}>
+            <label className="st-field">
+              <span>Ara</span>
               <input
-                type="search"
-                placeholder="İsim veya e-posta"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                placeholder="Ad ya da e-posta"
               />
             </label>
-            <label className="st-field" style={{ maxWidth: 170 }}>
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-                <option value="ALL">Tüm roller</option>
-                {COMPANY_ROLES.map((r) => (
-                  <option key={r.code} value={r.code}>
-                    {r.name}
-                  </option>
-                ))}
+            <label className="st-field">
+              <span>Seviye</span>
+              <select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+                <option value="ALL">Hepsi</option>
+                <option value="FOUNDER">Kurucu</option>
+                <option value="ADMIN">Admin</option>
+                <option value="MEMBER">Üye</option>
               </select>
             </label>
-            <button type="button" className="st-btn st-btn--ghost st-btn--sm" onClick={load} disabled={loading}>
-              {loading ? 'Yükleniyor…' : 'Yenile'}
-            </button>
-          </span>
-        </div>
+          </div>
 
-        <div className="st-table-wrap">
-          <table className="st-table">
-            <thead>
-              <tr>
-                <th>Kullanıcı</th>
-                <th>Rol</th>
-                <th>Tanımlanma</th>
-                <th className="st-right">İşlem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr className="st-table-empty">
-                  <td colSpan={4}>Yükleniyor…</td>
-                </tr>
-              )}
+          {visibleUsers.length === 0 ? (
+            <p className="st-empty">Eşleşen kullanıcı yok.</p>
+          ) : (
+            <div className="st-table-wrap">
+              <table className="st-table">
+                <thead>
+                  <tr>
+                    <th>Kişi</th>
+                    <th>Seviye</th>
+                    <th className="st-right">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleUsers.map((u) => {
+                    const isFounder = u.level === 'FOUNDER';
+                    const busy = busyUser === u.keycloakUserId;
 
-              {!loading && visibleUsers.length === 0 && (
-                <tr className="st-table-empty">
-                  <td colSpan={4}>
-                    {users.length === 0
-                      ? 'Bu şirkette tanımlı kullanıcı yok.'
-                      : 'Aramayla eşleşen kullanıcı yok.'}
-                  </td>
-                </tr>
-              )}
-
-              {!loading &&
-                visibleUsers.map((u) => {
-                  const isSelf = u.keycloakUserId === currentUserId;
-                  const busy = busyUser === u.keycloakUserId;
-                  return (
-                    <tr key={u.keycloakUserId}>
-                      <td>
-                        <span className="st-person">
-                          <span className="st-avatar">{initials(u)}</span>
-                          <span className="st-person-text">
-                            <strong>{displayName(u)}</strong>
-                            <span>{u.email || u.keycloakUserId}</span>
-                          </span>
-                          {isSelf && (
-                            <span className="st-badge" style={{ marginLeft: 4 }}>
-                              siz
-                            </span>
+                    return (
+                      <tr key={u.keycloakUserId}>
+                        <td className="st-strong">
+                          {displayName(u)}
+                          {u.email && u.displayName && (
+                            <span className="st-doc-meta"> · {u.email}</span>
                           )}
-                        </span>
-                      </td>
-                      <td>
-                        <label className="st-field" style={{ maxWidth: 190 }}>
-                          <select
-                            value={u.role}
-                            // Rol atamak ayri bir izin: kullanici acabilen
-                            // mudur, kimin yonetici olacagina karar vermiyor.
-                            disabled={isSelf || busy || !canManageRoles}
-                            onChange={(e) => changeRole(u, e.target.value)}
-                            aria-label={`${displayName(u)} rolü`}
-                          >
-                            {COMPANY_ROLES.map((r) => (
-                              <option key={r.code} value={r.code}>
-                                {r.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </td>
-                      <td className="st-mono st-dim">
-                        {u.assignedAt ? new Date(u.assignedAt).toLocaleDateString('tr-TR') : '—'}
-                      </td>
-                      <td className="st-right">
-                        <button
-                          type="button"
-                          className="st-link"
-                          onClick={() => setCompaniesFor(u)}
-                        >
-                          Firmalar
-                        </button>{' '}
-                        {canManageRoles && (
+                        </td>
+                        <td>
+                          {isFounder || !canManageMembership ? (
+                            <span
+                              className={`st-badge ${isFounder ? 'st-badge--ok' : ''}`}
+                              title={LEVEL_HINTS[u.level]}
+                            >
+                              {levelLabel(u.level)}
+                            </span>
+                          ) : (
+                            <select
+                              value={u.level}
+                              disabled={busy}
+                              onChange={(e) => changeLevel(u, e.target.value)}
+                            >
+                              {ASSIGNABLE_LEVELS.map((level) => (
+                                <option key={level} value={level}>
+                                  {levelLabel(level)}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td className="st-right">
                           <button
                             type="button"
                             className="st-link"
-                            style={{ color: 'var(--gf-danger)' }}
-                            disabled={isSelf || busy}
-                            onClick={() => removeUser(u)}
+                            onClick={() => setOpenUser(u)}
                           >
-                            {busy ? 'İşleniyor…' : 'Erişimi kaldır'}
+                            Yetkiler
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                          {canManageMembership && !isFounder && (
+                            <>
+                              {' '}
+                              <button
+                                type="button"
+                                className="st-link"
+                                disabled={busy}
+                                onClick={() => removeUser(u)}
+                              >
+                                Çıkar
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
-      {companiesFor && (
-        <UserCompaniesPanel
+      {openUser && (
+        <UserAccessPanel
           token={token}
-          user={companiesFor}
-          userLabel={displayName(companiesFor)}
-          companies={companies}
-          canManageRoles={canManageRoles}
-          isSelf={companiesFor.keycloakUserId === currentUserId}
-          onClose={() => setCompaniesFor(null)}
-          onChanged={load}
+          companyId={companyId}
+          user={openUser}
+          label={displayName(openUser)}
+          roles={roles}
+          catalog={catalog}
+          canAssignRoles={canAssignRoles}
+          canManagePermissions={canManagePermissions}
+          onClose={() => setOpenUser(null)}
           setError={setError}
           setNotice={setNotice}
         />
       )}
-
-      <section className="st-card">
-        <div className="st-card-head">
-          <h2>Oturum güvenliği</h2>
-        </div>
-        <div className="st-switch">
-          <span className="st-switch-text">
-            <strong>İki adımlı doğrulama</strong>
-            <span>Keycloak realm ayarlarından yönetilir</span>
-          </span>
-          <span className="st-switch-knob" aria-hidden="true" />
-        </div>
-        <div className="st-switch">
-          <span className="st-switch-text">
-            <strong>Oturum süresi</strong>
-            <span>Keycloak realm ayarlarından yönetilir</span>
-          </span>
-          <span className="st-switch-knob" aria-hidden="true" />
-        </div>
-        <p className="st-card-sub" style={{ marginTop: 14 }}>
-          Oturum kuralları kimlik sağlayıcının kendi ayarları; panelden değiştirilmesi, iki yerde
-          birden tutulan ve zamanla ayrışan bir kural seti demek olurdu.
-        </p>
-      </section>
     </div>
   );
 }
 
 /**
- * Bir kullanicinin hangi firmalarda yetkili oldugu.
+ * Bir kişinin şirketteki yetkisi: rolleri, kişisel izinleri ve ikisinin
+ * birleşimi.
  *
- * Yetki hiyerarsik: bir sirkette verilen rol o sirketin altindaki subelerde de
- * gecerli. Panel bu yuzden iki seyi ayirt ediyor — dogrudan verilmis rol
- * (kaldirilabilir) ve ustten miras gelen rol (o sirkette kaydi yok, kaldirmak
- * icin ust sirkete gitmek gerekir). Ayrimi gostermezsek "kaldirdim ama hala
- * girebiliyor" gibi gorunur.
- *
- * Roller sirket basina okunuyor: erisilebilir sirket sayisi az ve panel
- * istege bagli aciliyor, dolayisiyla listeyi onden cekip her satir icin
- * bellekte tutmaktansa acildiginda okumak daha dogru.
+ * Üçü tek uçtan geliyor (GET /permissions/users/...). Ayrı ayrı çekilseydi
+ * çok rollü birinde ekranda tutarsız bir tablo görünebilirdi.
  */
-function UserCompaniesPanel({
+function UserAccessPanel({
   token,
+  companyId,
   user,
-  userLabel,
-  companies,
-  canManageRoles,
-  isSelf,
+  label,
+  roles,
+  catalog,
+  canAssignRoles,
+  canManagePermissions,
   onClose,
-  onChanged,
   setError,
   setNotice,
 }) {
-  const [rows, setRows] = useState([]);
+  const [access, setAccess] = useState(null);
+  const [personal, setPersonal] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const found = await Promise.all(
-        companies.map(async (c) => {
-          // Baska bir sirketin kullanici listesini okuma izni olmayabilir;
-          // o satir "bilinmiyor" olarak gecilir, panel yine acilir.
-          const members = await fetchCompanyUsers(token, c.id).catch(() => null);
-          if (members === null) return { company: c, role: null, readable: false };
-
-          const match = members.find((m) => m.keycloakUserId === user.keycloakUserId);
-          return { company: c, role: match?.role ?? null, readable: true };
-        })
-      );
-      setRows(found);
+      const result = await fetchUserAccess(token, companyId, user.keycloakUserId);
+      setAccess(result);
+      setPersonal(result?.personalPermissions ?? []);
+    } catch (err) {
+      setError(describeError(err, 'Kullanıcının yetkileri okunamadı.'));
     } finally {
       setLoading(false);
     }
-  }, [token, companies, user.keycloakUserId]);
+  }, [token, companyId, user.keycloakUserId, setError]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const grant = async (companyId, role) => {
+  const toggleRole = async (role, assigned) => {
+    setBusy(true);
     setError('');
     setNotice('');
-    setBusy(companyId);
     try {
-      await assignRole(token, { keycloakUserId: user.keycloakUserId, companyId, role });
-      setNotice('Firma yetkisi güncellendi.');
-      await Promise.all([load(), onChanged()]);
+      if (assigned) {
+        await removeUserFromRole(token, role.id, user.keycloakUserId);
+        setNotice(`${role.name} rolü kaldırıldı.`);
+      } else {
+        await assignUserToRole(token, role.id, user.keycloakUserId);
+        setNotice(`${role.name} rolü verildi.`);
+      }
+      await load();
     } catch (err) {
-      setError(describeError(err, 'Firma yetkisi güncellenemedi.'));
+      setError(describeError(err, 'Rol güncellenemedi.'));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
-  const revoke = async (companyId) => {
+  const savePersonal = async () => {
+    setBusy(true);
     setError('');
     setNotice('');
-    setBusy(companyId);
     try {
-      await revokeRole(token, { keycloakUserId: user.keycloakUserId, companyId });
-      setNotice('Firma yetkisi kaldırıldı.');
-      await Promise.all([load(), onChanged()]);
+      await setUserPermissions(token, companyId, user.keycloakUserId, personal);
+      setNotice('Kişisel izinler kaydedildi.');
+      await load();
     } catch (err) {
-      setError(describeError(err, 'Firma yetkisi kaldırılamadı.'));
+      setError(describeError(err, 'Kişisel izinler kaydedilemedi.'));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
+
+  const assignedRoleIds = new Set((access?.roles ?? []).map((r) => r.id));
+  const fromRoles = (access?.roles ?? []).flatMap((r) => r.permissions ?? []);
+  const dirty = JSON.stringify([...personal].sort()) !==
+    JSON.stringify([...(access?.personalPermissions ?? [])].sort());
 
   return (
     <section className="st-card">
       <div className="st-card-head">
         <div>
-          <h2>{userLabel} · yetkili firmalar</h2>
+          <h2>{label} · yetkiler</h2>
           <p className="st-card-sub">
-            Bir firmada verilen rol, o firmanın altındaki şubelerde de geçerlidir. Alt satırlarda
-            “miras” yazan firmalarda ayrı bir kayıt yok; yetkiyi kaldırmak için üst firmadaki
-            kaydı kaldırmak gerekir.
+            Etkin izin, rollerin ve kişisel izinlerin birleşimidir.
           </p>
         </div>
         <button type="button" className="st-link" onClick={onClose}>
@@ -465,71 +394,81 @@ function UserCompaniesPanel({
 
       {loading && <p className="st-empty">Yükleniyor…</p>}
 
-      {!loading && (
-        <div className="st-table-wrap">
-          <table className="st-table">
-            <thead>
-              <tr>
-                <th>Firma</th>
-                <th>Rol</th>
-                <th className="st-right">İşlem</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ company, role, readable }) => (
-                <tr key={company.id}>
-                  <td className="st-strong">
-                    {/* Girinti hiyerarsiyi gosteriyor: level 0 kok firma. */}
-                    <span style={{ paddingLeft: (company.level ?? 0) * 14 }}>{company.name}</span>
-                    {company.code && <span className="st-mono st-dim"> · {company.code}</span>}
-                  </td>
-                  <td>
-                    {!readable ? (
-                      <span className="st-dim">okuma izni yok</span>
-                    ) : (
-                      <label className="st-field" style={{ maxWidth: 190 }}>
-                        <select
-                          value={role ?? ''}
-                          disabled={!canManageRoles || isSelf || busy === company.id}
-                          onChange={(e) =>
-                            e.target.value ? grant(company.id, e.target.value) : revoke(company.id)
-                          }
-                          aria-label={`${company.name} rolü`}
-                        >
-                          <option value="">Yetki yok</option>
-                          {COMPANY_ROLES.map((r) => (
-                            <option key={r.code} value={r.code}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                  </td>
-                  <td className="st-right">
-                    {readable && role && canManageRoles && !isSelf && (
-                      <button
-                        type="button"
-                        className="st-link"
-                        style={{ color: 'var(--gf-danger)' }}
-                        disabled={busy === company.id}
-                        onClick={() => revoke(company.id)}
-                      >
-                        {busy === company.id ? 'İşleniyor…' : 'Kaldır'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {!loading && access?.bypassesPermissions && (
+        <p className="st-hint">
+          <strong>{levelLabel(access.level)}</strong> izin kümesinin dışında: her şeye erişir,
+          rol ya da kişisel izinle sınırlandırılamaz. Sınırlandırmak için önce üyelik seviyesini
+          Üye yapın.
+        </p>
       )}
 
-      {isSelf && (
-        <p className="st-hint" style={{ marginTop: 10 }}>
-          Kendi firma yetkilerinizi değiştiremezsiniz — şirket yöneticisiz kalabilirdi.
-        </p>
+      {!loading && access && !access.bypassesPermissions && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+          <div>
+            <p className="st-caps" style={{ marginBottom: 10 }}>Roller</p>
+            {roles.length === 0 ? (
+              <p className="st-empty">
+                Bu şirkette henüz rol tanımlanmadı. Ayarlar › Roller’den ekleyebilirsiniz.
+              </p>
+            ) : (
+              <div className="st-perm-actions">
+                {roles.map((role) => {
+                  const assigned = assignedRoleIds.has(role.id);
+                  return (
+                    <label
+                      key={role.id}
+                      className="st-perm-switch"
+                      data-on={assigned}
+                      title={role.description ?? role.name}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={assigned}
+                        disabled={!canAssignRoles || busy}
+                        onChange={() => toggleRole(role, assigned)}
+                      />
+                      <span className="st-perm-knob" aria-hidden="true" />
+                      <span className="st-perm-switch-label">{role.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="st-caps" style={{ marginBottom: 10 }}>Kişisel izinler</p>
+            <PermissionMatrix
+              catalog={catalog}
+              value={personal}
+              inherited={fromRoles}
+              onChange={canManagePermissions ? setPersonal : undefined}
+            />
+            <small className="st-hint">
+              Rolün dışında kalan tek kişilik durumlar için. Rolden gelen izinler soluk
+              gösteriliyor — tekrar vermeye gerek yok.
+            </small>
+            {canManagePermissions && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="st-btn st-btn--sm"
+                  disabled={busy || !dirty}
+                  onClick={savePersonal}
+                >
+                  {busy ? 'Kaydediliyor…' : 'Kişisel izinleri kaydet'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="st-caps" style={{ marginBottom: 10 }}>
+              Etkin izinler ({access.effectivePermissions?.length ?? 0})
+            </p>
+            <PermissionMatrix catalog={catalog} value={access.effectivePermissions ?? []} />
+          </div>
+        </div>
       )}
     </section>
   );

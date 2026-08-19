@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import { roleName } from '../../services/companyService';
+import { levelLabel } from '../../constants/permissions';
 import { useCompany } from '../../contexts/companyContext';
 import { MODULE } from '../../constants/modules';
 import { bridgeInstallerUrl, getSavedConnections, listAnalyses } from '../../services/dataAnalysisService';
@@ -40,7 +40,7 @@ const TABS = [
     to: '/settings',
     label: 'Ayarlar',
     match: (p) => p.startsWith('/settings') && !p.startsWith('/settings/membership'),
-    modules: [MODULE.COMPANY_SETTINGS, MODULE.USERS_ROLES, MODULE.DEPARTMENTS, MODULE.DOCUMENTS],
+    modules: [MODULE.COMPANY_SETTINGS, MODULE.USERS, MODULE.ROLES, MODULE.DOCUMENTS],
   },
   {
     to: '/settings/membership', label: 'Üyelik',
@@ -178,7 +178,7 @@ export default function Nav() {
                     }}
                   >
                     <span className="nv-company-item-name">{c.name}</span>
-                    {c.role && <span className="nv-company-item-role">{roleName(c.role)}</span>}
+                    {c.level && <span className="nv-company-item-role">{levelLabel(c.level)}</span>}
                   </button>
                 ))}
                 <button
@@ -235,7 +235,7 @@ export default function Nav() {
             <span className="nv-avatar">{initials}</span>
             <span className="nv-user-text">
               <span className="nv-user-name">{user?.name || user?.email}</span>
-              {role && <span className="nv-user-role">{roleName(role).toLocaleLowerCase('tr')}</span>}
+              {role && <span className="nv-user-role">{levelLabel(role).toLocaleLowerCase('tr')}</span>}
             </span>
           </div>
           <button type="button" className="nv-logout" onClick={logout}>

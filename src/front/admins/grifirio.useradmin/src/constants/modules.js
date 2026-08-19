@@ -10,8 +10,8 @@ export const MODULES = [
   { key: 'DATA_SOURCES', name: 'Veri kaynakları', description: 'Veritabanı bağlama ve tablo seçimi.' },
   { key: 'DOCUMENTS', name: 'Belgeler', description: 'Kurumsal evrak yükleme ve görüntüleme.' },
   { key: 'COMPANY_SETTINGS', name: 'Şirket ayarları', description: 'Yasal kimlik, adres, banka.' },
-  { key: 'USERS_ROLES', name: 'Kullanıcılar ve yetkiler', description: 'Kim var, hangi rolde.' },
-  { key: 'DEPARTMENTS', name: 'Departmanlar', description: 'Organizasyon birimleri ve izinleri.' },
+  { key: 'USERS', name: 'Kullanıcılar', description: 'Kim var, kim admin.' },
+  { key: 'ROLES', name: 'Roller', description: 'Adlandırılmış izin kümeleri.' },
   { key: 'BILLING', name: 'Üyelik', description: 'Paket ve fatura.' },
 ];
 
@@ -22,7 +22,7 @@ export const MODULE = {
   DATA_SOURCES: 'DATA_SOURCES',
   DOCUMENTS: 'DOCUMENTS',
   COMPANY_SETTINGS: 'COMPANY_SETTINGS',
-  USERS_ROLES: 'USERS_ROLES',
-  DEPARTMENTS: 'DEPARTMENTS',
+  USERS: 'USERS',
+  ROLES: 'ROLES',
   BILLING: 'BILLING',
 };

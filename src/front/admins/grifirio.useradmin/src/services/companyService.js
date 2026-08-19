@@ -6,26 +6,6 @@ const auth = (token) => ({ headers: { Authorization: `Bearer ${token}` }, timeou
 
 const unwrap = (data) => data?.data ?? data;
 
-export const COMPANY_ROLES = [
-  {
-    code: 'COMPANY_ADMIN',
-    name: 'Yönetici',
-    description: 'Şirket bilgilerini düzenler, kullanıcı ve yetki tanımlar.',
-  },
-  {
-    code: 'COMPANY_MANAGER',
-    name: 'Müdür',
-    description: 'Veri kaynaklarını ve dashboard’ları yönetir; yetki dağıtamaz.',
-  },
-  {
-    code: 'COMPANY_USER',
-    name: 'Kullanıcı',
-    description: 'Kendisine açılan dashboard’ları görür ve soru sorar.',
-  },
-];
-
-export const roleName = (code) =>
-  COMPANY_ROLES.find((r) => r.code === code)?.name ?? code;
 
 /** Erisilebilen firmalar; alt sirket agaci da bu listeden kuruluyor. */
 export const fetchCompanies = async (token) => {
@@ -41,18 +21,23 @@ export const fetchCompanyUsers = async (token, companyId, includeRevoked = false
   return unwrap(data) ?? [];
 };
 
-export const assignRole = async (token, { keycloakUserId, companyId, role }) => {
+/**
+ * Uyelik seviyesi: admin ya da uye. Kurucu buradan verilemiyor — sirketi
+ * kuran e-postaya bagli ve devri ayri bir akis.
+ */
+export const setMembershipLevel = async (token, { keycloakUserId, companyId, level }) => {
   const { data } = await axios.post(
-    `${GATEWAY}/v1/identity/users/roles`,
-    { keycloakUserId, companyId, role },
+    `${GATEWAY}/v1/identity/users/membership`,
+    { keycloakUserId, companyId, level },
     auth(token)
   );
   return unwrap(data);
 };
 
-export const revokeRole = async (token, { keycloakUserId, companyId }) => {
+/** Uyeligi kapatir; kisinin o sirketteki rol atamalari da kapaniyor. */
+export const revokeMembership = async (token, { keycloakUserId, companyId }) => {
   await axios.delete(
-    `${GATEWAY}/v1/identity/users/${encodeURIComponent(keycloakUserId)}/companies/${companyId}/role`,
+    `${GATEWAY}/v1/identity/users/${encodeURIComponent(keycloakUserId)}/companies/${companyId}/membership`,
     auth(token)
   );
 };
@@ -124,9 +109,9 @@ export const fetchMyPermissions = async (token, companyId) => {
 };
 
 /**
- * Modul basina aksiyon listesi: [{ module, permissions: ['DEPARTMENTS.READ', ...] }].
+ * Modul basina aksiyon listesi: [{ module, permissions: ['ROLES.READ', ...] }].
  *
- * Departman izin matrisi bunu okuyarak ciziliyor; sabit listeyi istemciye
+ * Izin matrisi bunu okuyarak ciziliyor; sabit listeyi istemciye
  * kopyalamak iki tarafin sessizce ayrisma yolu olurdu.
  */
 export const fetchPermissionActions = async (token) => {
@@ -134,16 +119,6 @@ export const fetchPermissionActions = async (token) => {
   return unwrap(data) ?? [];
 };
 
-/**
- * Rol basina izin tavani: [{ role, permissions: [...] }].
- *
- * Yetki Ayarlari tablosu bundan ciziliyor. Onceden matris elle yazilmisti ve
- * sunucudaki kural degistiginde ekranda yazan sey yanlis kalabiliyordu.
- */
-export const fetchRolePermissions = async (token) => {
-  const { data } = await axios.get(`${GATEWAY}/v1/identity/permissions/roles`, auth(token));
-  return unwrap(data) ?? [];
-};
 
 /**
  * Bir sirketin dogrudan alt sirketleri.
