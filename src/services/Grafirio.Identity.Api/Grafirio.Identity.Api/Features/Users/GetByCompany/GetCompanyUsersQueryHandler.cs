@@ -5,6 +5,7 @@ using Grafirio.Identity.Api.Features.Users.Dtos;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Users.GetByCompany;
 

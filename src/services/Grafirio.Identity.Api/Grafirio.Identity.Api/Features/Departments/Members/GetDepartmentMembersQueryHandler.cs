@@ -5,6 +5,7 @@ using Grafirio.Identity.Api.Features.Users.Directory;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments.Members;
 

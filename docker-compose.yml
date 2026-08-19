@@ -293,6 +293,10 @@ services:
       IdentityOption__Address: http://keycloak:8080/realms/grafirio
       IdentityOption__Issuer: http://localhost:8080/realms/grafirio
       IdentityOption__Audience: gateway.api
+      # Yetki sorusu Identity'ye dogrudan gidiyor, gateway uzerinden degil:
+      # soru ic agda kaliyor ve gateway'in kendi kimlik dogrulamasi araya
+      # bir katman daha koyardi.
+      PermissionOption__IdentityAddress: http://identity.api.container:5036
       # Bridge kimlikleri Keycloak'ta acilip kapatiliyor: her bridge bir
       # client. Adres burada realm'siz — yonetim ucu /admin/realms/... altinda.
       Keycloak__BaseUrl: http://keycloak:8080

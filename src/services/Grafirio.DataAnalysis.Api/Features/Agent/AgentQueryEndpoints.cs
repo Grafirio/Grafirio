@@ -2,6 +2,8 @@ using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Services;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -21,19 +23,26 @@ public static class AgentQueryEndpoints
             .WithTags("AI Agent Query")
             .WithOpenApi();
 
+        // Soru sormak analiz kosturmak demek: ANALYSIS.CREATE. Sonucu ve
+        // gecmisi okumak READ ile yetiniyor — bir kullaniciya "analizleri
+        // gorsun ama yenisini kosturmasin" denebilmeli.
         group.MapPost("/query", SubmitQuery)
+            .RequirePermission(AppPermissions.AnalysisCreate)
             .WithName("SubmitAgentQuery")
             .WithDescription("Kullanıcı sorusunu LLM ile analiz edip PyCaret'e gönderir");
 
         group.MapGet("/query/{queryId:guid}/status", GetQueryStatus)
+            .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryStatus")
             .WithDescription("Sorgu işlem durumunu kontrol eder");
 
         group.MapGet("/query/{queryId:guid}/result", GetQueryResult)
+            .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryResult")
             .WithDescription("Sorgu sonucunu getirir");
 
         group.MapGet("/queries/{connectionId:guid}", GetQueryHistory)
+            .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryHistory")
             .WithDescription("Bağlantıya ait sorgu geçmişini getirir");
     }

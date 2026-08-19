@@ -4,6 +4,7 @@ using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments.Members;
 

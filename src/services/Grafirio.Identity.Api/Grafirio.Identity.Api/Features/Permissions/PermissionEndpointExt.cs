@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api.Features.Users;
 using Asp.Versioning.Builder;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Permissions;
 
@@ -53,7 +54,7 @@ public static class PermissionEndpointExt
                 .Select(role => new
                 {
                     role,
-                    permissions = AppPermissions.CeilingForRole(role).OrderBy(p => p).ToList()
+                    permissions = PermissionPolicy.CeilingForRole(role).OrderBy(p => p).ToList()
                 })))
             .WithName("GetRolePermissions")
             .Produces(StatusCodes.Status200OK)

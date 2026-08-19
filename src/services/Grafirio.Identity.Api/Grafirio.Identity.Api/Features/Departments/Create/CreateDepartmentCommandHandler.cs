@@ -4,6 +4,7 @@ using Grafirio.Identity.Api.Repositories;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments.Create;
 
@@ -55,7 +56,20 @@ public class CreateDepartmentCommandHandler(AppDbContext context, IPermissionSer
             }
         }
 
-        var granted = AppPermissions.Sanitize(request.Permissions, request.Modules);
+        var granted = PermissionPolicy.Sanitize(request.Permissions, request.Modules);
+
+        // Izinli bir departman kurmak, kurulmus bir departmanin izinlerini
+        // degistirmekle ayni agirlikta is (bkz. UpdateDepartmentCommandHandler):
+        // ikisi de yetkiyi sekillendiriyor. Izinsiz departman acmak icin bu
+        // yetki gerekmiyor — gruplama yapmak isteyen kimse kilitlenmesin.
+        if (granted.Count > 0 &&
+            !await permissions.CanAsync(request.CompanyId,
+                AppPermissions.DepartmentsManagePermissions, cancellationToken))
+        {
+            return ServiceResult<CreateDepartmentResponse>.Error("Insufficient permissions",
+                "İzin tanımlı bir departman açmak için izin düzenleme yetkiniz olmalı.",
+                HttpStatusCode.Forbidden);
+        }
 
         var department = new Department
         {
@@ -67,7 +81,7 @@ public class CreateDepartmentCommandHandler(AppDbContext context, IPermissionSer
             ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId),
             CostCenter = Clean(request.CostCenter),
             // Taninmayan anahtarlar ve PANEL.READ suzuluyor; bkz.
-            // AppPermissions.Sanitize. Modules izinlerden turetiliyor: iki alan
+            // PermissionPolicy.Sanitize. Modules izinlerden turetiliyor: iki alan
             // birbirinden ayrisirsa panel bir sey gosterir, sunucu baskasini
             // uygular.
             Permissions = granted,

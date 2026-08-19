@@ -2,6 +2,7 @@ using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Permissions;
 
@@ -34,7 +35,7 @@ public class PermissionService(
             return Store(new EffectivePermissions(companyId, null, [], [], false));
         }
 
-        var ceiling = AppPermissions.CeilingForRole(role);
+        var ceiling = PermissionPolicy.CeilingForRole(role);
 
         // Yönetici departman kısıtından muaf: kendi şirketinde her şeyi
         // görmeli, aksi halde kendi kurduğu daraltmayla kendini kilitleyebilir.

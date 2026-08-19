@@ -59,6 +59,12 @@ export default function DepartmentsPage({ embedded = false } = {}) {
   const canDelete = can('DEPARTMENTS.DELETE');
   const canAssign = can('DEPARTMENTS.ASSIGN_MEMBERS');
 
+  // İzin kümesini düzenlemek departmanı düzenlemekten ayrı: ad ve kod
+  // gruplamaya dokunur, izinler yetkinin kendisini şekillendirir. Sunucu da
+  // ayrı soruyor (bkz. UpdateDepartmentCommandHandler), matris burada
+  // kilitlenmezse kullanıcı formu doldurup kaydederken 403 görürdü.
+  const canManagePermissions = can('DEPARTMENTS.MANAGE_PERMISSIONS');
+
   const [departments, setDepartments] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
   const [actionCatalog, setActionCatalog] = useState([]);
@@ -294,7 +300,7 @@ export default function DepartmentsPage({ embedded = false } = {}) {
               {actionCatalog.length === 0 ? (
                 <p className="st-empty">İzin listesi okunamadı; kaydedilen izinler korunuyor.</p>
               ) : (
-                <div className="st-perm-list">
+                <div className="st-perm-list" data-locked={!canManagePermissions}>
                   {actionCatalog.map(({ module, permissions: keys }) => {
                     const selectedKeys = keys.filter((k) => form.permissions.includes(k));
                     const all = selectedKeys.length === keys.length && keys.length > 0;
@@ -307,6 +313,7 @@ export default function DepartmentsPage({ embedded = false } = {}) {
                             <input
                               type="checkbox"
                               checked={all}
+                              disabled={!canManagePermissions}
                               // Kismi secim ucuncu bir durum: kutu isaretli
                               // degil ama "hicbiri" de degil. Isaretsiz
                               // gostermek kullaniciya yanlis bilgi verirdi.
@@ -341,6 +348,7 @@ export default function DepartmentsPage({ embedded = false } = {}) {
                                 <input
                                   type="checkbox"
                                   checked={on}
+                                  disabled={!canManagePermissions}
                                   onChange={() =>
                                     setForm({
                                       ...form,
@@ -361,10 +369,19 @@ export default function DepartmentsPage({ embedded = false } = {}) {
                 </div>
               )}
               <small className="st-hint">
-                Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
-                eklenen bir izin, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
-                muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
-                Panele giriş departmandan etkilenmez — role bağlıdır.
+                {canManagePermissions ? (
+                  <>
+                    Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
+                    eklenen bir izin, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
+                    muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
+                    Panele giriş departmandan etkilenmez — role bağlıdır.
+                  </>
+                ) : (
+                  <>
+                    İzin kümesini değiştirmek ayrı bir yetki gerektiriyor; departmanın diğer
+                    alanlarını düzenleyebilirsiniz.
+                  </>
+                )}
               </small>
             </fieldset>
             <div style={{ display: 'flex', gap: 10 }}>
