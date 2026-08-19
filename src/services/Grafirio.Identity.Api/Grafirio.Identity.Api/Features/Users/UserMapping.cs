@@ -7,6 +7,6 @@ public class UserMapping : Profile
 {
     public UserMapping()
     {
-        CreateMap<CompanyMembership, CompanyMemberDto>();
+        CreateMap<UserCompanyRole, UserCompanyRoleDto>();
     }
 }

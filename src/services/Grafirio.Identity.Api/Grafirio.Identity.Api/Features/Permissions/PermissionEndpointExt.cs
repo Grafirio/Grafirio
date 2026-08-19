@@ -41,7 +41,25 @@ public static class PermissionEndpointExt
         // Yetki Ayarlari ekranindaki "hangi rol neye izin veriyor" tablosu
         // onceden elle yazilmisti ve dosyanin kendi yorumu "yeni satir
         // eklenecekse once sunucuda karsiligi olmali" diyordu. Artik tablo
-  
+        // dogrudan rol tavanlarindan cizilecek: ekranda yazan sey ile sistemin
+        // uyguladigi kural ayrisamaz.
+        group.MapGet("/roles", () => Results.Ok(
+                new[]
+                {
+                    PlatformRoles.PLATFORM_ADMIN,
+                    CompanyRoles.COMPANY_ADMIN,
+                    CompanyRoles.COMPANY_MANAGER,
+                    CompanyRoles.COMPANY_USER
+                }
+                .Select(role => new
+                {
+                    role,
+                    permissions = PermissionPolicy.CeilingForRole(role).OrderBy(p => p).ToList()
+                })))
+            .WithName("GetRolePermissions")
+            .Produces(StatusCodes.Status200OK)
+            .RequireAuthorization("Password");
+
         group.MapToApiVersion(1, 0);
     }
 }

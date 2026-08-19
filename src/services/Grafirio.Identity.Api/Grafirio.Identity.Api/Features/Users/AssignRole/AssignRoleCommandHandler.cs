@@ -17,10 +17,10 @@ public class AssignRoleCommandHandler(
     public async Task<ServiceResult<AssignRoleResponse>> Handle(AssignRoleCommand request,
         CancellationToken cancellationToken)
     {
-        if (!MembershipLevels.IsValid(request.Role))
+        if (!CompanyRoles.IsValid(request.Role))
         {
             return ServiceResult<AssignRoleResponse>.Error("Invalid role",
-                $"Role must be one of: {string.Join(", ", MembershipLevels.All)}",
+                $"Role must be one of: {string.Join(", ", CompanyRoles.All)}",
                 HttpStatusCode.BadRequest);
         }
 
@@ -38,27 +38,27 @@ public class AssignRoleCommandHandler(
         // olacagina karar vermesi gerekmiyor. Hiyerarsik oldugu icin kok
         // sirketin yoneticisi subelerinde de rol atayabilir; platform ekibine
         // servis her zaman izin veriyor.
-        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageMembership, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageRoles, cancellationToken))
         {
             return ServiceResult<AssignRoleResponse>.Error("Insufficient permissions",
                 "Rol atamak için bu şirkette yetki yönetimi izniniz olmalı.", HttpStatusCode.Forbidden);
         }
 
-        var existing = await context.CompanyMemberships
+        var existing = await context.UserCompanyRoles
             .FirstOrDefaultAsync(x => x.KeycloakUserId == request.KeycloakUserId
                                       && x.CompanyId == request.CompanyId
                                       && x.IsActive, cancellationToken);
 
-        // Ayni kisiye ayni firmada ikinci bir aktif uyelik acmak yerine mevcut
-        // kaydi guncelle; aksi halde hangisinin gecerli oldugu belirsizlesir.
+        // Ayni kisiye ayni firmada ikinci bir aktif rol acmak yerine mevcut
+        // kaydi guncelle; aksi halde hangi rolun gecerli oldugu belirsizlesir.
         if (existing is not null)
         {
-            if (existing.Level == request.Role)
+            if (existing.Role == request.Role)
             {
                 return ServiceResult<AssignRoleResponse>.SuccessAsOk(new AssignRoleResponse(existing.Id));
             }
 
-            existing.Level = request.Role;
+            existing.Role = request.Role;
             existing.AssignedAt = DateTime.UtcNow;
             existing.AssignedBy = identityService.UserName;
 
@@ -68,23 +68,23 @@ public class AssignRoleCommandHandler(
             return ServiceResult<AssignRoleResponse>.SuccessAsOk(new AssignRoleResponse(existing.Id));
         }
 
-        var membership = new CompanyMembership
+        var role = new UserCompanyRole
         {
             Id = NewId.NextSequentialGuid(),
             KeycloakUserId = request.KeycloakUserId,
             CompanyId = request.CompanyId,
-            Level = request.Role,
+            Role = request.Role,
             IsActive = true,
             AssignedAt = DateTime.UtcNow,
             AssignedBy = identityService.UserName
         };
 
-        await context.CompanyMemberships.AddAsync(membership, cancellationToken);
+        await context.UserCompanyRoles.AddAsync(role, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
         await SyncKeycloakAsync(request);
 
         return ServiceResult<AssignRoleResponse>.SuccessAsCreated(
-            new AssignRoleResponse(membership.Id), $"/api/v1/users/{request.KeycloakUserId}/roles");
+            new AssignRoleResponse(role.Id), $"/api/v1/users/{request.KeycloakUserId}/roles");
     }
 
     /// <summary>

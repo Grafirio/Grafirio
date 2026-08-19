@@ -2,7 +2,7 @@ using Grafirio.Identity.Api;
 using Grafirio.Identity.Api.Features.Companies;
 using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Companies.Documents;
-using Grafirio.Identity.Api.Features.Roles;
+using Grafirio.Identity.Api.Features.Departments;
 using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
@@ -54,7 +54,7 @@ app.AddSeedDataExt().ContinueWith(x =>
     Console.WriteLine(x.IsFaulted ? x.Exception?.Message : "Seed data has been saved successfully");
 });
 app.AddCompanyGroupEndpointExt(app.AddVersionSetExt());
-app.AddRoleGroupEndpointExt(app.AddVersionSetExt());
+app.AddDepartmentGroupEndpointExt(app.AddVersionSetExt());
 app.AddPermissionGroupEndpointExt(app.AddVersionSetExt());
 app.AddUserGroupEndpointExt(app.AddVersionSetExt());
 app.AddSubscriptionGroupEndpointExt(app.AddVersionSetExt());

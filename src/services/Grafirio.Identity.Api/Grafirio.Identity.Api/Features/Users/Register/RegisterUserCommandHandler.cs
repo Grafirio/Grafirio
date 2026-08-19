@@ -17,6 +17,12 @@ public class RegisterUserCommandHandler(
     public async Task<ServiceResult<RegisterUserResponse>> Handle(RegisterUserCommand request,
         CancellationToken cancellationToken)
     {
+        // Validate role
+        if (!CompanyRoles.IsValid(request.Role))
+        {
+            return ServiceResult<RegisterUserResponse>.Error("Invalid role",
+                $"Role must be one of: {string.Join(", ", CompanyRoles.All)}", HttpStatusCode.BadRequest);
+        }
 
         // Check if company exists and user has access
         var company = await context.Companies
@@ -47,7 +53,7 @@ public class RegisterUserCommandHandler(
             LastName = request.LastName,
             Password = request.Password,
             CompanyId = request.CompanyId,
-            Role = MembershipLevels.Member,
+            Role = request.Role,
             EmailVerified = false,
             RequirePasswordChange = true
         };
@@ -59,20 +65,19 @@ public class RegisterUserCommandHandler(
                 keycloakResult.Fail?.Detail ?? "Keycloak registration failed", HttpStatusCode.BadRequest);
         }
 
-        // Kisi uye olarak aciliyor: ne yapabilecegi rollerinden ve kisisel
-        // izinlerinden gelecek, kayit aninda bir yetki verilmiyor.
-        var membership = new CompanyMembership
+        // Create user-company role mapping in our database
+        var userRole = new UserCompanyRole
         {
             Id = NewId.NextSequentialGuid(),
             KeycloakUserId = keycloakResult.Data!,
             CompanyId = request.CompanyId,
-            Level = MembershipLevels.Member,
+            Role = request.Role,
             IsActive = true,
             AssignedAt = DateTime.UtcNow,
             AssignedBy = identityService.UserId.ToString()
         };
 
-        context.CompanyMemberships.Add(membership);
+        context.UserCompanyRoles.Add(userRole);
         await context.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<RegisterUserResponse>.SuccessAsCreated(

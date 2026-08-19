@@ -75,7 +75,7 @@ public class CreateCompanyCommandHandler(
         }
         else
         {
-            if (!isPlatformAdmin && !identityService.HasBusinessRole(MembershipLevels.Admin))
+            if (!isPlatformAdmin && !identityService.HasBusinessRole(CompanyRoles.COMPANY_ADMIN))
             {
                 return ServiceResult<CreateCompanyResponse>.Error("Only company admins can create root companies",
                     HttpStatusCode.Forbidden);
@@ -109,14 +109,12 @@ public class CreateCompanyCommandHandler(
         // accessible_companies'e hic girmedigi icin listelerden suzuluyor ve
         // "alt sirket eklenmiyor" gibi gorunuyordu. Sonradan eklenen
         // kullanicilarin yetkisi ayri bir is; burada yalnizca kurucu aliniyor.
-        // Sirketi kuran kisi kurucu: izin semasinin disinda, daraltilamaz ve
-        // (bugun) devredilemez. Sirketin kendini kilitlemesine karsi son guvence.
-        var membership = new CompanyMembership
+        var role = new UserCompanyRole
         {
             Id = NewId.NextSequentialGuid(),
             KeycloakUserId = userId,
             CompanyId = company.Id,
-            Level = MembershipLevels.Founder,
+            Role = CompanyRoles.COMPANY_ADMIN,
             IsActive = true,
             AssignedAt = now,
             AssignedBy = identityService.UserName
@@ -127,7 +125,7 @@ public class CreateCompanyCommandHandler(
         // tek dugum ve transaction desteklemiyor. Geri alma bu yuzden elle.
         try
         {
-            await context.CompanyMemberships.AddAsync(membership, cancellationToken);
+            await context.UserCompanyRoles.AddAsync(role, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
         }
         catch
@@ -142,7 +140,7 @@ public class CreateCompanyCommandHandler(
         // Yetki karari saklandi ama uygulanmasi token'daki claim'lere bagli;
         // Keycloak tarafi guncellenmezse kullanici kendi actigi alt sirketi
         // yine goremez.
-        await keycloakService.AssignUserToCompanyAsync(userId, company.Id, MembershipLevels.Admin);
+        await keycloakService.AssignUserToCompanyAsync(userId, company.Id, CompanyRoles.COMPANY_ADMIN);
 
         return ServiceResult<CreateCompanyResponse>.SuccessAsCreated(
             new CreateCompanyResponse(company.Id),

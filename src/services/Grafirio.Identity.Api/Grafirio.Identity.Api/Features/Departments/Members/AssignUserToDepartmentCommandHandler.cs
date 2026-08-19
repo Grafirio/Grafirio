@@ -6,38 +6,38 @@ using Microsoft.EntityFrameworkCore;
 using System.Net;
 using Grafirio.Shared.Identity.Permissions;
 
-namespace Grafirio.Identity.Api.Features.Roles.Members;
+namespace Grafirio.Identity.Api.Features.Departments.Members;
 
-public class AssignUserToRoleCommandHandler(
+public class AssignUserToDepartmentCommandHandler(
     AppDbContext context,
     IPermissionService permissions,
     IIdentityService identityService)
-    : IRequestHandler<AssignUserToRoleCommand, ServiceResult<bool>>
+    : IRequestHandler<AssignUserToDepartmentCommand, ServiceResult<bool>>
 {
-    public async Task<ServiceResult<bool>> Handle(AssignUserToRoleCommand request,
+    public async Task<ServiceResult<bool>> Handle(AssignUserToDepartmentCommand request,
         CancellationToken cancellationToken)
     {
-        var role = await context.Roles
-            .FirstOrDefaultAsync(x => x.Id == request.RoleId && x.IsActive, cancellationToken);
+        var department = await context.Departments
+            .FirstOrDefaultAsync(x => x.Id == request.DepartmentId && x.IsActive, cancellationToken);
 
-        if (role is null)
+        if (department is null)
         {
-            return ServiceResult<bool>.Error("Role not found", HttpStatusCode.NotFound);
+            return ServiceResult<bool>.Error("Department not found", HttpStatusCode.NotFound);
         }
 
-        if (!await permissions.CanAsync(role.CompanyId, AppPermissions.RolesAssign, cancellationToken))
+        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsAssignMembers, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Rola kullanıcı atamak için üyelik yönetimi izniniz olmalı.",
+                "Departmana kullanıcı atamak için üyelik yönetimi izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
-        // Kullanici once o sirketin uyesi olmali: rol sirket icindeki bir
-        // gruplama, disaridan birini rola koymak sirkete de sessizce
+        // Kullanici once o sirketin uyesi olmali: departman sirket icindeki bir
+        // gruplama, disaridan birini departmana koymak sirkete de sessizce
         // sokmak anlamina gelirdi.
-        var isCompanyMember = await context.CompanyMemberships.AnyAsync(
+        var isCompanyMember = await context.UserCompanyRoles.AnyAsync(
             x => x.KeycloakUserId == request.KeycloakUserId
-                 && x.CompanyId == role.CompanyId
+                 && x.CompanyId == department.CompanyId
                  && x.IsActive,
             cancellationToken);
 
@@ -48,8 +48,8 @@ public class AssignUserToRoleCommandHandler(
                 HttpStatusCode.BadRequest);
         }
 
-        var existing = await context.UserRoles.FirstOrDefaultAsync(
-            x => x.RoleId == role.Id
+        var existing = await context.UserDepartments.FirstOrDefaultAsync(
+            x => x.DepartmentId == department.Id
                  && x.KeycloakUserId == request.KeycloakUserId
                  && x.IsActive,
             cancellationToken);
@@ -58,12 +58,12 @@ public class AssignUserToRoleCommandHandler(
         // uyeligin gecerli oldugu belirsizlesirdi.
         if (existing is not null) return ServiceResult<bool>.SuccessAsOk(true);
 
-        await context.UserRoles.AddAsync(new UserRole
+        await context.UserDepartments.AddAsync(new UserDepartment
         {
             Id = NewId.NextSequentialGuid(),
             KeycloakUserId = request.KeycloakUserId,
-            RoleId = role.Id,
-            CompanyId = role.CompanyId,
+            DepartmentId = department.Id,
+            CompanyId = department.CompanyId,
             IsActive = true,
             AssignedAt = DateTime.UtcNow,
             AssignedBy = identityService.UserName

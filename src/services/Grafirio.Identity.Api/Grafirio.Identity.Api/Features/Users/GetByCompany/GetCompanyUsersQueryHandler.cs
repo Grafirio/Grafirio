@@ -14,18 +14,18 @@ public class GetCompanyUsersQueryHandler(
     IPermissionService permissions,
     KeycloakUserDirectory directory,
     IMapper mapper)
-    : IRequestHandler<GetCompanyUsersQuery, ServiceResult<List<CompanyMemberDto>>>
+    : IRequestHandler<GetCompanyUsersQuery, ServiceResult<List<UserCompanyRoleDto>>>
 {
-    public async Task<ServiceResult<List<CompanyMemberDto>>> Handle(
+    public async Task<ServiceResult<List<UserCompanyRoleDto>>> Handle(
         GetCompanyUsersQuery request, CancellationToken cancellationToken)
     {
         if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersRead, cancellationToken))
         {
-            return ServiceResult<List<CompanyMemberDto>>.Error("Insufficient permissions",
+            return ServiceResult<List<UserCompanyRoleDto>>.Error("Insufficient permissions",
                 HttpStatusCode.Forbidden);
         }
 
-        var query = context.CompanyMemberships.Where(x => x.CompanyId == request.CompanyId);
+        var query = context.UserCompanyRoles.Where(x => x.CompanyId == request.CompanyId);
 
         if (!request.IncludeRevoked)
         {
@@ -36,7 +36,7 @@ public class GetCompanyUsersQueryHandler(
             .OrderByDescending(x => x.AssignedAt)
             .ToListAsync(cancellationToken);
 
-        var result = mapper.Map<List<CompanyMemberDto>>(roles);
+        var result = mapper.Map<List<UserCompanyRoleDto>>(roles);
 
         // Liste Keycloak kimligi (GUID) gosteriyordu: ad ve e-posta yetki
         // kaydinda degil Keycloak'ta duruyor. Tek cagrida coz, satir basina
@@ -55,6 +55,6 @@ public class GetCompanyUsersQueryHandler(
             row.LastName = person.LastName;
         }
 
-        return ServiceResult<List<CompanyMemberDto>>.SuccessAsOk(result);
+        return ServiceResult<List<UserCompanyRoleDto>>.SuccessAsOk(result);
     }
 }

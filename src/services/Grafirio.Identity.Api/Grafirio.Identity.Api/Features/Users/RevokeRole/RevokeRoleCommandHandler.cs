@@ -17,14 +17,14 @@ public class RevokeRoleCommandHandler(
         CancellationToken cancellationToken)
     {
         // Yetki almak da vermek gibi ayni izne bagli ve hiyerarsik.
-        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageMembership, cancellationToken))
+        if (!await permissions.CanAsync(request.CompanyId, AppPermissions.UsersManageRoles, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
                 "Yetki kaldırmak için bu şirkette yetki yönetimi izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
-        var role = await context.CompanyMemberships
+        var role = await context.UserCompanyRoles
             .FirstOrDefaultAsync(x => x.KeycloakUserId == request.KeycloakUserId
                                       && x.CompanyId == request.CompanyId
                                       && x.IsActive, cancellationToken);

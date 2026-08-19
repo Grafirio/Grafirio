@@ -8,7 +8,7 @@ namespace Grafirio.Identity.Api.Features.Users.Directory;
 /// Kullanıcı kimliğinden ada ve e-postaya çeviren okuyucu.
 ///
 /// Kullanıcı listeleri Keycloak kimliğini (GUID) gösteriyordu: yetki kayıtları
-/// <see cref="CompanyMembership.KeycloakUserId"/> tutuyor, ad ve e-posta ise
+/// <see cref="UserCompanyRole.KeycloakUserId"/> tutuyor, ad ve e-posta ise
 /// Keycloak'ta duruyor ve paylaşılan <c>IKeycloakUserService</c>'in okuma
 /// metodu yok — yalnızca kullanıcı açıp şirkete bağlıyor.
 ///

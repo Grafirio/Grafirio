@@ -29,7 +29,7 @@ public class GetCurrentCompanyQueryHandler(
         // istemcide calisiyor, istenen kimlik dogrudan da gonderilebilir.
         if (request.CompanyId.HasValue)
         {
-            var role = await access.EffectiveLevelAsync(request.CompanyId.Value, cancellationToken);
+            var role = await access.EffectiveRoleAsync(request.CompanyId.Value, cancellationToken);
 
             if (role is null)
             {
@@ -65,7 +65,7 @@ public class GetCurrentCompanyQueryHandler(
         return ServiceResult<CurrentCompanyResponse>.SuccessAsOk(
             new CurrentCompanyResponse(
                 mapper.Map<CompanyDto>(company),
-                await access.EffectiveLevelAsync(company.Id, cancellationToken),
+                await access.EffectiveRoleAsync(company.Id, cancellationToken),
                 isPlatformAdmin));
     }
 }

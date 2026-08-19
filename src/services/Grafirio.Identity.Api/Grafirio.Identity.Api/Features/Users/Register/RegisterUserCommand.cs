@@ -5,5 +5,6 @@ public record RegisterUserCommand(
     string FirstName,
     string LastName,
     string Password,
-    Guid CompanyId
+    Guid CompanyId,
+    string Role = CompanyRoles.COMPANY_USER
 ) : IRequestByServiceResult<RegisterUserResponse>;

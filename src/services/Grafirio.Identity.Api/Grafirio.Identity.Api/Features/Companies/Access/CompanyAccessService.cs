@@ -8,15 +8,28 @@ public class CompanyAccessService(AppDbContext context, IIdentityService identit
     : ICompanyAccessService
 {
     /// İstek boyunca aynı kullanıcının üyelikleri birden çok kez soruluyor
-    /// (yetki kontrolü + liste + seviye). Tek istek içinde bir kez okunuyor.
-    private List<CompanyMembership>? _memberships;
+    /// (yetki kontrolü + liste + rol). Tek istek içinde bir kez okunuyor.
+    private List<UserCompanyRole>? _memberships;
 
     private bool IsPlatformAdmin => identityService.HasBusinessRole(PlatformRoles.PLATFORM_ADMIN);
 
     public async Task<bool> CanAccessAsync(Guid companyId, CancellationToken ct)
-        => await EffectiveLevelAsync(companyId, ct) is not null;
+        => await EffectiveRoleAsync(companyId, ct) is not null;
 
-    public async Task<string?> EffectiveLevelAsync(Guid companyId, CancellationToken ct)
+    public async Task<bool> HasRoleAsync(Guid companyId, string role, CancellationToken ct)
+    {
+        if (IsPlatformAdmin) return true;
+
+        var memberships = await GetMembershipsAsync(ct);
+        if (memberships.Count == 0) return false;
+
+        var path = await GetPathAsync(companyId, ct);
+        if (path.Count == 0) return false;
+
+        return memberships.Any(m => m.Role == role && path.Contains(m.CompanyId));
+    }
+
+    public async Task<string?> EffectiveRoleAsync(Guid companyId, CancellationToken ct)
     {
         if (IsPlatformAdmin) return PlatformRoles.PLATFORM_ADMIN;
 
@@ -27,17 +40,17 @@ public class CompanyAccessService(AppDbContext context, IIdentityService identit
         if (path.Count == 0) return null;
 
         // Birden fazla üyelik zincirde kesişirse en yetkilisi kazanır: üst
-        // şirkette kurucu olup alt şirkette üye olarak da eklenmiş biri
-        // kuruculuğunu kaybetmemeli.
+        // şirkette yönetici olup alt şirkette sıradan kullanıcı olarak da
+        // eklenmiş biri yöneticiliğini kaybetmemeli.
         var matching = memberships.Where(m => path.Contains(m.CompanyId)).ToList();
         if (matching.Count == 0) return null;
 
-        foreach (var level in LevelsByPrecedence)
+        foreach (var role in RolesByPrecedence)
         {
-            if (matching.Any(m => m.Level == level)) return level;
+            if (matching.Any(m => m.Role == role)) return role;
         }
 
-        return matching[0].Level;
+        return matching[0].Role;
     }
 
     public async Task<List<Company>> AccessibleCompaniesAsync(CancellationToken ct)
@@ -62,11 +75,11 @@ public class CompanyAccessService(AppDbContext context, IIdentityService identit
         return companies.OrderBy(x => x.Level).ThenBy(x => x.Name).ToList();
     }
 
-    /// Yetkiden yetkisize; <see cref="EffectiveLevelAsync"/> ilk eşleşeni alıyor.
-    private static readonly string[] LevelsByPrecedence =
-        [MembershipLevels.Founder, MembershipLevels.Admin, MembershipLevels.Member];
+    /// Yetkiden yetkisize; <see cref="EffectiveRoleAsync"/> ilk eşleşeni alıyor.
+    private static readonly string[] RolesByPrecedence =
+        [CompanyRoles.COMPANY_ADMIN, CompanyRoles.COMPANY_MANAGER, CompanyRoles.COMPANY_USER];
 
-    private async Task<List<CompanyMembership>> GetMembershipsAsync(CancellationToken ct)
+    private async Task<List<UserCompanyRole>> GetMembershipsAsync(CancellationToken ct)
     {
         if (_memberships is not null) return _memberships;
 
@@ -77,7 +90,7 @@ public class CompanyAccessService(AppDbContext context, IIdentityService identit
 
         var userId = identityService.UserId.ToString();
 
-        return _memberships = await context.CompanyMemberships
+        return _memberships = await context.UserCompanyRoles
             .Where(x => x.KeycloakUserId == userId && x.IsActive)
             .ToListAsync(ct);
     }

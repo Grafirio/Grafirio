@@ -53,21 +53,21 @@ namespace Grafirio.Identity.Api.Repositories
                 await dbContext.SaveChangesAsync();
             }
 
-            // Ornek uyelikler (test amacli; gercekte kayit akisindan geliyor)
-            if (!dbContext.CompanyMemberships.Any())
+            // Sample user-company roles (bu test amaçlı, gerçekte Keycloak'tan gelecek)
+            if (!dbContext.UserCompanyRoles.Any())
             {
-                var memberships = new List<CompanyMembership>
+                var userRoles = new List<UserCompanyRole>
                 {
                     new() {
                         KeycloakUserId = "332ee8cd-f3f6-49fa-92e2-5fdb188b3377", // Test user from IdentityServiceFake
                         CompanyId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                        Level = MembershipLevels.Admin,
+                        Role = CompanyRoles.COMPANY_ADMIN,
                         IsActive = true,
                         AssignedAt = DateTime.UtcNow
                     }
                 };
 
-                dbContext.CompanyMemberships.AddRange(memberships);
+                dbContext.UserCompanyRoles.AddRange(userRoles);
                 await dbContext.SaveChangesAsync();
             }
         }

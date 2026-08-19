@@ -1,32 +1,36 @@
-namespace Grafirio.Identity.Api.Features.Roles.Dtos;
+namespace Grafirio.Identity.Api.Features.Departments.Dtos;
 
-public class RoleDto
+public class DepartmentDto
 {
     public Guid Id { get; set; }
     public Guid CompanyId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? Code { get; set; }
     public string? Description { get; set; }
+    public string? ManagerKeycloakUserId { get; set; }
+    public string? CostCenter { get; set; }
 
-    /// Rolün izinleri (MODÜL.AKSİYON). Kullanıcının etkin izni, taşıdığı
-    /// rollerin ve kişisel izinlerinin birleşimi.
-    public List<string> Permissions { get; set; } = [];
-
-    /// İzinlerin dokunduğu modüller — menü çizimi için, izinlerden türetiliyor.
+    /// Bu departmandaki kullanıcıların girebileceği modüller. İzinlerden
+    /// türetiliyor; menü çizimi ve güncellenmemiş istemciler için duruyor.
     public List<string> Modules { get; set; } = [];
+
+    /// Departmanın izinleri (MODÜL.AKSİYON). Rol tavanını daraltır,
+    /// genişletemez.
+    public List<string> Permissions { get; set; } = [];
 
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
-    /// Bu rolü taşıyan aktif kullanıcı sayısı. Listede her rol için ayrı istek
-    /// atmak yerine tek sorguda hesaplanıp buraya yazılıyor.
+    /// Aktif üye sayısı. Listede her departman için ayrı istek atmak yerine
+    /// tek sorguda hesaplanıp buraya yazılıyor.
     public int MemberCount { get; set; }
 }
 
-public class RoleMemberDto
+public class DepartmentMemberDto
 {
     public Guid Id { get; set; }
-    public Guid RoleId { get; set; }
+    public Guid DepartmentId { get; set; }
     public string KeycloakUserId { get; set; } = string.Empty;
 
     /// Keycloak'tan okunan görünen ad; bulunamazsa null (panel kimliği gösterir).
