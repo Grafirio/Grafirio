@@ -158,7 +158,7 @@ public class Company : BaseEntity
     /// <summary>
     /// Müşteri, SQL bağlantısını "sa" gibi tam yetkili bir hesapla kaydettiğinde
     /// riskleri kabul ettiğine dair açık onayı. Onay firma seviyesinde tutulur;
-    /// <see cref="Users.UserCompanyRole"/> ile aynı denetim izi desenini izler,
+    /// <see cref="Users.CompanyMembership"/> ile aynı denetim izi desenini izler,
     /// böylece onayı kimin ne zaman verdiği sonradan sorulabilir.
     ///
     /// Nullable olmasının nedeni yalnızca teknik değil: null "hiç sorulmadı"

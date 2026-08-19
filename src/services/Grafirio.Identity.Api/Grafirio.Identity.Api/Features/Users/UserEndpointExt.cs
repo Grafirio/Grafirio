@@ -28,7 +28,7 @@ public static class UserEndpointExt
                         : Results.BadRequest(result.Fail);
                 })
             .WithName("GetCompanyUsers")
-            .Produces<List<UserCompanyRoleDto>>(StatusCodes.Status200OK)
+            .Produces<List<CompanyMemberDto>>(StatusCodes.Status200OK)
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .RequireAuthorization("Password");
 

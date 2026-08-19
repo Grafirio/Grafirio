@@ -7,4 +7,4 @@ namespace Grafirio.Identity.Api.Features.Users.GetByCompany;
 /// denetim amacıyla istendiğinde açılır.
 /// </param>
 public record GetCompanyUsersQuery(Guid CompanyId, bool IncludeRevoked = false)
-    : IRequestByServiceResult<List<UserCompanyRoleDto>>;
+    : IRequestByServiceResult<List<CompanyMemberDto>>;
