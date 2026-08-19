@@ -111,9 +111,9 @@ export const fetchAccessibleCompanies = async (token) => {
  * Cagiranin bu sirketteki etkin izinleri: { companyId, role, modules,
  * permissions, restrictedByDepartment }.
  *
- * modules menuyu, permissions ise ekran icindeki butonlari belirliyor. Asil
- * kontrol sunucuda: gizlenmis bir buton, istegin dogrudan gonderilmesini
- * engellemez.
+ * permissions MODUL.AKSIYON anahtarlari, modules onlardan turetilen menu
+ * listesi. Menu ve dugmeler buna gore ciziliyor ama asil kontrol sunucuda:
+ * gizlenmis bir dugme, istegin dogrudan gonderilmesini engellemez.
  */
 export const fetchMyPermissions = async (token, companyId) => {
   const { data } = await axios.get(
@@ -124,24 +124,14 @@ export const fetchMyPermissions = async (token, companyId) => {
 };
 
 /**
- * Modul basina aksiyon listesi: [{ module, permissions: ['DEPARTMENTS.READ', ...] }].
+ * Modul -> o modulun izin anahtarlari agaci; departman izin matrisini bu
+ * besliyor.
  *
- * Departman izin matrisi bunu okuyarak ciziliyor; sabit listeyi istemciye
- * kopyalamak iki tarafin sessizce ayrisma yolu olurdu.
+ * Liste istemciye kopyalanmiyor sunucudan okunuyor: yeni bir aksiyon
+ * eklendiginde matris kendiliginden buyusun, iki taraf sessizce ayrismasin.
  */
 export const fetchPermissionActions = async (token) => {
   const { data } = await axios.get(`${GATEWAY}/v1/identity/permissions/actions`, auth(token));
-  return unwrap(data) ?? [];
-};
-
-/**
- * Rol basina izin tavani: [{ role, permissions: [...] }].
- *
- * Yetki Ayarlari tablosu bundan ciziliyor. Onceden matris elle yazilmisti ve
- * sunucudaki kural degistiginde ekranda yazan sey yanlis kalabiliyordu.
- */
-export const fetchRolePermissions = async (token) => {
-  const { data } = await axios.get(`${GATEWAY}/v1/identity/permissions/roles`, auth(token));
   return unwrap(data) ?? [];
 };
 
