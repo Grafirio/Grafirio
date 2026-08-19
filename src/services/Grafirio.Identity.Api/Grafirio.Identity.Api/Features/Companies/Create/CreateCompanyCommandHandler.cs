@@ -75,9 +75,25 @@ public class CreateCompanyCommandHandler(
         }
         else
         {
-            if (!isPlatformAdmin && !identityService.HasBusinessRole(MembershipLevels.Admin))
+            // Kok sirket acmak yeni bir kiraci acmak demek: cagiranin halihazirda
+            // bir sirkette kurucu ya da admin olmasi gerekiyor.
+            //
+            // Kaynak token degil veritabani. Onceden business_roles claim'ine
+            // bakiliyordu ve Faz 7'den sonra bu yanlis cevap veriyordu: uyelik
+            // seviyesi artik veritabaninda ve kurucunun claim'inde "ADMIN"
+            // yazmiyor, dolayisiyla sirketini kuran kisi ikinci bir kok sirket
+            // acamiyordu. Yetkinin claim'den veritabanina tasinmasinin sebebi
+            // tam olarak buydu (bkz. Faz 3).
+            var canOpenTenant = await context.CompanyMemberships.AnyAsync(
+                x => x.KeycloakUserId == userId
+                     && x.IsActive
+                     && (x.Level == MembershipLevels.Founder || x.Level == MembershipLevels.Admin),
+                cancellationToken);
+
+            if (!isPlatformAdmin && !canOpenTenant)
             {
                 return ServiceResult<CreateCompanyResponse>.Error("Only company admins can create root companies",
+                    "Kök şirket açmak için bir şirkette kurucu ya da admin olmanız gerekiyor.",
                     HttpStatusCode.Forbidden);
             }
         }
