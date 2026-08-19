@@ -18,11 +18,6 @@ public interface IPermissionService
     /// </summary>
     Task<bool> CanAsync(Guid companyId, string permission, CancellationToken ct);
 
-    /// <summary>
-    /// Modülün herhangi bir iznine sahip mi — "bu menüyü görebilir mi".
-    /// Ekranı açmak için, ekranda bir şeyi değiştirmek için değil.
-    /// </summary>
-    Task<bool> CanSeeModuleAsync(Guid companyId, string module, CancellationToken ct);
 }
 
 // EffectivePermissions burada tanimli degil: cevabin bicimi paylasilan

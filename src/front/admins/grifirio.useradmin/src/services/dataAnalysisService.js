@@ -134,33 +134,7 @@ export const getTables = async (connectionInfo) => {
   }
 };
 
-// Get detailed schema for a specific table
-export const getTableSchema = async (tableName, connectionInfo) => {
-  try {
-    const response = await axios.post(
-      `${API_BASE_URL}/api/schema/table/${encodeURIComponent(tableName)}`, 
-      connectionInfo,
-      { timeout: 30000 }
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Failed to get table schema:', error);
-    throw error;
-  }
-};
 
-// Check Data Analysis API health
-export const checkApiHealth = async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL.replace('/api', '')}/health`, {
-      timeout: 5000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('API health check failed:', error);
-    return { status: 'Unhealthy' };
-  }
-};
 
 // Pre-Analysis Functions
 export const getDataQuality = async (connectionInfo, tables) => {
@@ -283,18 +257,6 @@ export const listAnalyses = async () => {
   return response.data;
 };
 
-// Semantik sözlüğü getir
-export const getAgentConfig = async (connectionId) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/api/agent/config/${connectionId}`, {
-      timeout: 10000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Get config failed:', error);
-    throw error;
-  }
-};
 
 // Doğal dil sorgusu gönder → LLM + PyCaret
 export const submitAgentQuery = async (connectionId, question) => {
