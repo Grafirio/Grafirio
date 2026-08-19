@@ -1,12 +1,17 @@
+using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
+using Grafirio.Shared.Identity.Permissions;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
 
 namespace Grafirio.Identity.Api.Features.Subscriptions.Start;
 
-public class StartSubscriptionCommandHandler(AppDbContext context, IIdentityService identityService)
+public class StartSubscriptionCommandHandler(
+    AppDbContext context,
+    IIdentityService identityService,
+    IPermissionService permissions)
     : IRequestHandler<StartSubscriptionCommand, ServiceResult<StartSubscriptionResponse>>
 {
     public async Task<ServiceResult<StartSubscriptionResponse>> Handle(
@@ -30,19 +35,37 @@ public class StartSubscriptionCommandHandler(AppDbContext context, IIdentityServ
 
         // Abonelik firmaya yaziliyor, kisiye degil; dolayisiyla kisinin hangi
         // firma adina konustugu ve o firmada yetkili olup olmadigi burada
-        // belirleniyor. Yalnizca yonetici baslatabilir: fatura dogurun bir
-        // islem ve siradan bir kullanicinin yapabilecegi sey degil.
-        var membership = await context.UserCompanyRoles
-            .FirstOrDefaultAsync(x => x.KeycloakUserId == userId
-                                      && x.IsActive
-                                      && x.Role == CompanyRoles.COMPANY_ADMIN,
-                cancellationToken);
+        // belirleniyor. Fatura doguran bir islem, siradan bir kullanicinin
+        // yapabilecegi sey degil.
+        //
+        // Soru rol degil izin: BILLING.MANAGE. Onceden sorgu dogrudan
+        // COMPANY_ADMIN ariyordu ve kural, ayni kurali tasiyan yirmi handler
+        // gibi buraya gomuluydu. Bugun sonuc ayni (BILLING.MANAGE yalnizca
+        // yonetici tavaninda var), ama kural artik tek yerde.
+        var memberships = await context.UserCompanyRoles
+            .Where(x => x.KeycloakUserId == userId && x.IsActive)
+            .ToListAsync(cancellationToken);
+
+        // Kisi birden fazla firmada uye olabiliyor; abonelik baslatilacak
+        // firma, izninin bulundugu ilk firma. Onceden de boyleydi (ilk
+        // COMPANY_ADMIN uyeligi), yalnizca olcut rolden izne dondu.
+        UserCompanyRole? membership = null;
+
+        foreach (var candidate in memberships)
+        {
+            if (await permissions.CanAsync(candidate.CompanyId,
+                    AppPermissions.BillingManage, cancellationToken))
+            {
+                membership = candidate;
+                break;
+            }
+        }
 
         if (membership is null)
         {
             return ServiceResult<StartSubscriptionResponse>.Error(
                 "No company to subscribe for",
-                "Abonelik başlatmak için bir firmanın yöneticisi olmanız gerekiyor.",
+                "Abonelik başlatmak için bir firmada üyelik yönetme yetkiniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
