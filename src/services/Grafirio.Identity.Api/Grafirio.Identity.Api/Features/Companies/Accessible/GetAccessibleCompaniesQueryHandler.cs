@@ -21,7 +21,7 @@ public class GetAccessibleCompaniesQueryHandler(ICompanyAccessService access)
                 company.CountryCode,
                 company.ParentCompanyId,
                 company.Level,
-                await access.EffectiveRoleAsync(company.Id, cancellationToken)));
+                await access.EffectiveLevelAsync(company.Id, cancellationToken)));
         }
 
         return ServiceResult<List<AccessibleCompanyDto>>.SuccessAsOk(result);

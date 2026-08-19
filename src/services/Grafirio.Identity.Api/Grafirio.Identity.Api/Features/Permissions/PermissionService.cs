@@ -1,8 +1,8 @@
 using Grafirio.Identity.Api.Features.Companies.Access;
 using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
-using Microsoft.EntityFrameworkCore;
 using Grafirio.Shared.Identity.Permissions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.Identity.Api.Features.Permissions;
 
@@ -26,66 +26,72 @@ public class PermissionService(
     {
         if (_cache.TryGetValue(companyId, out var cached)) return cached;
 
-        var role = await access.EffectiveRoleAsync(companyId, ct);
+        var level = await access.EffectiveLevelAsync(companyId, ct);
 
         // Şirkete erişimi yoksa izin de yok; çağıran tarafın ayrıca erişim
         // kontrolü yapmasına gerek kalmıyor.
-        if (role is null)
+        if (level is null)
         {
             return Store(new EffectivePermissions(companyId, null, [], [], false));
         }
 
-        var ceiling = PermissionPolicy.CeilingForRole(role);
-
-        // Yönetici departman kısıtından muaf: kendi şirketinde her şeyi
-        // görmeli, aksi halde kendi kurduğu daraltmayla kendini kilitleyebilir.
-        if (role is PlatformRoles.PLATFORM_ADMIN or CompanyRoles.COMPANY_ADMIN)
+        // Kurucu, admin ve platform ekibi izin şemasının dışında: rol
+        // atanmıyor, kişisel izin verilmiyor, daraltılamıyorlar. Kilitlenmeye
+        // karşı son güvence bu — yanlış tanımlanmış bir izin kümesi şirketi
+        // kendi panelinin dışında bırakmasın.
+        if (MembershipLevels.BypassesPermissions(level) || level == PlatformRoles.PLATFORM_ADMIN)
         {
-            return Store(Build(companyId, role, ceiling, restricted: false));
+            return Store(Build(companyId, level, AppPermissions.All));
         }
 
         var userId = identityService.UserId.ToString();
 
-        var memberships = await context.UserDepartments
+        var roleIds = await context.UserRoles
             .Where(x => x.KeycloakUserId == userId && x.CompanyId == companyId && x.IsActive)
+            .Select(x => x.RoleId)
             .ToListAsync(ct);
 
-        // Hiç departmanı olmayan kullanıcı rol tavanına düşüyor. Departman
-        // atamak bilinçli bir daraltma; atamamak "kısıtsız" demek. Tersi
-        // olsaydı departman kavramı geldiği anda mevcut bütün kullanıcılar
-        // panelden düşerdi.
-        if (memberships.Count == 0)
+        var granted = new HashSet<string>();
+
+        if (roleIds.Count > 0)
         {
-            return Store(Build(companyId, role, ceiling, restricted: false));
+            var roles = await context.Roles
+                .Where(x => roleIds.Contains(x.Id) && x.IsActive)
+                .ToListAsync(ct);
+
+            // Birden fazla rol taşıyan kişide izinler birleşiyor. Kesişim
+            // olsaydı ikinci bir rol vermek yetkiyi daraltırdı.
+            foreach (var permission in roles.SelectMany(r => r.Permissions))
+            {
+                granted.Add(permission);
+            }
         }
 
-        var departmentIds = memberships.Select(x => x.DepartmentId).Distinct().ToList();
+        // Kişisel izinler rollerin üstüne ekleniyor: biri hem Muhasebe
+        // rolünde olup hem o rolde bulunmayan bir izni taşıyabilsin.
+        var personal = await context.UserPermissions
+            .FirstOrDefaultAsync(x => x.KeycloakUserId == userId && x.CompanyId == companyId, ct);
 
-        var departments = await context.Departments
-            .Where(x => departmentIds.Contains(x.Id) && x.IsActive)
-            .ToListAsync(ct);
+        if (personal is not null)
+        {
+            foreach (var permission in personal.Permissions) granted.Add(permission);
+        }
 
-        // Birden fazla departmandaysa izinler birleşiyor, sonra rol tavanıyla
-        // kesişiyor — departman tavanı genişletemez.
-        var granted = departments
-            .SelectMany(d => d.EffectivePermissionKeys())
-            .Where(ceiling.Contains)
-            .ToHashSet();
+        // Panele giriş üyelikle geliyor. Üye olup hiç izni olmayan biri boş
+        // bir panel görür; kapının dışında kalmaz, çünkü bu durumu düzeltecek
+        // kişiyle konuşabilmesi için önce içeride olması gerekiyor.
+        granted.Add(AppPermissions.PanelRead);
 
-        // Panele giriş role bağlı: departman modül ve aksiyonları daraltır ama
-        // kapıyı kapatmaz. Aksi halde yanlış bir departman ataması kullanıcıyı
-        // eksik bir panel yerine tamamen dışarıda bırakır ve durumu düzeltecek
-        // kişi de aynı şekilde kilitlenebilir.
-        if (ceiling.Contains(AppPermissions.PanelRead)) granted.Add(AppPermissions.PanelRead);
-
-        return Store(Build(companyId, role, granted, restricted: true));
+        return Store(Build(companyId, level, granted));
     }
 
     /// Modül listesi ayrı tutulmuyor, izinlerden türetiliyor: iki liste ayrı
     /// hesaplanırsa menü ile uygulanan kural sessizce ayrışır.
     private static EffectivePermissions Build(
-        Guid companyId, string role, IReadOnlyCollection<string> permissions, bool restricted)
-        => new(companyId, role, AppPermissions.ModulesOf(permissions), [.. permissions], restricted);
+        Guid companyId, string level, IReadOnlyCollection<string> permissions)
+        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions],
+            // Daraltma diye bir şey kalmadı: izinler birleşiyor, tavan yok.
+            RestrictedByDepartment: false);
 
     private EffectivePermissions Store(EffectivePermissions value)
         => _cache[value.CompanyId] = value;

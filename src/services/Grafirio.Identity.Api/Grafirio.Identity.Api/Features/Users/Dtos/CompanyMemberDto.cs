@@ -1,6 +1,6 @@
 namespace Grafirio.Identity.Api.Features.Users.Dtos;
 
-public class UserCompanyRoleDto
+public class CompanyMemberDto
 {
     public Guid Id { get; set; }
     public string KeycloakUserId { get; set; } = string.Empty;
@@ -17,7 +17,8 @@ public class UserCompanyRoleDto
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public Guid CompanyId { get; set; }
-    public string Role { get; set; } = string.Empty;
+    /// Uyelik seviyesi (bkz. MembershipLevels): kurucu, admin ya da uye.
+    public string Level { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public DateTime AssignedAt { get; set; }
     public string? AssignedBy { get; set; }

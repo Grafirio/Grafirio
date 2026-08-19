@@ -5,34 +5,34 @@ using Microsoft.EntityFrameworkCore;
 using System.Net;
 using Grafirio.Shared.Identity.Permissions;
 
-namespace Grafirio.Identity.Api.Features.Departments.Members;
+namespace Grafirio.Identity.Api.Features.Roles.Members;
 
-public class RemoveUserFromDepartmentCommandHandler(
+public class RemoveUserFromRoleCommandHandler(
     AppDbContext context,
     IPermissionService permissions,
     IIdentityService identityService)
-    : IRequestHandler<RemoveUserFromDepartmentCommand, ServiceResult<bool>>
+    : IRequestHandler<RemoveUserFromRoleCommand, ServiceResult<bool>>
 {
-    public async Task<ServiceResult<bool>> Handle(RemoveUserFromDepartmentCommand request,
+    public async Task<ServiceResult<bool>> Handle(RemoveUserFromRoleCommand request,
         CancellationToken cancellationToken)
     {
-        var department = await context.Departments
-            .FirstOrDefaultAsync(x => x.Id == request.DepartmentId, cancellationToken);
+        var role = await context.Roles
+            .FirstOrDefaultAsync(x => x.Id == request.RoleId, cancellationToken);
 
-        if (department is null)
+        if (role is null)
         {
-            return ServiceResult<bool>.Error("Department not found", HttpStatusCode.NotFound);
+            return ServiceResult<bool>.Error("Role not found", HttpStatusCode.NotFound);
         }
 
-        if (!await permissions.CanAsync(department.CompanyId, AppPermissions.DepartmentsAssignMembers, cancellationToken))
+        if (!await permissions.CanAsync(role.CompanyId, AppPermissions.RolesAssign, cancellationToken))
         {
             return ServiceResult<bool>.Error("Insufficient permissions",
-                "Departmandan kullanıcı çıkarmak için üyelik yönetimi izniniz olmalı.",
+                "Roldan kullanıcı çıkarmak için üyelik yönetimi izniniz olmalı.",
                 HttpStatusCode.Forbidden);
         }
 
-        var membership = await context.UserDepartments.FirstOrDefaultAsync(
-            x => x.DepartmentId == department.Id
+        var membership = await context.UserRoles.FirstOrDefaultAsync(
+            x => x.RoleId == role.Id
                  && x.KeycloakUserId == request.KeycloakUserId
                  && x.IsActive,
             cancellationToken);
@@ -42,8 +42,8 @@ public class RemoveUserFromDepartmentCommandHandler(
             return ServiceResult<bool>.Error("Membership not found", HttpStatusCode.NotFound);
         }
 
-        // Silinmiyor, kapatiliyor — kimin ne zaman hangi departmanda oldugu
-        // sonradan sorulabilsin (UserCompanyRole ile ayni desen).
+        // Silinmiyor, kapatiliyor — kimin ne zaman hangi rolda oldugu
+        // sonradan sorulabilsin (CompanyMembership ile ayni desen).
         membership.IsActive = false;
         membership.RemovedAt = DateTime.UtcNow;
         membership.RemovedBy = identityService.UserName;

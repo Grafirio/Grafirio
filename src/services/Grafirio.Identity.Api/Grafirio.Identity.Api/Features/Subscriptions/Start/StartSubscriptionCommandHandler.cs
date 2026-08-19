@@ -24,7 +24,7 @@ public class StartSubscriptionCommandHandler(
                 HttpStatusCode.BadRequest);
         }
 
-        // UserCompanyRole, Keycloak kimligini metin olarak tutuyor.
+        // CompanyMembership, Keycloak kimligini metin olarak tutuyor.
         var userId = identityService.UserId.ToString();
 
         if (string.IsNullOrWhiteSpace(userId) || identityService.UserId == Guid.Empty)
@@ -42,14 +42,14 @@ public class StartSubscriptionCommandHandler(
         // COMPANY_ADMIN ariyordu ve kural, ayni kurali tasiyan yirmi handler
         // gibi buraya gomuluydu. Bugun sonuc ayni (BILLING.MANAGE yalnizca
         // yonetici tavaninda var), ama kural artik tek yerde.
-        var memberships = await context.UserCompanyRoles
+        var memberships = await context.CompanyMemberships
             .Where(x => x.KeycloakUserId == userId && x.IsActive)
             .ToListAsync(cancellationToken);
 
         // Kisi birden fazla firmada uye olabiliyor; abonelik baslatilacak
         // firma, izninin bulundugu ilk firma. Onceden de boyleydi (ilk
         // COMPANY_ADMIN uyeligi), yalnizca olcut rolden izne dondu.
-        UserCompanyRole? membership = null;
+        CompanyMembership? membership = null;
 
         foreach (var candidate in memberships)
         {
