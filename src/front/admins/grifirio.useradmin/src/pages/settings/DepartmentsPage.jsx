@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
-import { describeError, fetchCompanyUsers, roleName } from '../../services/companyService';
+import {
+  describeError,
+  fetchCompanyUsers,
+  fetchPermissionActions,
+  roleName,
+} from '../../services/companyService';
 import {
   assignUserToDepartment,
   createDepartment,
@@ -11,7 +16,8 @@ import {
   updateDepartment,
 } from '../../services/departmentService';
 import { useCompany } from '../../contexts/companyContext';
-import { MODULES, moduleName } from '../../constants/modules';
+import { moduleName } from '../../constants/modules';
+import { actionLabel, permissionHint } from '../../constants/permissions';
 import '../../styles/SettingsPages.css';
 
 const emptyForm = () => ({
@@ -20,7 +26,7 @@ const emptyForm = () => ({
   description: '',
   managerKeycloakUserId: '',
   costCenter: '',
-  modules: [],
+  permissions: [],
 });
 
 /**
@@ -31,17 +37,31 @@ const emptyForm = () => ({
  * departman değil şirket üyeliği belirliyor — iki kavram karışırsa "hangi
  * şirkete girebilirim" sorusunun iki ayrı cevabı olur.
  *
- * Bu aşamada departman yalnızca gruplama. Veri ve modül izinleri sonraki
- * fazlarda buraya bağlanacak.
+ * Departman izinleri modül × aksiyon: "veri kaynaklarını görsün ama
+ * değiştirmesin" ancak bu kırılımla ifade edilebiliyor. Aksiyon listesi
+ * sunucudan geliyor (GET /permissions/actions) — sabit listeyi buraya
+ * kopyalamak, ekranda yazan izinle sunucunun uyguladığı iznin sessizce
+ * ayrışması demekti.
+ *
+ * embedded: İzinler sayfası bu bileşeni "Departmanlar" sekmesinde gösterir ve
+ * kendi sayfa başlığını kendisi çizer.
  */
-export default function DepartmentsPage() {
+export default function DepartmentsPage({ embedded = false } = {}) {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
-  const { selected: company } = useCompany();
+  const { selected: company, can } = useCompany();
   const companyId = company?.id;
+
+  // Butonlar izinle gizleniyor ama karar sunucuda: gizlenmiş bir buton isteğin
+  // doğrudan gönderilmesini engellemez.
+  const canCreate = can('DEPARTMENTS.CREATE');
+  const canUpdate = can('DEPARTMENTS.UPDATE');
+  const canDelete = can('DEPARTMENTS.DELETE');
+  const canAssign = can('DEPARTMENTS.ASSIGN_MEMBERS');
 
   const [departments, setDepartments] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
+  const [actionCatalog, setActionCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -61,14 +81,18 @@ export default function DepartmentsPage() {
     setLoading(true);
     setError('');
     try {
-      const [list, users] = await Promise.all([
+      const [list, users, actions] = await Promise.all([
         fetchDepartments(token, companyId),
         // Üye ekleme listesi buradan: departmana yalnızca şirketin üyeleri
         // atanabiliyor.
         fetchCompanyUsers(token, companyId).catch(() => []),
+        // Matris boş kalabilir ama sayfa açılmalı: izin listesi okunamazsa
+        // departman adı ve üyeleri hâlâ yönetilebiliyor.
+        fetchPermissionActions(token).catch(() => []),
       ]);
       setDepartments(list);
       setCompanyUsers(users);
+      setActionCatalog(actions);
     } catch (err) {
       setError(describeError(err, 'Departmanlar okunamadı.'));
     } finally {
@@ -97,7 +121,9 @@ export default function DepartmentsPage() {
       description: d.description ?? '',
       managerKeycloakUserId: d.managerKeycloakUserId ?? '',
       costCenter: d.costCenter ?? '',
-      modules: d.modules ?? [],
+      // Sunucu eski kayıtların modül listesini izne çevirip döndürüyor,
+      // dolayısıyla burada ayrı bir geriye uyum koduna gerek yok.
+      permissions: d.permissions ?? [],
     });
     setFormOpen(true);
   };
@@ -118,7 +144,9 @@ export default function DepartmentsPage() {
         description: form.description.trim() || null,
         managerKeycloakUserId: form.managerKeycloakUserId || null,
         costCenter: form.costCenter.trim() || null,
-        modules: form.modules,
+        // Yalnızca izinler gönderiliyor; eski modules alanını sunucu bunlardan
+        // türetiyor ki iki alan birbirinden ayrışmasın.
+        permissions: form.permissions,
       };
 
       if (editingId) {
@@ -155,23 +183,39 @@ export default function DepartmentsPage() {
 
   const userLabel = (keycloakUserId) => {
     const user = companyUsers.find((u) => u.keycloakUserId === keycloakUserId);
-    // Uç yalnızca kimlik döndürüyor; ad/e-posta Keycloak tarafında kalıyor.
-    return user?.userName || user?.email || keycloakUserId;
+    // Ad ve e-posta artık uçtan geliyor (Keycloak'tan okunuyor). Kullanıcı
+    // Keycloak'ta bulunamazsa — silinmiş olabilir, yetki kaydı denetim izi
+    // olarak duruyor — kimliğe düşülüyor.
+    return user?.displayName || user?.email || keycloakUserId;
   };
 
   return (
-    <div className="st">
+    <div className={embedded ? undefined : 'st'}>
+      {/* embedded: sayfa başlığını İzinler sayfası çiziyor, ikinci bir başlık
+          sekmenin içinde tekrar olurdu. Ekleme düğmesi yine burada duruyor,
+          çünkü yaptığı iş bu sekmeye ait. */}
       <div className="st-head">
-        <div>
-          <p className="st-eyebrow">Ayarlar · Organizasyon</p>
-          <h1>Departmanlar</h1>
-          <p className="st-lead">
-            {company
-              ? `${company.name} altındaki organizasyon birimleri.`
-              : 'Departmanlar, veri erişimi ve rapor dağıtımının temelidir.'}
-          </p>
-        </div>
-        {!loading && companyId && (
+        {embedded ? (
+          <div>
+            <h2>Departmanlar</h2>
+            <p className="st-card-sub">
+              {company
+                ? `${company.name} altındaki organizasyon birimleri ve izinleri.`
+                : 'Organizasyon birimleri ve izinleri.'}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="st-eyebrow">Ayarlar · Organizasyon</p>
+            <h1>Departmanlar</h1>
+            <p className="st-lead">
+              {company
+                ? `${company.name} altındaki organizasyon birimleri.`
+                : 'Departmanlar, veri erişimi ve rapor dağıtımının temelidir.'}
+            </p>
+          </div>
+        )}
+        {!loading && companyId && canCreate && (
           <div className="st-head-actions">
             <button type="button" className="st-btn" onClick={startCreate}>
               + Departman ekle
@@ -246,36 +290,81 @@ export default function DepartmentsPage() {
             </label>
 
             <fieldset className="st-field" style={{ border: 0, margin: 0, padding: 0 }}>
-              <span>Erişilebilecek modüller</span>
-              <div className="st-module-grid">
-                {MODULES.map((m) => {
-                  const on = form.modules.includes(m.key);
-                  return (
-                    <label key={m.key} className="st-module-item" data-on={on}>
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() =>
-                          setForm({
-                            ...form,
-                            modules: on
-                              ? form.modules.filter((k) => k !== m.key)
-                              : [...form.modules, m.key],
-                          })
-                        }
-                      />
-                      <span>
-                        <strong>{m.name}</strong>
-                        <small>{m.description}</small>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+              <span>İzinler</span>
+              {actionCatalog.length === 0 ? (
+                <p className="st-empty">İzin listesi okunamadı; kaydedilen izinler korunuyor.</p>
+              ) : (
+                <div className="st-perm-list">
+                  {actionCatalog.map(({ module, permissions: keys }) => {
+                    const selectedKeys = keys.filter((k) => form.permissions.includes(k));
+                    const all = selectedKeys.length === keys.length && keys.length > 0;
+                    const some = selectedKeys.length > 0;
+
+                    return (
+                      <div key={module} className="st-perm-module" data-on={some}>
+                        <div className="st-perm-module-head">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={all}
+                              // Kismi secim ucuncu bir durum: kutu isaretli
+                              // degil ama "hicbiri" de degil. Isaretsiz
+                              // gostermek kullaniciya yanlis bilgi verirdi.
+                              ref={(el) => {
+                                if (el) el.indeterminate = some && !all;
+                              }}
+                              onChange={() =>
+                                setForm({
+                                  ...form,
+                                  permissions: all
+                                    ? form.permissions.filter((k) => !keys.includes(k))
+                                    : [...new Set([...form.permissions, ...keys])],
+                                })
+                              }
+                            />
+                            <strong>{moduleName(module)}</strong>
+                          </label>
+                          <small>
+                            {selectedKeys.length}/{keys.length} izin
+                          </small>
+                        </div>
+                        <div className="st-perm-actions">
+                          {keys.map((key) => {
+                            const on = form.permissions.includes(key);
+                            return (
+                              <label
+                                key={key}
+                                className="st-perm-chip"
+                                data-on={on}
+                                title={permissionHint(key) ?? key}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() =>
+                                    setForm({
+                                      ...form,
+                                      permissions: on
+                                        ? form.permissions.filter((k) => k !== key)
+                                        : [...form.permissions, key],
+                                    })
+                                  }
+                                />
+                                {actionLabel(key)}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <small className="st-hint">
                 Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
-                eklenen bir modül, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
+                eklenen bir izin, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
                 muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
+                Panele giriş departmandan etkilenmez — role bağlıdır.
               </small>
             </fieldset>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -303,8 +392,7 @@ export default function DepartmentsPage() {
             <div>
               <h2>Departmanlar</h2>
               <p className="st-card-sub">
-                Bu aşamada departman yalnızca gruplama; veri ve modül izinleri sonraki adımda
-                buraya bağlanacak.
+                Her departmanın izinleri modül ve aksiyon kırılımında; rolün verdiğini daraltır.
               </p>
             </div>
             <span className="st-head-meta">{departments.length} departman</span>
@@ -322,7 +410,7 @@ export default function DepartmentsPage() {
                     <th>Ad</th>
                     <th>Kod</th>
                     <th>Yönetici</th>
-                    <th>Modüller</th>
+                    <th>İzinler</th>
                     <th>Üye</th>
                     <th className="st-right">İşlem</th>
                   </tr>
@@ -336,15 +424,28 @@ export default function DepartmentsPage() {
                         {d.managerKeycloakUserId ? userLabel(d.managerKeycloakUserId) : '—'}
                       </td>
                       <td className="st-dim">
-                        {(d.modules ?? []).length === 0 ? (
-                          // Bos liste "kisit yok" degil "hicbir modul" demek;
+                        {(d.permissions ?? []).length === 0 ? (
+                          // Bos liste "kisit yok" degil "hicbir izin" demek;
                           // yanlis okunmasin diye acikca yaziliyor.
-                          <span className="st-badge st-badge--warn">modül seçilmedi</span>
+                          <span className="st-badge st-badge--warn">izin verilmedi</span>
                         ) : (
+                          // Modul basina "2/3" kirilimi: satira yirmi bes izin
+                          // anahtari sigmiyor, ama "hangi modulde ne kadar
+                          // yetki var" sorusu tablodan okunabilmeli.
                           <span className="st-module-tags">
-                            {d.modules.map((m) => (
-                              <span key={m} className="st-chip">{moduleName(m)}</span>
-                            ))}
+                            {(d.modules ?? []).map((m) => {
+                              const total =
+                                actionCatalog.find((a) => a.module === m)?.permissions.length ?? 0;
+                              const own = (d.permissions ?? []).filter((p) =>
+                                p.startsWith(`${m}.`)
+                              ).length;
+                              return (
+                                <span key={m} className="st-chip">
+                                  {moduleName(m)}
+                                  {total > 0 ? ` ${own}/${total}` : ''}
+                                </span>
+                              );
+                            })}
                           </span>
                         )}
                       </td>
@@ -357,12 +458,18 @@ export default function DepartmentsPage() {
                         >
                           Üyeler
                         </button>{' '}
-                        <button type="button" className="st-link" onClick={() => startEdit(d)}>
-                          Düzenle
-                        </button>{' '}
-                        <button type="button" className="st-link" onClick={() => remove(d)}>
-                          Sil
-                        </button>
+                        {canUpdate && (
+                          <>
+                            <button type="button" className="st-link" onClick={() => startEdit(d)}>
+                              Düzenle
+                            </button>{' '}
+                          </>
+                        )}
+                        {canDelete && (
+                          <button type="button" className="st-link" onClick={() => remove(d)}>
+                            Sil
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -377,6 +484,7 @@ export default function DepartmentsPage() {
         <MembersPanel
           token={token}
           department={selectedDepartment}
+          canAssign={canAssign}
           companyUsers={companyUsers}
           userLabel={userLabel}
           onClose={() => setSelectedDepartment(null)}
@@ -392,6 +500,7 @@ export default function DepartmentsPage() {
 function MembersPanel({
   token,
   department,
+  canAssign,
   companyUsers,
   userLabel,
   onClose,
@@ -488,13 +597,15 @@ function MembersPanel({
                     {new Date(m.assignedAt).toLocaleDateString('tr-TR')}
                   </td>
                   <td className="st-right">
-                    <button
-                      type="button"
-                      className="st-link"
-                      onClick={() => remove(m.keycloakUserId)}
-                    >
-                      Çıkar
-                    </button>
+                    {canAssign && (
+                      <button
+                        type="button"
+                        className="st-link"
+                        onClick={() => remove(m.keycloakUserId)}
+                      >
+                        Çıkar
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -503,7 +614,12 @@ function MembersPanel({
         </div>
       )}
 
-      <div className="st-form-grid" style={{ marginTop: 18, alignItems: 'end' }}>
+      {/* Üye atama ayrı bir izin: departmanı görebilen herkes kimin hangi
+          departmanda olduğunu değiştirebilmemeli. */}
+      <div
+        className="st-form-grid"
+        style={{ marginTop: 18, alignItems: 'end', display: canAssign ? undefined : 'none' }}
+      >
         <label className="st-field">
           <span>Kullanıcı ekle</span>
           <select value={pick} onChange={(e) => setPick(e.target.value)}>

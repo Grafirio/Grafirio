@@ -78,8 +78,8 @@ export default function Nav() {
   // Onceki hali token'daki company_id claim'ine bakiyordu ve claim gelmeyince
   // rozet bos kaliyordu. Liste artik sunucudaki uyelik kayitlarindan geliyor
   // (bkz. /companies/accessible), claim'e hic bakilmiyor.
-  const { companies, selected, selectCompany, can } = useCompany();
-  const visibleTabs = TABS.filter((t) => t.modules.some((m) => can(m)));
+  const { companies, selected, selectCompany, canModule } = useCompany();
+  const visibleTabs = TABS.filter((t) => t.modules.some((m) => canModule(m)));
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   // Disari tiklayinca kapansin; menu acikken sayfanin baska yerine tiklamak

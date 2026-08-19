@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api.Features.Permissions;
 using AutoMapper;
+using Grafirio.Identity.Api.Features.Users.Directory;
 using Grafirio.Identity.Api.Features.Users.Dtos;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,7 @@ namespace Grafirio.Identity.Api.Features.Users.GetByCompany;
 public class GetCompanyUsersQueryHandler(
     AppDbContext context,
     IPermissionService permissions,
+    KeycloakUserDirectory directory,
     IMapper mapper)
     : IRequestHandler<GetCompanyUsersQuery, ServiceResult<List<UserCompanyRoleDto>>>
 {
@@ -33,7 +35,25 @@ public class GetCompanyUsersQueryHandler(
             .OrderByDescending(x => x.AssignedAt)
             .ToListAsync(cancellationToken);
 
-        return ServiceResult<List<UserCompanyRoleDto>>.SuccessAsOk(
-            mapper.Map<List<UserCompanyRoleDto>>(roles));
+        var result = mapper.Map<List<UserCompanyRoleDto>>(roles);
+
+        // Liste Keycloak kimligi (GUID) gosteriyordu: ad ve e-posta yetki
+        // kaydinda degil Keycloak'ta duruyor. Tek cagrida coz, satir basina
+        // ayri istek atmayalim; okunamayan kayit adsiz kaliyor ve panel
+        // kimlige dusuyor.
+        var people = await directory.LookupAsync(
+            result.Select(x => x.KeycloakUserId), cancellationToken);
+
+        foreach (var row in result)
+        {
+            if (!people.TryGetValue(row.KeycloakUserId, out var person)) continue;
+
+            row.DisplayName = person.DisplayName;
+            row.Email = person.Email;
+            row.FirstName = person.FirstName;
+            row.LastName = person.LastName;
+        }
+
+        return ServiceResult<List<UserCompanyRoleDto>>.SuccessAsOk(result);
     }
 }

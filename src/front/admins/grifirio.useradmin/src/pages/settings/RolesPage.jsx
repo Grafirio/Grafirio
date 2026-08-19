@@ -5,67 +5,70 @@ import {
   COMPANY_ROLES,
   describeError,
   fetchCompanyUsers,
+  fetchPermissionActions,
+  fetchRolePermissions,
 } from '../../services/companyService';
+import { useCompany } from '../../contexts/companyContext';
+import { moduleName } from '../../constants/modules';
+import { actionLabel, permissionHint } from '../../constants/permissions';
 import '../../styles/SettingsPages.css';
 
 /**
- * Ayarlar › Yetki Ayarlari.
+ * Ayarlar › İzinler › Rol izinleri.
  *
- * Roller uydurma degil: Identity'deki CompanyRoles sabitinin ta kendisi.
- * Asagidaki izin matrisi de oyle — her satir, sunucuda gercekten role
- * bakan bir kontrolden geliyor (AssignRole ve RevokeRole yalnizca
- * COMPANY_ADMIN, kullanici kaydi COMPANY_ADMIN ya da COMPANY_MANAGER,
- * abonelik baslatma COMPANY_ADMIN, sirket olusturma COMPANY_ADMIN).
+ * Matris artık elle yazılmıyor: satırlar sunucudan gelen izin anahtarları
+ * (GET /permissions/actions), hücreler de rol tavanları (GET /permissions/roles).
+ * Önceden tablo bu dosyada sabitti ve kendi yorumu "yeni satır eklenecekse önce
+ * sunucuda karşılığı olmalı" diye uyarıyordu — ekranda yazan izinle sistemin
+ * uyguladığı izin ayrışabiliyordu. Kaynak tek: AppPermissions.
  *
- * Panelin geri kalani role degil aboneli bakiyor; o satirlar bu yuzden uc
- * rolde de acik. Matrise yeni satir eklenecekse once sunucuda karsiligi
- * olmali, yoksa ekranda yazan sey ile sistemin yaptigi sey ayrisir.
+ * Tablo salt okunur. Rol tavanını değiştiren bir uç yok; rol başına izin
+ * düzenlemek yerine daraltma departman üzerinden yapılıyor.
+ *
+ * embedded: İzinler sayfası bu bileşeni "Rol izinleri" sekmesinde gösterir.
  */
-
-const A = '✓';
-const N = '—';
-
-const PERMISSIONS = [
-  { name: 'Panele ve kanvaslara erişim', admin: A, manager: A, user: A, note: 'abonelik kontrolü' },
-  { name: 'Veri kaynağı bağlama ve analiz başlatma', admin: A, manager: A, user: A },
-  { name: 'AI sorgulama çalıştırma', admin: A, manager: A, user: A },
-  { name: 'Kullanıcı kaydı oluşturma', admin: A, manager: A, user: N },
-  { name: 'Rol atama', admin: A, manager: N, user: N },
-  { name: 'Kullanıcı erişimini kaldırma', admin: A, manager: N, user: N },
-  { name: 'Alt şirket oluşturma', admin: A, manager: N, user: N },
-  { name: 'Abonelik başlatma', admin: A, manager: N, user: N },
-];
-
 const ROLE_ACCENT = {
   COMPANY_ADMIN: 'var(--gf-navy)',
   COMPANY_MANAGER: 'var(--gf-teal)',
   COMPANY_USER: 'var(--gf-sun)',
 };
 
-// embedded: UsersRolesPage bu bileseni "Izinler ve roller" sekmesinde
-// gosterir ve kendi sayfa basligini kendisi cizer.
+/** Tablo kolonları: platform ekibi burada gösterilmiyor, müşteri rolü değil. */
+const COLUMNS = ['COMPANY_ADMIN', 'COMPANY_MANAGER', 'COMPANY_USER'];
+
 export default function RolesPage({ embedded = false } = {}) {
   const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
-  const companyId = keycloak.tokenParsed?.company_id;
+  // Şirket seçiciden: aynı kullanıcı bir şubede yönetici, başka birinde
+  // sıradan kullanıcı olabiliyor ve kullanıcı sayıları da şubeye göre değişir.
+  const { selected: company } = useCompany();
+  const companyId = company?.id;
 
   const [users, setUsers] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [ceilings, setCeilings] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!companyId) {
-      setLoading(false);
-      return undefined;
-    }
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const members = await fetchCompanyUsers(token, companyId);
-        if (!cancelled) setUsers(members);
+        const [actions, roles, members] = await Promise.all([
+          fetchPermissionActions(token),
+          fetchRolePermissions(token),
+          // Kullanıcı sayısı tablonun yanında bir bilgi; okunamazsa matris
+          // yine gösterilmeli.
+          companyId ? fetchCompanyUsers(token, companyId).catch(() => []) : Promise.resolve([]),
+        ]);
+        if (cancelled) return;
+        setCatalog(actions);
+        setCeilings(Object.fromEntries(roles.map((r) => [r.role, new Set(r.permissions)])));
+        setUsers(members);
       } catch (err) {
-        if (!cancelled) setError(describeError(err, 'Kullanıcı sayıları okunamadı.'));
+        if (!cancelled) setError(describeError(err, 'İzin tabloları okunamadı.'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -76,6 +79,7 @@ export default function RolesPage({ embedded = false } = {}) {
   }, [token, companyId]);
 
   const countFor = (code) => users.filter((u) => u.role === code).length;
+  const has = (role, permission) => ceilings[role]?.has(permission) ?? false;
 
   return (
     <div className={embedded ? 'st-embed' : 'st'}>
@@ -83,10 +87,10 @@ export default function RolesPage({ embedded = false } = {}) {
         <div className="st-head">
           <div>
             <p className="st-eyebrow">Ayarlar · Güvenlik</p>
-            <h1>Yetki Ayarları</h1>
+            <h1>Rol izinleri</h1>
             <p className="st-lead">
-              Roller ve izinler. Bir kullanıcının şirket içindeki rolü, hangi yönetim işlemlerini
-              yapabileceğini belirler.
+              Bir kullanıcının şirket içindeki rolü, hangi işlemleri yapabileceğinin üst sınırını
+              belirler.
             </p>
           </div>
           <div className="st-head-actions">
@@ -119,69 +123,66 @@ export default function RolesPage({ embedded = false } = {}) {
           <div>
             <h2>İzin matrisi</h2>
             <p className="st-card-sub">
-              Sunucunun şu an uyguladığı kurallar — açık/kapalı görünümü mockup'takiyle aynı, ama
-              anahtarlar tıklanamaz: rol başına izin güncelleyen bir Identity ucu yok. Yeni rol
-              tanımlamak da Identity tarafında değişiklik gerektirir.
+              Sunucunun şu an uyguladığı rol tavanları — doğrudan izin tanımından okunuyor.
+              Anahtarlar tıklanamaz: rolün tavanı sabit, daraltma departman izinleriyle yapılıyor.
             </p>
           </div>
         </div>
 
-        <div className="st-table-wrap">
-          <table className="st-table">
-            <thead>
-              <tr>
-                <th>İzin</th>
-                <th style={{ textAlign: 'center' }}>Yönetici</th>
-                <th style={{ textAlign: 'center' }}>Müdür</th>
-                <th style={{ textAlign: 'center' }}>Kullanıcı</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PERMISSIONS.map((p) => (
-                <tr key={p.name}>
-                  <td className="st-strong">
-                    {p.name}
-                    {p.note && (
-                      <span className="st-mono st-dim" style={{ display: 'block', fontSize: 11.5, fontWeight: 500 }}>
-                        {p.note}
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span
-                      className="st-perm-toggle"
-                      data-on={p.admin === A}
-                      data-locked="true"
-                      title="Salt okunur — sunucuda sabit"
-                    >
-                      <i />
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span
-                      className="st-perm-toggle"
-                      data-on={p.manager === A}
-                      data-locked="true"
-                      title="Salt okunur — sunucuda sabit"
-                    >
-                      <i />
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span
-                      className="st-perm-toggle"
-                      data-on={p.user === A}
-                      data-locked="true"
-                      title="Salt okunur — sunucuda sabit"
-                    >
-                      <i />
-                    </span>
-                  </td>
+        {loading && <p className="st-empty">Yükleniyor…</p>}
+
+        {!loading && catalog.length === 0 && (
+          <p className="st-empty">İzin listesi okunamadı.</p>
+        )}
+
+        {!loading && catalog.length > 0 && (
+          <div className="st-table-wrap">
+            <table className="st-table">
+              <thead>
+                <tr>
+                  <th>İzin</th>
+                  <th style={{ textAlign: 'center' }}>Yönetici</th>
+                  <th style={{ textAlign: 'center' }}>Müdür</th>
+                  <th style={{ textAlign: 'center' }}>Kullanıcı</th>
                 </tr>
+              </thead>
+              {/* Modül başına ayrı tbody: yirmi beş satırı tek blokta okumak
+                  zor, modül adı satırları arada başlık gibi duruyor. */}
+              {catalog.map(({ module, permissions }) => (
+                <tbody key={module} className="st-role-group">
+                  <tr>
+                    <th colSpan={4}>{moduleName(module)}</th>
+                  </tr>
+                  {permissions.map((permission) => (
+                    <tr key={permission}>
+                      <td className="st-strong">
+                        {actionLabel(permission)}
+                        <span
+                          className="st-mono st-dim"
+                          style={{ display: 'block', fontSize: 11.5, fontWeight: 500 }}
+                        >
+                          {permissionHint(permission) ?? permission}
+                        </span>
+                      </td>
+                      {COLUMNS.map((role) => (
+                        <td key={role} style={{ textAlign: 'center' }}>
+                          <span
+                            className="st-perm-toggle"
+                            data-on={has(role, permission)}
+                            data-locked="true"
+                            title="Salt okunur — rol tavanı sunucuda sabit"
+                          >
+                            <i />
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

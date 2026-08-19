@@ -14,7 +14,7 @@ import UsersRolesPage from '../pages/UsersRolesPage';
 
 // Ayar Sayfaları — menudeki her giris kendi sayfasina gidiyor.
 import CompanySettingsPage from '../pages/settings/CompanySettingsPage';
-import DepartmentsPage from '../pages/settings/DepartmentsPage';
+import PermissionsPage from '../pages/settings/PermissionsPage';
 import ThemeSettingsPage from '../pages/settings/ThemeSettingsPage';
 import NotificationsPage from '../pages/settings/NotificationsPage';
 import PlanPage from '../pages/PlanPage';
@@ -46,13 +46,19 @@ const routes = [
           { index: true, element: <SettingsHubPage /> },
           { path: 'company', element: <CompanySettingsPage /> },
           { path: 'users', element: <UsersRolesPage /> },
-          { path: 'department', element: <DepartmentsPage /> },
+          { path: 'permissions', element: <PermissionsPage /> },
+          // Departmanlar artik Izinler sayfasinin bir sekmesi; eski adres ve
+          // yer imleri kirilmasin diye oraya yonlendiriliyor.
+          {
+            path: 'department',
+            element: <Navigate to="/settings/permissions?tab=departments" replace />,
+          },
           { path: 'theme', element: <ThemeSettingsPage /> },
           { path: 'notifications', element: <NotificationsPage /> },
           { path: 'membership', element: <PlanPage /> },
           { path: 'data-input', element: <Navigate to="/data?tab=upload" replace /> },
           { path: 'sql-connection', element: <Navigate to="/data?tab=connections" replace /> },
-          { path: 'authorization', element: <Navigate to="/settings/users?tab=roles" replace /> },
+          { path: 'authorization', element: <Navigate to="/settings/permissions" replace /> },
           { path: 'user', element: <Navigate to="/settings/users" replace /> },
         ],
       },

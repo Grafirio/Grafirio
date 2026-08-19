@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Users;
 using Asp.Versioning.Builder;
 
 namespace Grafirio.Identity.Api.Features.Permissions;
@@ -33,6 +34,28 @@ public static class PermissionEndpointExt
                     permissions = AppPermissions.ForModule(module)
                 })))
             .WithName("GetPermissionActions")
+            .Produces(StatusCodes.Status200OK)
+            .RequireAuthorization("Password");
+
+        // Yetki Ayarlari ekranindaki "hangi rol neye izin veriyor" tablosu
+        // onceden elle yazilmisti ve dosyanin kendi yorumu "yeni satir
+        // eklenecekse once sunucuda karsiligi olmali" diyordu. Artik tablo
+        // dogrudan rol tavanlarindan cizilecek: ekranda yazan sey ile sistemin
+        // uyguladigi kural ayrisamaz.
+        group.MapGet("/roles", () => Results.Ok(
+                new[]
+                {
+                    PlatformRoles.PLATFORM_ADMIN,
+                    CompanyRoles.COMPANY_ADMIN,
+                    CompanyRoles.COMPANY_MANAGER,
+                    CompanyRoles.COMPANY_USER
+                }
+                .Select(role => new
+                {
+                    role,
+                    permissions = AppPermissions.CeilingForRole(role).OrderBy(p => p).ToList()
+                })))
+            .WithName("GetRolePermissions")
             .Produces(StatusCodes.Status200OK)
             .RequireAuthorization("Password");
 
