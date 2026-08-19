@@ -13,10 +13,22 @@ COPY ["src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Grafirio.Identit
 # istiyor ve CI'da calisan bir kimlik bulunamadi. Kaynak deposu public oldugu
 # icin paketleri burada kaynagindan derleyip yerel bir feed olarak kullaniyoruz;
 # boylece derleme hicbir token'a bagli kalmiyor.
-ARG SHARED_PACKAGES_REF=main
-RUN curl -sSLf "https://github.com/Grafirio/Packages/archive/refs/heads/${SHARED_PACKAGES_REF}.tar.gz" \
-      | tar xz -C /tmp \
- && for csproj in /tmp/Packages-${SHARED_PACKAGES_REF}/src/*/*.csproj; do \
+# GECICI: Grafirio/Packages#1 main'e merge edilene kadar paketler o PR'in
+# dalindan uretiliyor. #49 master'a girdiginde PR henuz aciktı ve derleme
+# Grafirio.Shared.Identity.Permissions ad alanini bulamiyordu.
+#
+# PR merge edilir edilmez bu satir "main" e donmeli; donmezse master, baska
+# bir deponun feature dalina bagli kalir ve o dal silindiginde sessizce
+# kirilir. Dal, geri alinana kadar silinmemeli.
+ARG SHARED_PACKAGES_REF=feat/shared-permissions
+# Tarball, dal adindaki "/" karakterini "-" yaparak aciliyor: "feat/x" klasoru
+# "Packages-feat-x" olarak cikiyor, yani klasor adi ref ile birebir ayni degil.
+# Klasoru adiyla aramak yerine icerigi tek bir yere aciyoruz; boylece ref'in
+# bicimi derlemeyi kirmiyor.
+RUN mkdir -p /tmp/shared \
+ && curl -sSLf "https://github.com/Grafirio/Packages/archive/refs/heads/${SHARED_PACKAGES_REF}.tar.gz" \
+      | tar xz -C /tmp/shared --strip-components=1 \
+ && for csproj in /tmp/shared/src/*/*.csproj; do \
       dotnet pack "$csproj" -c Release -o /local-packages; \
     done \
  && dotnet nuget add source /local-packages --name local-packages --configfile ./nuget.config
