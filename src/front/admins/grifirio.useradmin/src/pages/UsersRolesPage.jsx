@@ -1,6 +1,5 @@
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import UsersPage from './settings/UsersPage';
-import { useCompany } from '../contexts/companyContext';
 import '../styles/SettingsPages.css';
 
 // Onceden bu sayfa iki sekmeliydi: "Kullanicilar" ve "Izinler ve roller".
@@ -11,7 +10,6 @@ import '../styles/SettingsPages.css';
 export default function UsersRolesPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const { can } = useCompany();
 
   if (params.get('tab') === 'roles') {
     return <Navigate to="/settings/permissions" replace />;
@@ -26,21 +24,9 @@ export default function UsersRolesPage() {
           </button>
           <h1>Kullanıcılar</h1>
           <p className="st-lead">
-            Şirketinizdeki kullanıcılar, rolleri ve yetkili oldukları firmalar.
+            Şirketinizdeki kullanıcılar, üyelik seviyeleri ve yetkileri.
           </p>
         </div>
-        {can('USERS.CREATE') && (
-          <div className="st-head-actions">
-            <button
-              type="button"
-              className="st-btn"
-              disabled
-              title="Davet gönderme ucu henüz yok — kullanıcılar kendileri kaydolup burada role atanıyor"
-            >
-              Kullanıcı davet et
-            </button>
-          </div>
-        )}
       </div>
 
       <UsersPage embedded />

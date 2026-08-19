@@ -73,7 +73,7 @@ public class KeycloakUserDirectory(
         var token = await GetAdminTokenAsync(ct);
         if (token is null) return result;
 
-        var address = configuration["IdentityOption:Address"]?.TrimEnd('/');
+        var address = AdminBaseUrl();
         var realm = configuration["KeycloakAdmin:Realm"];
 
         if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(realm)) return result;
@@ -143,6 +143,32 @@ public class KeycloakUserDirectory(
             ? value.GetString()
             : null;
 
+    /// <summary>
+    /// Admin API'nin kok adresi.
+    ///
+    /// IdentityOption.Address iki uyumsuz amaca hizmet ediyor: JWT authority'si
+    /// olarak realm URL'i olmasi gerekiyor, Admin API tabani olarak ise realm'siz
+    /// kok. Ham okunduğunda uretimde ".../realms/x/admin/realms/x/users" gibi bir
+    /// adres olusuyor, Keycloak 404 donuyor ve liste herkesi GUID gosteriyordu.
+    ///
+    /// Cozum paylasilan KeycloakUserService ile ayni: KeycloakAdmin:AdminAddress
+    /// verilmisse o, verilmemisse adresteki "/realms/..." eki atilarak kok.
+    /// Ikisi ayrisirsa kullanici acma calisip ad okuma calismazdi.
+    /// </summary>
+    private string? AdminBaseUrl()
+    {
+        var adminAddress = configuration["KeycloakAdmin:AdminAddress"];
+
+        if (!string.IsNullOrWhiteSpace(adminAddress)) return adminAddress.TrimEnd('/');
+
+        var address = configuration["IdentityOption:Address"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(address)) return null;
+
+        var realmsIndex = address.IndexOf("/realms/", StringComparison.OrdinalIgnoreCase);
+
+        return realmsIndex > 0 ? address[..realmsIndex] : address;
+    }
+
     private static string CacheKey(string userId) => $"keycloak-user:{userId}";
 
     /// <summary>
@@ -154,7 +180,7 @@ public class KeycloakUserDirectory(
     {
         if (cache.TryGetValue(TokenCacheKey, out string? cached) && cached is not null) return cached;
 
-        var address = configuration["IdentityOption:Address"]?.TrimEnd('/');
+        var address = AdminBaseUrl();
         var username = configuration["KeycloakAdmin:Username"];
         var password = configuration["KeycloakAdmin:Password"];
 
