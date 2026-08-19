@@ -6,6 +6,7 @@ using Grafirio.Identity.Api.Features.Departments;
 using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Features.Subscriptions;
 using Grafirio.Identity.Api.Features.Users;
+using Grafirio.Identity.Api.Features.Users.Directory;
 using Grafirio.Identity.Api.Options;
 using Grafirio.Identity.Api.Repositories;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
@@ -20,6 +21,11 @@ builder.Services.AddCompanyDocumentStorage();
 // Yetki kaynagi: token claim'i degil veritabanindaki uyelik kayitlari.
 builder.Services.AddScoped<ICompanyAccessService, CompanyAccessService>();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
+// Kullanici listeleri Keycloak kimligi degil ad gostersin diye; onbellek ve
+// HttpClient fabrikasi bu okuyucunun gereksinimi.
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<KeycloakUserDirectory>();
 builder.Services.AddCommonServiceExt(typeof(IdentityAssembly));
 builder.Services.AddIdentityServicesExt();
 builder.Services.AddVersioningExt();

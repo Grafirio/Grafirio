@@ -92,6 +92,7 @@ export function CompanyProvider({ children }) {
 
   const value = useMemo(() => {
     const modules = permissions?.modules ?? null;
+    const granted = permissions?.permissions ?? null;
 
     // İzin kümesi Set'e alınıyor: menü, hub kartları ve ekrandaki her düğme
     // aynı render'da tek tek soruyor.

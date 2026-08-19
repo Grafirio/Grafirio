@@ -50,7 +50,7 @@ const moduleDescription = (key) => MODULES.find((m) => m.key === key)?.descripti
  * sütunları sunucudan geliyor (GET /permissions/actions); departman bu kümeyle
  * rol tavanını <b>daraltır</b>, genişletemez.
  */
-export default function DepartmentsPage() {
+export default function DepartmentsPage({ embedded = false } = {}) {
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
   const { selected: company, can } = useCompany();
@@ -229,23 +229,39 @@ export default function DepartmentsPage() {
 
   const userLabel = (keycloakUserId) => {
     const user = companyUsers.find((u) => u.keycloakUserId === keycloakUserId);
-    // Uç yalnızca kimlik döndürüyor; ad/e-posta Keycloak tarafında kalıyor.
-    return user?.userName || user?.email || keycloakUserId;
+    // Ad ve e-posta artık uçtan geliyor (Keycloak'tan okunuyor). Kullanıcı
+    // Keycloak'ta bulunamazsa — silinmiş olabilir, yetki kaydı denetim izi
+    // olarak duruyor — kimliğe düşülüyor.
+    return user?.displayName || user?.email || keycloakUserId;
   };
 
   return (
-    <div className="st">
+    <div className={embedded ? undefined : 'st'}>
+      {/* embedded: sayfa başlığını İzinler sayfası çiziyor, ikinci bir başlık
+          sekmenin içinde tekrar olurdu. Ekleme düğmesi yine burada duruyor,
+          çünkü yaptığı iş bu sekmeye ait. */}
       <div className="st-head">
-        <div>
-          <p className="st-eyebrow">Ayarlar · Organizasyon</p>
-          <h1>Departmanlar</h1>
-          <p className="st-lead">
-            {company
-              ? `${company.name} altındaki organizasyon birimleri.`
-              : 'Departmanlar, veri erişimi ve rapor dağıtımının temelidir.'}
-          </p>
-        </div>
-        {!loading && companyId && (
+        {embedded ? (
+          <div>
+            <h2>Departmanlar</h2>
+            <p className="st-card-sub">
+              {company
+                ? `${company.name} altındaki organizasyon birimleri ve izinleri.`
+                : 'Organizasyon birimleri ve izinleri.'}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="st-eyebrow">Ayarlar · Organizasyon</p>
+            <h1>Departmanlar</h1>
+            <p className="st-lead">
+              {company
+                ? `${company.name} altındaki organizasyon birimleri.`
+                : 'Departmanlar, veri erişimi ve rapor dağıtımının temelidir.'}
+            </p>
+          </div>
+        )}
+        {!loading && companyId && canCreate && (
           <div className="st-head-actions">
             <button type="button" className="st-btn" onClick={startCreate}>
               + Departman ekle
@@ -453,6 +469,9 @@ export default function DepartmentsPage() {
                           // yanlis okunmasin diye acikca yaziliyor.
                           <span className="st-badge st-badge--warn">izin verilmedi</span>
                         ) : (
+                          // Modul basina "2/3" kirilimi: satira yirmi bes izin
+                          // anahtari sigmiyor, ama "hangi modulde ne kadar
+                          // yetki var" sorusu tablodan okunabilmeli.
                           <span className="st-module-tags">
                             {(d.modules ?? []).map((m) => {
                               // Kac aksiyonun acik oldugu rozetin icinde: yedi
@@ -492,12 +511,18 @@ export default function DepartmentsPage() {
                         >
                           Üyeler
                         </button>{' '}
-                        <button type="button" className="st-link" onClick={() => startEdit(d)}>
-                          Düzenle
-                        </button>{' '}
-                        <button type="button" className="st-link" onClick={() => remove(d)}>
-                          Sil
-                        </button>
+                        {canUpdate && (
+                          <>
+                            <button type="button" className="st-link" onClick={() => startEdit(d)}>
+                              Düzenle
+                            </button>{' '}
+                          </>
+                        )}
+                        {canDelete && (
+                          <button type="button" className="st-link" onClick={() => remove(d)}>
+                            Sil
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -512,6 +537,7 @@ export default function DepartmentsPage() {
         <MembersPanel
           token={token}
           department={selectedDepartment}
+          canAssign={canAssign}
           companyUsers={companyUsers}
           userLabel={userLabel}
           onClose={() => setSelectedDepartment(null)}
@@ -527,6 +553,7 @@ export default function DepartmentsPage() {
 function MembersPanel({
   token,
   department,
+  canAssign,
   companyUsers,
   userLabel,
   onClose,
@@ -623,13 +650,15 @@ function MembersPanel({
                     {new Date(m.assignedAt).toLocaleDateString('tr-TR')}
                   </td>
                   <td className="st-right">
-                    <button
-                      type="button"
-                      className="st-link"
-                      onClick={() => remove(m.keycloakUserId)}
-                    >
-                      Çıkar
-                    </button>
+                    {canAssign && (
+                      <button
+                        type="button"
+                        className="st-link"
+                        onClick={() => remove(m.keycloakUserId)}
+                      >
+                        Çıkar
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -638,7 +667,12 @@ function MembersPanel({
         </div>
       )}
 
-      <div className="st-form-grid" style={{ marginTop: 18, alignItems: 'end' }}>
+      {/* Üye atama ayrı bir izin: departmanı görebilen herkes kimin hangi
+          departmanda olduğunu değiştirebilmemeli. */}
+      <div
+        className="st-form-grid"
+        style={{ marginTop: 18, alignItems: 'end', display: canAssign ? undefined : 'none' }}
+      >
         <label className="st-field">
           <span>Kullanıcı ekle</span>
           <select value={pick} onChange={(e) => setPick(e.target.value)}>

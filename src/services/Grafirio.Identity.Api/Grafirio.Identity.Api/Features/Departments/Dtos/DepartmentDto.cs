@@ -32,6 +32,10 @@ public class DepartmentMemberDto
     public Guid Id { get; set; }
     public Guid DepartmentId { get; set; }
     public string KeycloakUserId { get; set; } = string.Empty;
+
+    /// Keycloak'tan okunan görünen ad; bulunamazsa null (panel kimliği gösterir).
+    public string? DisplayName { get; set; }
+    public string? Email { get; set; }
     public DateTime AssignedAt { get; set; }
     public string? AssignedBy { get; set; }
 }
