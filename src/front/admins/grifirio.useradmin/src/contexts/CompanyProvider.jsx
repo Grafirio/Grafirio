@@ -94,10 +94,6 @@ export function CompanyProvider({ children }) {
     const modules = permissions?.modules ?? null;
     const granted = permissions?.permissions ?? null;
 
-    // İzin kümesi Set'e alınıyor: menü, hub kartları ve ekrandaki her düğme
-    // aynı render'da tek tek soruyor.
-    const granted = permissions?.permissions ? new Set(permissions.permissions) : null;
-
     return {
       companies,
       selectedId,
@@ -109,25 +105,20 @@ export function CompanyProvider({ children }) {
 
       role: permissions?.role ?? null,
       modules,
-      permissions: permissions?.permissions ?? null,
+      permissions: granted,
       restrictedByDepartment: permissions?.restrictedByDepartment ?? false,
       permissionsLoading,
       reloadPermissions: loadPermissions,
 
-      /**
-       * Tek bir aksiyona izin var mı: can(PERM.DATA_SOURCES_UPDATE).
-       *
-       * İzinler henüz okunmadıysa (ya da okunamadıysa) hiçbir şey gizlenmiyor;
-       * sunucu zaten reddediyor, erken gizlemek kullanıcıyı olmayan bir
-       * kısıtla karşılaştırır — hata mesajı yerine boşluk görür.
-       */
-      can: (permission) => (granted === null ? true : granted.has(permission)),
-
-      /**
-       * Modülün herhangi bir izni var mı — "bu menü görünsün mü".
-       * Ekranı açmak için; ekranda bir şeyi değiştirmek için can() gerekiyor.
-       */
+      // İzinler henüz okunmadıysa (ya da okunamadıysa) menü gizlenmiyor;
+      // sunucu zaten reddediyor, erken gizlemek yanlış boşluk yaratır.
+      //
+      // canModule: menü ve kart görünürlüğü — "bu ekrana girebilir mi".
+      // can: ekran içindeki buton — "bu işi yapabilir mi". İkisi ayrı, çünkü
+      // bir modülü görmek onu değiştirebilmek anlamına gelmiyor; matris tam
+      // olarak bu ayrımı ayarlanabilir yapmak için var.
       canModule: (module) => (modules === null ? true : modules.includes(module)),
+      can: (permission) => (granted === null ? true : granted.includes(permission)),
     };
   }, [companies, selectedId, loading, error, load, permissions, permissionsLoading, loadPermissions]);
 

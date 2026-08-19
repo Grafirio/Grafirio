@@ -1105,62 +1105,34 @@
   cursor: pointer;
 }
 
-/* Departman tablosundaki modul rozetleri (ad + acik aksiyon sayisi). */
-.st-module-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.st-chip-count {
-  margin-left: 6px;
-  font-weight: 700;
-  color: var(--gf-ink);
-}
-
 /* --------------------------------------------------------------------------
-   Izin matrisi (departman: modul x aksiyon)
-
-   Satir basina modul, saginda aksiyon kutulari. Gercek bir tablo degil:
-   moduller ayni aksiyonlari paylasmiyor (BILLING'de UPDATE yok,
-   USERS_ROLES'te MANAGE_ROLES var) ve sabit sutunlarda cogu hucre bos kalirdi.
+   Modul secimi (departman izinleri)
    -------------------------------------------------------------------------- */
 
-.st-perm-matrix {
-  display: flex;
-  flex-direction: column;
+.st-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 8px;
 }
 
-.st-perm-matrix[data-locked='true'] {
-  opacity: 0.72;
-}
-
-.st-perm-row {
-  display: grid;
-  grid-template-columns: minmax(190px, 250px) 1fr;
-  gap: 14px;
-  align-items: start;
+.st-module-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   padding: 11px 13px;
   border: 1px solid var(--gf-line);
   border-radius: 11px;
   background: var(--gf-paper-warm);
+  cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 
-.st-perm-row[data-on='true'] {
+.st-module-item[data-on='true'] {
   border-color: var(--gf-accent);
   background: var(--gf-accent-soft);
 }
 
-.st-perm-module {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.st-perm-module input {
+.st-module-item input {
   margin-top: 2px;
   width: 15px;
   height: 15px;
@@ -1169,14 +1141,14 @@
   cursor: pointer;
 }
 
-.st-perm-module strong {
+.st-module-item strong {
   display: block;
   font-size: 13.5px;
   font-weight: 700;
   color: var(--gf-ink);
 }
 
-.st-perm-module small {
+.st-module-item small {
   display: block;
   margin-top: 2px;
   font-size: 12px;
@@ -1184,52 +1156,10 @@
   color: var(--gf-muted);
 }
 
-.st-perm-actions {
+.st-module-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 1px;
-}
-
-.st-perm-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  border: 1px solid var(--gf-line);
-  border-radius: 999px;
-  background: var(--gf-paper);
-  font-size: 12.5px;
-  color: var(--gf-muted);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.st-perm-action[data-on='true'] {
-  border-color: var(--gf-accent);
-  color: var(--gf-ink);
-  font-weight: 600;
-}
-
-.st-perm-action input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--gf-accent);
-  cursor: pointer;
-}
-
-.st-perm-action input:disabled,
-.st-perm-module input:disabled {
-  cursor: not-allowed;
-}
-
-/* Dar ekranda modul basligi aksiyonlarin ustune geciyor: iki sutunu
-   sikistirmak aksiyon kutularini tek tek alt alta duserdi. */
-@media (max-width: 720px) {
-  .st-perm-row {
-    grid-template-columns: 1fr;
-    gap: 9px;
-  }
+  gap: 5px;
 }
 
 /* --------------------------------------------------------------------------

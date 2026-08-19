@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useKeycloak } from '@react-keycloak/web';
 import {
   describeError,
@@ -16,14 +16,8 @@ import {
   updateDepartment,
 } from '../../services/departmentService';
 import { useCompany } from '../../contexts/companyContext';
-import {
-  MODULES,
-  PERM,
-  actionOf,
-  moduleName,
-  moduleOf,
-  permissionName,
-} from '../../constants/modules';
+import { moduleName } from '../../constants/modules';
+import { actionLabel, permissionHint } from '../../constants/permissions';
 import '../../styles/SettingsPages.css';
 
 const emptyForm = () => ({
@@ -35,8 +29,6 @@ const emptyForm = () => ({
   permissions: [],
 });
 
-const moduleDescription = (key) => MODULES.find((m) => m.key === key)?.description ?? '';
-
 /**
  * Ayarlar › Departmanlar.
  *
@@ -45,10 +37,14 @@ const moduleDescription = (key) => MODULES.find((m) => m.key === key)?.descripti
  * departman değil şirket üyeliği belirliyor — iki kavram karışırsa "hangi
  * şirkete girebilirim" sorusunun iki ayrı cevabı olur.
  *
- * İzinler modül değil aksiyon seviyesinde: "bağlantıyı görsün ama
- * değiştirmesin" modül kutusuyla söylenemiyordu. Matrisin satırları ve
- * sütunları sunucudan geliyor (GET /permissions/actions); departman bu kümeyle
- * rol tavanını <b>daraltır</b>, genişletemez.
+ * Departman izinleri modül × aksiyon: "veri kaynaklarını görsün ama
+ * değiştirmesin" ancak bu kırılımla ifade edilebiliyor. Aksiyon listesi
+ * sunucudan geliyor (GET /permissions/actions) — sabit listeyi buraya
+ * kopyalamak, ekranda yazan izinle sunucunun uyguladığı iznin sessizce
+ * ayrışması demekti.
+ *
+ * embedded: İzinler sayfası bu bileşeni "Departmanlar" sekmesinde gösterir ve
+ * kendi sayfa başlığını kendisi çizer.
  */
 export default function DepartmentsPage({ embedded = false } = {}) {
   const { keycloak } = useKeycloak();
@@ -56,13 +52,16 @@ export default function DepartmentsPage({ embedded = false } = {}) {
   const { selected: company, can } = useCompany();
   const companyId = company?.id;
 
-  // İzin matrisini düzenlemek üyelik atamaktan ayrı bir yetki: üyelik yalnızca
-  // daraltır, izin kümesini değiştirmek yetkinin kendisini şekillendirir.
-  const canManagePermissions = can(PERM.DEPARTMENTS_MANAGE_PERMISSIONS);
+  // Butonlar izinle gizleniyor ama karar sunucuda: gizlenmiş bir buton isteğin
+  // doğrudan gönderilmesini engellemez.
+  const canCreate = can('DEPARTMENTS.CREATE');
+  const canUpdate = can('DEPARTMENTS.UPDATE');
+  const canDelete = can('DEPARTMENTS.DELETE');
+  const canAssign = can('DEPARTMENTS.ASSIGN_MEMBERS');
 
   const [departments, setDepartments] = useState([]);
   const [companyUsers, setCompanyUsers] = useState([]);
-  const [catalog, setCatalog] = useState([]);
+  const [actionCatalog, setActionCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -73,12 +72,6 @@ export default function DepartmentsPage({ embedded = false } = {}) {
   const [busy, setBusy] = useState(false);
 
   const [selectedDepartment, setSelectedDepartment] = useState(null);
-
-  /** Modül → o modülün izin anahtarları; matris ve rozetler bundan çiziliyor. */
-  const keysByModule = useMemo(
-    () => Object.fromEntries(catalog.map((c) => [c.module, c.permissions ?? []])),
-    [catalog]
-  );
 
   const load = useCallback(async () => {
     if (!companyId) {
@@ -93,13 +86,13 @@ export default function DepartmentsPage({ embedded = false } = {}) {
         // Üye ekleme listesi buradan: departmana yalnızca şirketin üyeleri
         // atanabiliyor.
         fetchCompanyUsers(token, companyId).catch(() => []),
-        // Matris okunamazsa sayfa yine açılıyor: departman adı, üyeleri ve
-        // mevcut izinleri görünür kalsın, kullanıcı boş ekranla karşılaşmasın.
+        // Matris boş kalabilir ama sayfa açılmalı: izin listesi okunamazsa
+        // departman adı ve üyeleri hâlâ yönetilebiliyor.
         fetchPermissionActions(token).catch(() => []),
       ]);
       setDepartments(list);
       setCompanyUsers(users);
-      setCatalog(actions);
+      setActionCatalog(actions);
     } catch (err) {
       setError(describeError(err, 'Departmanlar okunamadı.'));
     } finally {
@@ -128,48 +121,11 @@ export default function DepartmentsPage({ embedded = false } = {}) {
       description: d.description ?? '',
       managerKeycloakUserId: d.managerKeycloakUserId ?? '',
       costCenter: d.costCenter ?? '',
-      // Sunucu eski Modules kayıtlarını da izne çevirip döndürüyor, burada
-      // ayrıca çevirmeye gerek yok.
+      // Sunucu eski kayıtların modül listesini izne çevirip döndürüyor,
+      // dolayısıyla burada ayrı bir geriye uyum koduna gerek yok.
       permissions: d.permissions ?? [],
     });
     setFormOpen(true);
-  };
-
-  /**
-   * Bir aksiyonu aç/kapat.
-   *
-   * Modülün READ izni aksiyonla birlikte açılıyor: "silebilir ama göremez"
-   * anlamlı bir durum değil, kullanıcı ekranı açamadan aksiyonu kullanamaz.
-   * READ kapatılınca da modül tümüyle kapanıyor — aynı sebeple.
-   */
-  const toggleAction = (key) => {
-    const module = moduleOf(key);
-    const on = form.permissions.includes(key);
-    // Her modülün READ'i var ama listeyi sunucu belirliyor: olmayan bir
-    // anahtarı uydurup göndermek sunucuda sessizce süzülürdü.
-    const read = keysByModule[module]?.find((k) => actionOf(k) === 'READ') ?? key;
-
-    let next;
-    if (on) {
-      next =
-        key === read
-          ? form.permissions.filter((p) => moduleOf(p) !== module)
-          : form.permissions.filter((p) => p !== key);
-    } else {
-      next = [...new Set([...form.permissions, key, read])];
-    }
-    setForm({ ...form, permissions: next });
-  };
-
-  /** Modülün bütün aksiyonlarını aç ya da kapat. */
-  const toggleModule = (module, keys) => {
-    const allOn = keys.every((k) => form.permissions.includes(k));
-    setForm({
-      ...form,
-      permissions: allOn
-        ? form.permissions.filter((p) => moduleOf(p) !== module)
-        : [...new Set([...form.permissions, ...keys])],
-    });
   };
 
   const submit = async (e) => {
@@ -188,11 +144,9 @@ export default function DepartmentsPage({ embedded = false } = {}) {
         description: form.description.trim() || null,
         managerKeycloakUserId: form.managerKeycloakUserId || null,
         costCenter: form.costCenter.trim() || null,
+        // Yalnızca izinler gönderiliyor; eski modules alanını sunucu bunlardan
+        // türetiyor ki iki alan birbirinden ayrışmasın.
         permissions: form.permissions,
-        // Eski alan izinlerden türetilip birlikte gönderiliyor: sunucu da aynı
-        // türetmeyi yapıyor, ama iki tarafın ayrı hesaplaması kaydı bir
-        // güncellemede tutarsız bırakabilir.
-        modules: [...new Set(form.permissions.map(moduleOf))],
       };
 
       if (editingId) {
@@ -337,73 +291,80 @@ export default function DepartmentsPage({ embedded = false } = {}) {
 
             <fieldset className="st-field" style={{ border: 0, margin: 0, padding: 0 }}>
               <span>İzinler</span>
-
-              {catalog.length === 0 ? (
-                <p className="st-empty">
-                  İzin listesi okunamadı. Departmanın mevcut izinleri korunuyor; matrisi
-                  düzenlemek için sayfayı yenileyin.
-                </p>
+              {actionCatalog.length === 0 ? (
+                <p className="st-empty">İzin listesi okunamadı; kaydedilen izinler korunuyor.</p>
               ) : (
-                <div className="st-perm-matrix" data-locked={!canManagePermissions}>
-                  {catalog.map(({ module, permissions: keys }) => {
-                    const on = keys.filter((k) => form.permissions.includes(k));
-                    const all = on.length === keys.length && keys.length > 0;
+                <div className="st-perm-list">
+                  {actionCatalog.map(({ module, permissions: keys }) => {
+                    const selectedKeys = keys.filter((k) => form.permissions.includes(k));
+                    const all = selectedKeys.length === keys.length && keys.length > 0;
+                    const some = selectedKeys.length > 0;
+
                     return (
-                      <div key={module} className="st-perm-row" data-on={on.length > 0}>
-                        <label className="st-perm-module">
-                          <input
-                            type="checkbox"
-                            checked={all}
-                            disabled={!canManagePermissions}
-                            // Kısmi seçim üçüncü bir durum: işaretsiz göstermek
-                            // "hiçbiri" der, işaretli göstermek "hepsi" — ikisi
-                            // de yanlış.
-                            ref={(el) => {
-                              if (el) el.indeterminate = on.length > 0 && !all;
-                            }}
-                            onChange={() => toggleModule(module, keys)}
-                          />
-                          <span>
+                      <div key={module} className="st-perm-module" data-on={some}>
+                        <div className="st-perm-module-head">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={all}
+                              // Kismi secim ucuncu bir durum: kutu isaretli
+                              // degil ama "hicbiri" de degil. Isaretsiz
+                              // gostermek kullaniciya yanlis bilgi verirdi.
+                              ref={(el) => {
+                                if (el) el.indeterminate = some && !all;
+                              }}
+                              onChange={() =>
+                                setForm({
+                                  ...form,
+                                  permissions: all
+                                    ? form.permissions.filter((k) => !keys.includes(k))
+                                    : [...new Set([...form.permissions, ...keys])],
+                                })
+                              }
+                            />
                             <strong>{moduleName(module)}</strong>
-                            <small>{moduleDescription(module)}</small>
-                          </span>
-                        </label>
+                          </label>
+                          <small>
+                            {selectedKeys.length}/{keys.length} izin
+                          </small>
+                        </div>
                         <div className="st-perm-actions">
-                          {keys.map((key) => (
-                            <label
-                              key={key}
-                              className="st-perm-action"
-                              data-on={form.permissions.includes(key)}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={form.permissions.includes(key)}
-                                disabled={!canManagePermissions}
-                                onChange={() => toggleAction(key)}
-                              />
-                              <span>{permissionName(key)}</span>
-                            </label>
-                          ))}
+                          {keys.map((key) => {
+                            const on = form.permissions.includes(key);
+                            return (
+                              <label
+                                key={key}
+                                className="st-perm-chip"
+                                data-on={on}
+                                title={permissionHint(key) ?? key}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() =>
+                                    setForm({
+                                      ...form,
+                                      permissions: on
+                                        ? form.permissions.filter((k) => k !== key)
+                                        : [...form.permissions, key],
+                                    })
+                                  }
+                                />
+                                {actionLabel(key)}
+                              </label>
+                            );
+                          })}
                         </div>
                       </div>
                     );
                   })}
                 </div>
               )}
-
               <small className="st-hint">
-                {canManagePermissions ? (
-                  <>
-                    Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
-                    eklenen bir izin, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
-                    muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
-                    Panele giriş her durumda açık kalır — yanlış bir atama kimseyi kapının dışında
-                    bırakmasın.
-                  </>
-                ) : (
-                  <>İzin kümesini değiştirmek için yönetici yetkisi gerekiyor; diğer alanları
-                  düzenleyebilirsiniz.</>
-                )}
+                Departman rolün izin verdiğini <strong>daraltır</strong>, genişletemez: buraya
+                eklenen bir izin, rolü yetmeyen kullanıcıya açılmaz. Yöneticiler bu kısıttan
+                muaftır. Hiçbir departmana atanmamış kullanıcı rolünün varsayılanlarını görür.
+                Panele giriş departmandan etkilenmez — role bağlıdır.
               </small>
             </fieldset>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -431,8 +392,7 @@ export default function DepartmentsPage({ embedded = false } = {}) {
             <div>
               <h2>Departmanlar</h2>
               <p className="st-card-sub">
-                Departmanın izinleri üyelerinin rolünü daraltır. Rozetteki sayı, o modülün kaç
-                aksiyonunun açık olduğunu gösteriyor.
+                Her departmanın izinleri modül ve aksiyon kırılımında; rolün verdiğini daraltır.
               </p>
             </div>
             <span className="st-head-meta">{departments.length} departman</span>
@@ -474,28 +434,15 @@ export default function DepartmentsPage({ embedded = false } = {}) {
                           // yetki var" sorusu tablodan okunabilmeli.
                           <span className="st-module-tags">
                             {(d.modules ?? []).map((m) => {
-                              // Kac aksiyonun acik oldugu rozetin icinde: yedi
-                              // modul icin izin adlarini tek tek yazmak satiri
-                              // okunmaz hale getiriyordu.
-                              const total = keysByModule[m]?.length ?? 0;
-                              const on = (d.permissions ?? []).filter(
-                                (p) => moduleOf(p) === m
+                              const total =
+                                actionCatalog.find((a) => a.module === m)?.permissions.length ?? 0;
+                              const own = (d.permissions ?? []).filter((p) =>
+                                p.startsWith(`${m}.`)
                               ).length;
                               return (
-                                <span
-                                  key={m}
-                                  className="st-chip"
-                                  title={(d.permissions ?? [])
-                                    .filter((p) => moduleOf(p) === m)
-                                    .map(permissionName)
-                                    .join(', ')}
-                                >
+                                <span key={m} className="st-chip">
                                   {moduleName(m)}
-                                  {total > 0 && (
-                                    <b className="st-chip-count">
-                                      {on}/{total}
-                                    </b>
-                                  )}
+                                  {total > 0 ? ` ${own}/${total}` : ''}
                                 </span>
                               );
                             })}
