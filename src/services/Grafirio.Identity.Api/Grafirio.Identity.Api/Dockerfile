@@ -13,14 +13,7 @@ COPY ["src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Grafirio.Identit
 # istiyor ve CI'da calisan bir kimlik bulunamadi. Kaynak deposu public oldugu
 # icin paketleri burada kaynagindan derleyip yerel bir feed olarak kullaniyoruz;
 # boylece derleme hicbir token'a bagli kalmiyor.
-# GECICI: Grafirio/Packages#1 main'e merge edilene kadar paketler o PR'in
-# dalindan uretiliyor. #49 master'a girdiginde PR henuz aciktı ve derleme
-# Grafirio.Shared.Identity.Permissions ad alanini bulamiyordu.
-#
-# PR merge edilir edilmez bu satir "main" e donmeli; donmezse master, baska
-# bir deponun feature dalina bagli kalir ve o dal silindiginde sessizce
-# kirilir. Dal, geri alinana kadar silinmemeli.
-ARG SHARED_PACKAGES_REF=feat/shared-permissions
+ARG SHARED_PACKAGES_REF=main
 # Tarball, dal adindaki "/" karakterini "-" yaparak aciliyor: "feat/x" klasoru
 # "Packages-feat-x" olarak cikiyor, yani klasor adi ref ile birebir ayni degil.
 # Klasoru adiyla aramak yerine icerigi tek bir yere aciyoruz; boylece ref'in
