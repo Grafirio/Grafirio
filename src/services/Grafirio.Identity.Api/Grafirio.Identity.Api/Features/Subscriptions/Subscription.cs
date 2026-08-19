@@ -56,7 +56,7 @@ public class Subscription : BaseEntity
     /// </summary>
     public decimal? CreditBalance { get; set; }
 
-    // UserCompanyRole ile ayni denetim izi: kim ne zaman actı/kapattı.
+    // CompanyMembership ile ayni denetim izi: kim ne zaman actı/kapattı.
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? CreatedBy { get; set; }
     public DateTime? CancelledAt { get; set; }
