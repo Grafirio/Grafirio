@@ -234,3 +234,23 @@ export const describeError = (err, fallback) =>
   err?.response?.data?.title ||
   err?.response?.data?.message ||
   fallback;
+
+/**
+ * Sirkete kullanici ekler.
+ *
+ * Davet degil ekleme: kisi Keycloak'ta aciliyor ve sirkete uye olarak
+ * baglaniyor. Parola gecici — sunucu RequirePasswordChange isaretliyor,
+ * dolayisiyla kisi ilk girisinde kendi parolasini kurmak zorunda ve
+ * yoneticinin verdigi deger kalici olmuyor.
+ *
+ * Eklenen kisi uye seviyesinde ve izinsiz basliyor; ne yapabilecegi rol
+ * atamasi ve kisisel izinlerle belirleniyor.
+ */
+export const registerUser = async (token, { companyId, email, firstName, lastName, password }) => {
+  const { data } = await axios.post(
+    `${GATEWAY}/v1/identity/users/register`,
+    { companyId, email, firstName, lastName, password },
+    auth(token)
+  );
+  return unwrap(data);
+};

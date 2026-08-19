@@ -210,6 +210,13 @@ services:
       KeycloakAdmin__Realm: grafirio
       KeycloakAdmin__Username: ${KEYCLOAK_ADMIN}
       KeycloakAdmin__Password: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Identity olay yayinliyor (sirket kuruldu, uyelik degisti) ama kuyruk
+      # kimligi buraya hic verilmemisti: appsettings.json bos parola tasiyor,
+      # dolayisiyla yigin ayakta olsa bile baglanti ACCESS_REFUSED ile
+      # reddediliyordu. data-analysis.api ayni degiskenleri zaten aliyor.
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Username: ${RABBITMQ_USER}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
     ports:
       - "5036:5036"
     depends_on:

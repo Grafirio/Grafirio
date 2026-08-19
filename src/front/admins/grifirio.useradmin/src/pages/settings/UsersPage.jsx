@@ -4,6 +4,7 @@ import {
   describeError,
   fetchCompanyUsers,
   fetchPermissionActions,
+  registerUser,
   revokeMembership,
   setMembershipLevel,
 } from '../../services/companyService';
@@ -41,6 +42,7 @@ export default function UsersPage({ embedded = false } = {}) {
   const { selected: company, can } = useCompany();
   const companyId = company?.id;
 
+  const canCreateUser = can('USERS.CREATE');
   const canManageMembership = can('USERS.MANAGE_MEMBERSHIP');
   const canAssignRoles = can('ROLES.ASSIGN');
   const canManagePermissions = can('ROLES.MANAGE_PERMISSIONS');
@@ -55,6 +57,9 @@ export default function UsersPage({ embedded = false } = {}) {
   const [search, setSearch] = useState('');
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [openUser, setOpenUser] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ email: '', firstName: '', lastName: '', password: '' });
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     if (!companyId) {
@@ -83,6 +88,27 @@ export default function UsersPage({ embedded = false } = {}) {
     load();
     setOpenUser(null);
   }, [load]);
+
+  const addUser = async (e) => {
+    e.preventDefault();
+    setError('');
+    setNotice('');
+    setAdding(true);
+    try {
+      await registerUser(token, { companyId, ...addForm });
+      // Kisi uye ve izinsiz basliyor: ne yapabilecegi rolleriyle
+      // belirlenecek, o yuzden ekledikten sonra yetki paneline yonlendirmek
+      // yerine listeyi tazeleyip mesajda soyluyoruz.
+      setNotice(`${addForm.email} eklendi. Kişi ilk girişinde kendi parolasını kuracak; yetkisi için rol atayın.`);
+      setAddForm({ email: '', firstName: '', lastName: '', password: '' });
+      setAddOpen(false);
+      await load();
+    } catch (err) {
+      setError(describeError(err, 'Kullanıcı eklenemedi.'));
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const changeLevel = async (user, level) => {
     setError('');
@@ -178,6 +204,83 @@ export default function UsersPage({ embedded = false } = {}) {
             <span className="st-head-meta">{users.length} kişi</span>
           </div>
 
+          {canCreateUser && !addOpen && (
+            <button
+              type="button"
+              className="st-btn st-btn--sm"
+              style={{ marginBottom: 16 }}
+              onClick={() => setAddOpen(true)}
+            >
+              + Kullanıcı ekle
+            </button>
+          )}
+
+          {canCreateUser && addOpen && (
+            <form
+              onSubmit={addUser}
+              style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}
+            >
+              <p className="st-caps" style={{ margin: 0 }}>Yeni kullanıcı</p>
+              <div className="st-form-grid">
+                <label className="st-field">
+                  <span>E-posta</span>
+                  <input
+                    type="email"
+                    required
+                    value={addForm.email}
+                    onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                    placeholder="ad.soyad@sirket.com"
+                    autoFocus
+                  />
+                </label>
+                <label className="st-field">
+                  <span>Ad</span>
+                  <input
+                    required
+                    value={addForm.firstName}
+                    onChange={(e) => setAddForm({ ...addForm, firstName: e.target.value })}
+                  />
+                </label>
+                <label className="st-field">
+                  <span>Soyad</span>
+                  <input
+                    required
+                    value={addForm.lastName}
+                    onChange={(e) => setAddForm({ ...addForm, lastName: e.target.value })}
+                  />
+                </label>
+                <label className="st-field">
+                  <span>Geçici parola</span>
+                  <input
+                    required
+                    minLength={8}
+                    value={addForm.password}
+                    onChange={(e) => setAddForm({ ...addForm, password: e.target.value })}
+                  />
+                  <small className="st-hint">
+                    Kişi ilk girişinde kendi parolasını kurar; bu değer kalıcı değil.
+                  </small>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="submit" className="st-btn st-btn--sm" disabled={adding}>
+                  {adding ? 'Ekleniyor…' : 'Ekle'}
+                </button>
+                <button
+                  type="button"
+                  className="st-btn st-btn--ghost st-btn--sm"
+                  onClick={() => setAddOpen(false)}
+                >
+                  Vazgeç
+                </button>
+              </div>
+              <small className="st-hint">
+                Eklenen kişi üye olarak başlar ve hiçbir izni olmaz. Ne yapabileceğini
+                “Yetkiler”den rol atayarak belirlersiniz.
+              </small>
+            </form>
+          )}
+
           <div className="st-form-grid" style={{ marginBottom: 16 }}>
             <label className="st-field">
               <span>Ara</span>
@@ -206,6 +309,7 @@ export default function UsersPage({ embedded = false } = {}) {
                 <thead>
                   <tr>
                     <th>Kişi</th>
+                    <th>E-posta</th>
                     <th>Seviye</th>
                     <th className="st-right">İşlem</th>
                   </tr>
@@ -217,12 +321,8 @@ export default function UsersPage({ embedded = false } = {}) {
 
                     return (
                       <tr key={u.keycloakUserId}>
-                        <td className="st-strong">
-                          {displayName(u)}
-                          {u.email && u.displayName && (
-                            <span className="st-doc-meta"> · {u.email}</span>
-                          )}
-                        </td>
+                        <td className="st-strong">{displayName(u)}</td>
+                        <td className="st-dim">{u.email || '—'}</td>
                         <td>
                           {isFounder || !canManageMembership ? (
                             <span
