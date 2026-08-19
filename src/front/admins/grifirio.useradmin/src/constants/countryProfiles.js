@@ -43,8 +43,6 @@ export const COUNTRIES = [
   { code: 'AZ', name: 'Azerbaycan' },
 ];
 
-export const countryName = (code) =>
-  COUNTRIES.find((c) => c.code === code)?.name ?? code ?? '—';
 
 export const CURRENCIES = [
   { code: 'TRY', name: '₺ Türk lirası' },

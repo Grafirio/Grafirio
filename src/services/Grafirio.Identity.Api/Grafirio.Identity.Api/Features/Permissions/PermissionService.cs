@@ -19,8 +19,6 @@ public class PermissionService(
     public async Task<bool> CanAsync(Guid companyId, string permission, CancellationToken ct)
         => (await ForCompanyAsync(companyId, ct)).Permissions.Contains(permission);
 
-    public async Task<bool> CanSeeModuleAsync(Guid companyId, string module, CancellationToken ct)
-        => (await ForCompanyAsync(companyId, ct)).Modules.Contains(module);
 
     public async Task<EffectivePermissions> ForCompanyAsync(Guid companyId, CancellationToken ct)
     {
@@ -32,7 +30,7 @@ public class PermissionService(
         // kontrolü yapmasına gerek kalmıyor.
         if (level is null)
         {
-            return Store(new EffectivePermissions(companyId, null, [], [], false));
+            return Store(new EffectivePermissions(companyId, null, [], []));
         }
 
         // Kurucu, admin ve platform ekibi izin şemasının dışında: rol
@@ -89,9 +87,7 @@ public class PermissionService(
     /// hesaplanırsa menü ile uygulanan kural sessizce ayrışır.
     private static EffectivePermissions Build(
         Guid companyId, string level, IReadOnlyCollection<string> permissions)
-        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions],
-            // Daraltma diye bir şey kalmadı: izinler birleşiyor, tavan yok.
-            RestrictedByDepartment: false);
+        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions]);
 
     private EffectivePermissions Store(EffectivePermissions value)
         => _cache[value.CompanyId] = value;

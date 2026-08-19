@@ -224,13 +224,6 @@
   }
 }
 
-.st-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 18px;
-  align-items: start;
-}
-
 .st-col {
   display: flex;
   flex-direction: column;
@@ -241,95 +234,9 @@
    Sayac ve kucuk kutu
    -------------------------------------------------------------------------- */
 
-.st-kpi {
-  background: var(--gf-paper);
-  border: 1px solid var(--gf-line);
-  border-top: 4px solid var(--accent-line, var(--gf-navy));
-  border-radius: 16px;
-  padding: var(--layout-card-pad);
-}
-
-.st-kpi-label {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gf-faint);
-}
-
-.st-kpi strong {
-  display: block;
-  margin: 6px 0 4px;
-  font-family: var(--gf-font-head);
-  font-weight: 700;
-  font-size: 28px;
-  letter-spacing: -0.02em;
-}
-
-.st-kpi-note {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gf-muted);
-}
-
-.st-box {
-  background: var(--gf-paper-warm);
-  border: 1px solid var(--gf-line-soft);
-  border-radius: 13px;
-  padding: 15px;
-}
-
-.st-box-label {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gf-faint);
-}
-
-.st-box strong {
-  display: block;
-  margin-top: 5px;
-  font-family: var(--gf-font-head);
-  font-weight: 700;
-  font-size: 26px;
-}
-
 /* --------------------------------------------------------------------------
    Etiket–deger satirlari
    -------------------------------------------------------------------------- */
-
-.st-rows {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.st-rows > div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  padding: var(--layout-row-pad) 0;
-  border-bottom: 1px solid var(--gf-line-soft);
-}
-
-.st-rows > div:last-child {
-  border-bottom: 0;
-}
-
-.st-rows dt {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gf-muted);
-}
-
-.st-rows dd {
-  margin: 0;
-  max-width: 22em;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
 
 .st-mono {
   font-family: var(--gf-font-mono);
@@ -384,44 +291,6 @@
 
 .st-dim {
   color: var(--gf-muted);
-}
-
-.st-person {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-}
-
-.st-avatar {
-  width: 34px;
-  height: 34px;
-  flex: none;
-  border-radius: 10px;
-  background: var(--gf-accent-soft);
-  color: var(--gf-accent-ink);
-  display: grid;
-  place-items: center;
-  font-family: var(--gf-font-head);
-  font-weight: 700;
-  font-size: 12.5px;
-}
-
-.st-person-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.st-person-text strong {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.st-person-text span {
-  font-family: var(--gf-font-mono);
-  font-size: 11.5px;
-  color: var(--gf-faint);
-  overflow-wrap: anywhere;
 }
 
 /* --------------------------------------------------------------------------
@@ -546,17 +415,6 @@
 
 .st-switch:last-child {
   border-bottom: 0;
-}
-
-.st-switch-text strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.st-switch-text span {
-  font-size: 12.5px;
-  color: var(--gf-faint);
 }
 
 .st-switch-knob {
@@ -892,36 +750,6 @@
 /* Izin matrisi hucreleri: mockup'taki gibi anahtar gorunumlu ama
    TIKLANAMAZ — sunucuda rol-izin guncelleme ucu yok, gorunup de hicbir
    sey kaydetmeyen bir anahtar koymak yaniltici olurdu. */
-.st-perm-toggle {
-  display: inline-flex;
-  align-items: center;
-  width: 36px;
-  height: 21px;
-  padding: 2px;
-  border-radius: 99px;
-  border: 1px solid var(--gf-line);
-  background: var(--gf-paper-warm);
-  cursor: default;
-}
-.st-perm-toggle i {
-  width: 15px;
-  height: 15px;
-  border-radius: 99px;
-  background: var(--gf-fainter);
-  display: block;
-}
-.st-perm-toggle[data-on="true"] {
-  justify-content: flex-end;
-  background: var(--gf-accent);
-  border-color: transparent;
-}
-.st-perm-toggle[data-on="true"] i {
-  background: var(--gf-accent-on);
-}
-.st-perm-toggle[data-locked="true"] {
-  opacity: 0.55;
-}
-
 .st-dropzone {
   padding: 46px 26px;
   text-align: center;
@@ -973,51 +801,6 @@
 /* --------------------------------------------------------------------------
    Agac ve izin matrisi
    -------------------------------------------------------------------------- */
-
-.st-tree {
-  font-size: 13.5px;
-  line-height: 2;
-}
-
-.st-tree-root {
-  font-weight: 700;
-}
-
-.st-tree-child {
-  padding-left: 12px;
-  color: var(--gf-muted);
-}
-
-.st-tree-leaf {
-  padding-left: 28px;
-  color: var(--gf-faint);
-}
-
-.st-matrix th:not(:first-child),
-.st-matrix td:not(:first-child) {
-  text-align: center;
-  padding-right: 0;
-}
-
-.st-matrix td:not(:first-child) {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--gf-teal);
-}
-
-.st-matrix td:first-child {
-  font-weight: 600;
-}
-
-.st-legend {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-top: 18px;
-  font-family: var(--gf-font-mono);
-  font-size: 11px;
-  color: var(--gf-faint);
-}
 
 /* --------------------------------------------------------------------------
    Kilitli alan, ipucu ve tekrarlanan kayit bloklari
@@ -1109,53 +892,6 @@
    Modul secimi (departman izinleri)
    -------------------------------------------------------------------------- */
 
-.st-module-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 8px;
-}
-
-.st-module-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 11px 13px;
-  border: 1px solid var(--gf-line);
-  border-radius: 11px;
-  background: var(--gf-paper-warm);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.st-module-item[data-on='true'] {
-  border-color: var(--gf-accent);
-  background: var(--gf-accent-soft);
-}
-
-.st-module-item input {
-  margin-top: 2px;
-  width: 15px;
-  height: 15px;
-  flex: none;
-  accent-color: var(--gf-accent);
-  cursor: pointer;
-}
-
-.st-module-item strong {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--gf-ink);
-}
-
-.st-module-item small {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--gf-muted);
-}
-
 .st-module-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1242,9 +978,6 @@
    -------------------------------------------------------------------------- */
 
 @media (max-width: 860px) {
-  .st-split {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 720px) {
@@ -1342,42 +1075,8 @@
   margin-top: 9px;
 }
 
-.st-perm-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--gf-line);
-  border-radius: 999px;
-  background: var(--gf-paper);
-  font-size: 12.5px;
-  color: var(--gf-ink);
-  cursor: pointer;
-}
-
-.st-perm-chip[data-on='true'] {
-  border-color: var(--gf-accent);
-  color: var(--gf-accent-ink, var(--gf-ink));
-  font-weight: 650;
-}
-
-.st-perm-chip input {
-  width: 13px;
-  height: 13px;
-  accent-color: var(--gf-accent);
-  cursor: pointer;
-}
-
 /* Rol izin tablosu: satirlar izin, kolonlar rol. Modul basliklari araya
    girdigi icin tablo govdesi birden fazla tbody kullaniyor. */
-.st-role-group th {
-  background: var(--gf-paper-warm);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--gf-muted);
-}
-
 /* --------------------------------------------------------------------------
    Izin matrisi anahtarlari
 

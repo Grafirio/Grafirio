@@ -37,13 +37,6 @@ export const deleteRole = async (token, roleId) => {
   await axios.delete(`${GATEWAY}/v1/identity/roles/${roleId}`, auth(token));
 };
 
-export const fetchRoleMembers = async (token, roleId) => {
-  const { data } = await axios.get(
-    `${GATEWAY}/v1/identity/roles/${roleId}/members`,
-    auth(token)
-  );
-  return unwrap(data) ?? [];
-};
 
 export const assignUserToRole = async (token, roleId, keycloakUserId) => {
   await axios.post(

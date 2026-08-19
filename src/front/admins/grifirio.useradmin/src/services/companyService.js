@@ -7,11 +7,6 @@ const auth = (token) => ({ headers: { Authorization: `Bearer ${token}` }, timeou
 const unwrap = (data) => data?.data ?? data;
 
 
-/** Erisilebilen firmalar; alt sirket agaci da bu listeden kuruluyor. */
-export const fetchCompanies = async (token) => {
-  const { data } = await axios.get(`${GATEWAY}/v1/identity/companies`, auth(token));
-  return unwrap(data) ?? [];
-};
 
 export const fetchCompanyUsers = async (token, companyId, includeRevoked = false) => {
   const { data } = await axios.get(
@@ -94,7 +89,7 @@ export const fetchAccessibleCompanies = async (token) => {
 
 /**
  * Cagiranin bu sirketteki etkin izinleri: { companyId, role, modules,
- * permissions, restrictedByDepartment }.
+ * permissions }.
  *
  * modules menuyu, permissions ise ekran icindeki butonlari belirliyor. Asil
  * kontrol sunucuda: gizlenmis bir buton, istegin dogrudan gonderilmesini

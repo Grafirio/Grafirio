@@ -20,8 +20,6 @@ public static class PermissionEndpointExt
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .RequireAuthorization("Password");
 
-        // Panelin modul secim kutularini doldurmasi icin; sabit listeyi
-        // istemciye kopyalamak, iki tarafin sessizce ayrisma yolu olurdu.
         // Bir kisinin yetkisinin tamami tek parca: uyelik seviyesi, rolleri,
         // kisisel izinleri ve birlesimi. Panel "bu izin nereden geliyor"
         // sorusunu bundan cevapliyor.
@@ -48,13 +46,9 @@ public static class PermissionEndpointExt
             .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
             .RequireAuthorization("Password");
 
-        group.MapGet("/modules", () => Results.Ok(AppModules.All))
-            .WithName("GetModules")
-            .Produces<string[]>(StatusCodes.Status200OK)
-            .RequireAuthorization("Password");
 
-        // Departman izin matrisini cizmek icin: hangi modulun hangi aksiyonlari
-        // var. PANEL.READ listeye girmiyor — departmana atanmiyor.
+        // Izin matrisinin satir ve sutunlari: hangi modulun hangi aksiyonlari
+        // var. PANEL.READ listeye girmiyor — uyelikle geliyor, atanmiyor.
         group.MapGet("/actions", () => Results.Ok(
                 AppModules.All.Select(module => new
                 {
@@ -65,10 +59,6 @@ public static class PermissionEndpointExt
             .Produces(StatusCodes.Status200OK)
             .RequireAuthorization("Password");
 
-        // Yetki Ayarlari ekranindaki "hangi rol neye izin veriyor" tablosu
-        // onceden elle yazilmisti ve dosyanin kendi yorumu "yeni satir
-        // eklenecekse once sunucuda karsiligi olmali" diyordu. Artik tablo
-  
         group.MapToApiVersion(1, 0);
     }
 }

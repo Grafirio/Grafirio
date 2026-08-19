@@ -106,7 +106,6 @@ export function CompanyProvider({ children }) {
       role: permissions?.role ?? null,
       modules,
       permissions: granted,
-      restrictedByDepartment: permissions?.restrictedByDepartment ?? false,
       permissionsLoading,
       reloadPermissions: loadPermissions,
 

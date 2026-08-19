@@ -16,6 +16,5 @@ public class RoleMapping : Profile
             .ForMember(d => d.MemberCount, o => o.Ignore())
             .ForMember(d => d.Modules, o => o.MapFrom(s => AppPermissions.ModulesOf(s.Permissions)));
 
-        CreateMap<UserRole, RoleMemberDto>();
     }
 }

@@ -47,12 +47,6 @@ public static class RoleEndpointExt
             .Produces<ProblemDetails>(StatusCodes.Status404NotFound)
             .RequireAuthorization("Password");
 
-        group.MapGet("/{id:guid}/members", async (Guid id, IMediator mediator) =>
-                (await mediator.Send(new GetRoleMembersQuery(id))).ToGenericResult())
-            .WithName("GetRoleMembers")
-            .Produces<List<RoleMemberDto>>(StatusCodes.Status200OK)
-            .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
-            .RequireAuthorization("Password");
 
         group.MapPost("/{id:guid}/members", async (Guid id, AssignMemberRequest body, IMediator mediator) =>
                 (await mediator.Send(new AssignUserToRoleCommand(id, body.KeycloakUserId)))
