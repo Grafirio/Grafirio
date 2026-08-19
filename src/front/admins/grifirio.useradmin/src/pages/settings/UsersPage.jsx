@@ -333,6 +333,7 @@ export default function UsersPage({ embedded = false } = {}) {
                             </span>
                           ) : (
                             <select
+                              className="st-select"
                               value={u.level}
                               disabled={busy}
                               onChange={(e) => changeLevel(u, e.target.value)}
@@ -346,6 +347,7 @@ export default function UsersPage({ embedded = false } = {}) {
                           )}
                         </td>
                         <td className="st-right">
+                          <span className="st-row-actions">
                           <button
                             type="button"
                             className="st-link"
@@ -354,18 +356,16 @@ export default function UsersPage({ embedded = false } = {}) {
                             Yetkiler
                           </button>
                           {canManageMembership && !isFounder && (
-                            <>
-                              {' '}
-                              <button
-                                type="button"
-                                className="st-link"
-                                disabled={busy}
-                                onClick={() => removeUser(u)}
-                              >
-                                Çıkar
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              className="st-link"
+                              disabled={busy}
+                              onClick={() => removeUser(u)}
+                            >
+                              Çıkar
+                            </button>
                           )}
+                          </span>
                         </td>
                       </tr>
                     );
@@ -378,7 +378,7 @@ export default function UsersPage({ embedded = false } = {}) {
       )}
 
       {openUser && (
-        <UserAccessPanel
+        <UserAccessModal
           token={token}
           companyId={companyId}
           user={openUser}
@@ -397,13 +397,19 @@ export default function UsersPage({ embedded = false } = {}) {
 }
 
 /**
- * Bir kişinin şirketteki yetkisi: rolleri, kişisel izinleri ve ikisinin
- * birleşimi.
+ * Bir kişinin şirketteki yetkisi: rolleri ve izinleri.
  *
- * Üçü tek uçtan geliyor (GET /permissions/users/...). Ayrı ayrı çekilseydi
- * çok rollü birinde ekranda tutarsız bir tablo görünebilirdi.
+ * Modal olarak açılıyor, sayfanın altına eklenen bir bölüm olarak değil: liste
+ * uzunken panel görüş alanının dışında açılıyor ve rol anahtarına basınca
+ * hiçbir şey olmamış gibi görünüyordu.
+ *
+ * Tek bir izin matrisi var. Önceden "kişisel izinler" ve "etkin izinler" diye
+ * iki matris vardı ve ikisi aynı şeyi iki kez gösteriyordu. Şimdi tek matriste
+ * rolden gelen izinler açık ama kilitli — kaldırmak için rolü geri almak
+ * gerekiyor — kişisel izinler ise düzenlenebilir. Açık olan her anahtar zaten
+ * etkin izindir.
  */
-function UserAccessPanel({
+function UserAccessModal({
   token,
   companyId,
   user,
@@ -438,6 +444,15 @@ function UserAccessPanel({
     load();
   }, [load]);
 
+  // Escape ile kapanmak bir modalin en temel beklentisi.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const toggleRole = async (role, assigned) => {
     setBusy(true);
     setError('');
@@ -445,10 +460,10 @@ function UserAccessPanel({
     try {
       if (assigned) {
         await removeUserFromRole(token, role.id, user.keycloakUserId);
-        setNotice(`${role.name} rolü kaldırıldı.`);
+        setNotice(role.name + ' rolü kaldırıldı.');
       } else {
         await assignUserToRole(token, role.id, user.keycloakUserId);
-        setNotice(`${role.name} rolü verildi.`);
+        setNotice(role.name + ' rolü verildi.');
       }
       await load();
     } catch (err) {
@@ -464,112 +479,122 @@ function UserAccessPanel({
     setNotice('');
     try {
       await setUserPermissions(token, companyId, user.keycloakUserId, personal);
-      setNotice('Kişisel izinler kaydedildi.');
+      setNotice('İzinler kaydedildi.');
       await load();
     } catch (err) {
-      setError(describeError(err, 'Kişisel izinler kaydedilemedi.'));
+      setError(describeError(err, 'İzinler kaydedilemedi.'));
     } finally {
       setBusy(false);
     }
   };
 
   const assignedRoleIds = new Set((access?.roles ?? []).map((r) => r.id));
-  const fromRoles = (access?.roles ?? []).flatMap((r) => r.permissions ?? []);
-  const dirty = JSON.stringify([...personal].sort()) !==
+  const fromRoles = [...new Set((access?.roles ?? []).flatMap((r) => r.permissions ?? []))];
+  const dirty =
+    JSON.stringify([...personal].sort()) !==
     JSON.stringify([...(access?.personalPermissions ?? [])].sort());
 
+  const editable = !loading && access && !access.bypassesPermissions;
+
   return (
-    <section className="st-card">
-      <div className="st-card-head">
-        <div>
-          <h2>{label} · yetkiler</h2>
-          <p className="st-card-sub">
-            Etkin izin, rollerin ve kişisel izinlerin birleşimidir.
-          </p>
+    <div
+      className="st-modal-overlay"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="st-modal" role="dialog" aria-modal="true">
+        <div className="st-modal-head">
+          <div>
+            <h2>{label}</h2>
+            <p className="st-card-sub">Rolleri ve izinleri.</p>
+          </div>
+          <button type="button" className="st-link" onClick={onClose}>
+            Kapat
+          </button>
         </div>
-        <button type="button" className="st-link" onClick={onClose}>
-          Kapat
-        </button>
-      </div>
 
-      {loading && <p className="st-empty">Yükleniyor…</p>}
+        <div className="st-modal-body">
+          {loading && <p className="st-empty">Yükleniyor…</p>}
 
-      {!loading && access?.bypassesPermissions && (
-        <p className="st-hint">
-          <strong>{levelLabel(access.level)}</strong> izin kümesinin dışında: her şeye erişir,
-          rol ya da kişisel izinle sınırlandırılamaz. Sınırlandırmak için önce üyelik seviyesini
-          Üye yapın.
-        </p>
-      )}
-
-      {!loading && access && !access.bypassesPermissions && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-          <div>
-            <p className="st-caps" style={{ marginBottom: 10 }}>Roller</p>
-            {roles.length === 0 ? (
-              <p className="st-empty">
-                Bu şirkette henüz rol tanımlanmadı. Ayarlar › Roller’den ekleyebilirsiniz.
-              </p>
-            ) : (
-              <div className="st-perm-actions">
-                {roles.map((role) => {
-                  const assigned = assignedRoleIds.has(role.id);
-                  return (
-                    <label
-                      key={role.id}
-                      className="st-perm-switch"
-                      data-on={assigned}
-                      title={role.description ?? role.name}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={assigned}
-                        disabled={!canAssignRoles || busy}
-                        onChange={() => toggleRole(role, assigned)}
-                      />
-                      <span className="st-perm-knob" aria-hidden="true" />
-                      <span className="st-perm-switch-label">{role.name}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <p className="st-caps" style={{ marginBottom: 10 }}>Kişisel izinler</p>
-            <PermissionMatrix
-              catalog={catalog}
-              value={personal}
-              inherited={fromRoles}
-              onChange={canManagePermissions ? setPersonal : undefined}
-            />
-            <small className="st-hint">
-              Rolün dışında kalan tek kişilik durumlar için. Rolden gelen izinler soluk
-              gösteriliyor — tekrar vermeye gerek yok.
-            </small>
-            {canManagePermissions && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="st-btn st-btn--sm"
-                  disabled={busy || !dirty}
-                  onClick={savePersonal}
-                >
-                  {busy ? 'Kaydediliyor…' : 'Kişisel izinleri kaydet'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div>
-            <p className="st-caps" style={{ marginBottom: 10 }}>
-              Etkin izinler ({access.effectivePermissions?.length ?? 0})
+          {!loading && access?.bypassesPermissions && (
+            <p className="st-hint">
+              <strong>{levelLabel(access.level)}</strong> izin kümesinin dışında: her şeye erişir,
+              rol ya da izinle sınırlandırılamaz. Sınırlandırmak için önce üyelik seviyesini Üye
+              yapın.
             </p>
-            <PermissionMatrix catalog={catalog} value={access.effectivePermissions ?? []} />
-          </div>
+          )}
+
+          {editable && (
+            <>
+              <p className="st-caps" style={{ marginBottom: 10 }}>
+                Roller
+              </p>
+              {roles.length === 0 ? (
+                <p className="st-empty">
+                  Bu şirkette henüz rol tanımlanmadı. Ayarlar › Roller’den ekleyebilirsiniz.
+                </p>
+              ) : (
+                <div className="st-perm-actions">
+                  {roles.map((role) => {
+                    const assigned = assignedRoleIds.has(role.id);
+                    return (
+                      <label
+                        key={role.id}
+                        className="st-perm-switch"
+                        data-on={assigned}
+                        title={role.description ?? role.name}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={assigned}
+                          disabled={!canAssignRoles || busy}
+                          onChange={() => toggleRole(role, assigned)}
+                        />
+                        <span className="st-perm-knob" aria-hidden="true" />
+                        <span className="st-perm-switch-label">{role.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="st-modal-section">
+                <p className="st-caps" style={{ marginBottom: 4 }}>
+                  İzinler ({access.effectivePermissions?.length ?? 0})
+                </p>
+                <p className="st-hint" style={{ marginBottom: 12 }}>
+                  Kesikli çerçeveli anahtarlar bir rolden geliyor ve buradan kapatılamaz —
+                  kaldırmak için rolü geri alın. Diğerleri kişiye özel.
+                </p>
+                <PermissionMatrix
+                  catalog={catalog}
+                  value={personal}
+                  locked={fromRoles}
+                  onChange={canManagePermissions ? setPersonal : undefined}
+                />
+              </div>
+            </>
+          )}
         </div>
-      )}
-    </section>
+
+        {editable && canManagePermissions && (
+          <div className="st-modal-foot">
+            <button
+              type="button"
+              className="st-btn st-btn--sm"
+              disabled={busy || !dirty}
+              onClick={savePersonal}
+            >
+              {busy ? 'Kaydediliyor…' : 'İzinleri kaydet'}
+            </button>
+            <button type="button" className="st-btn st-btn--ghost st-btn--sm" onClick={onClose}>
+              Kapat
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

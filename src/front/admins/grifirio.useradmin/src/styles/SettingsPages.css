@@ -1472,3 +1472,118 @@
     transition: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Tablo icindeki secici ve islem baglantilari
+
+   .st-field disindaki secicilerin hicbir stili yoktu: tarayicinin varsayilan
+   kutusu, formun geri kalanina hic benzemiyordu.
+   -------------------------------------------------------------------------- */
+
+.st-select {
+  padding: 7px 10px;
+  border: 1px solid var(--gf-line);
+  border-radius: 9px;
+  background: var(--gf-paper-warm);
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--gf-ink);
+  cursor: pointer;
+}
+
+.st-select:focus {
+  outline: none;
+  border-color: var(--gf-accent);
+  box-shadow: 0 0 0 3px var(--gf-accent-soft);
+}
+
+.st-select:disabled {
+  color: var(--gf-muted);
+  cursor: not-allowed;
+}
+
+/* Islem baglantilari bosluksuz yan yana geliyordu ("Yetkiler Cikar" tek bir
+   sey gibi okunuyordu); aralarina gercek bir bosluk koyuluyor. */
+.st-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  justify-content: flex-end;
+}
+
+/* --------------------------------------------------------------------------
+   Modal
+
+   Yetki duzenleme sayfanin altina eklenen bir bolumdu: liste uzunken gorus
+   alaninin disinda aciliyor ve tiklamaya hicbir sey olmamis gibi gorunuyordu.
+   -------------------------------------------------------------------------- */
+
+.st-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(16, 24, 40, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.st-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: min(84vh, 900px);
+  background: var(--gf-paper);
+  border: 1px solid var(--gf-line);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.28);
+  overflow: hidden;
+}
+
+.st-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--gf-line);
+}
+
+.st-modal-head h2 {
+  margin: 0;
+  font-family: var(--gf-font-head);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+
+/* Icerik kayiyor, modalin kendisi degil: baslik ve dugmeler her zaman
+   gorunur kaliyor, uzun izin listesinde kaydedecek dugmeyi aramak gerekmiyor. */
+.st-modal-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-modal-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gf-line-soft);
+}
+
+.st-modal-foot {
+  display: flex;
+  gap: 10px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--gf-line);
+  background: var(--gf-paper-warm);
+}
+
+@media (max-width: 720px) {
+  .st-modal-overlay { padding: 0; }
+  .st-modal { max-height: 100vh; border-radius: 0; border: 0; }
+}
