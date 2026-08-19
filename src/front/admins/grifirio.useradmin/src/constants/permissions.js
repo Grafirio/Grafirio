@@ -3,23 +3,22 @@
  *
  * Anahtarlarin kendisi sunucudan geliyor (GET /permissions/actions); burada
  * yalnizca insan okuyacagi karsiliklari duruyor. Liste kopyalanmiyor cunku
- * kopyalanan liste sunucudaki kuraldan sessizce ayrilir — daha once tam olarak
- * bu oldu: Yetki Ayarlari ekranindaki matris elle yazilmisti.
+ * kopyalanan liste sunucudaki kuraldan sessizce ayrilir.
  *
  * Taninmayan bir anahtar geldiginde ham anahtar gosteriliyor; ekran eksik
  * etiket yuzunden bos kalmasin.
  */
 
-/** Aksiyon parcasinin (nokta sonrasi) etiketi. */
+/** Aksiyon parcasinin (nokta sonrasi) etiketi — matrisin sutun basliklari. */
 const ACTION_LABELS = {
   READ: 'Görme',
   CREATE: 'Ekleme',
   UPDATE: 'Değiştirme',
   DELETE: 'Silme',
   MANAGE: 'Yönetme',
-  MANAGE_ROLES: 'Rol atama',
-  ASSIGN_MEMBERS: 'Üye atama',
+  ASSIGN: 'Atama',
   MANAGE_PERMISSIONS: 'İzin düzenleme',
+  MANAGE_MEMBERSHIP: 'Üyelik yönetimi',
   CREATE_CHILD: 'Alt şirket açma',
 };
 
@@ -28,15 +27,18 @@ const ACTION_LABELS = {
  * gerektigi yerde var: her satira aciklama koymak tabloyu okunmaz yapiyor.
  */
 const PERMISSION_HINTS = {
-  'PANEL.READ': 'Panele giriş. Departman bu izni kaldıramaz; role bağlı.',
-  'DATA_SOURCES.UPDATE': 'Bağlantıyı değiştirmek ve tablo seçimini kaydetmek.',
-  'USERS_ROLES.MANAGE_ROLES': 'Kimin yönetici, müdür ya da kullanıcı olacağına karar vermek.',
+  'PANEL.READ': 'Panele giriş. Üyelikle geliyor; izin kümesiyle kaldırılamaz.',
+  'DATA_SOURCES.UPDATE': 'Bağlantıyı değiştirmek, tablo seçimini ve analizini kaydetmek.',
+  'USERS.MANAGE_MEMBERSHIP': 'Birini admin yapmak ya da adminliğini geri almak.',
   'COMPANY_SETTINGS.CREATE_CHILD': 'Yeni bir tüzel kişilik açmak; şirket bilgisini düzeltmekten ayrı.',
-  'DEPARTMENTS.MANAGE_PERMISSIONS': 'Departmanın izin kümesini düzenlemek.',
+  'ROLES.ASSIGN': 'Kullanıcıya rol vermek, geri almak.',
+  'ROLES.MANAGE_PERMISSIONS': 'Rollerin izin kümesini ve kişiye özel izinleri düzenlemek.',
   'BILLING.MANAGE': 'Paket başlatmak, iptal etmek.',
 };
 
 export const actionOf = (permission) => permission.split('.')[1] ?? permission;
+
+export const moduleOf = (permission) => permission.split('.')[0];
 
 export const actionLabel = (permission) => {
   const action = actionOf(permission);
@@ -45,12 +47,24 @@ export const actionLabel = (permission) => {
 
 export const permissionHint = (permission) => PERMISSION_HINTS[permission] ?? null;
 
-/** Rol kodlarinin etiketi; platform rolu COMPANY_ROLES listesinde yok. */
-export const ROLE_LABELS = {
+/**
+ * Uyelik seviyeleri. Bir yetki merdiveni degil: kurucu ve admin izin
+ * semasinin tamamen disinda, uye tamamen icinde.
+ */
+export const LEVEL_LABELS = {
+  FOUNDER: 'Kurucu',
+  ADMIN: 'Admin',
+  MEMBER: 'Üye',
   PLATFORM_ADMIN: 'Platform ekibi',
-  COMPANY_ADMIN: 'Yönetici',
-  COMPANY_MANAGER: 'Müdür',
-  COMPANY_USER: 'Kullanıcı',
 };
 
-export const roleLabel = (code) => ROLE_LABELS[code] ?? code;
+export const levelLabel = (code) => LEVEL_LABELS[code] ?? code;
+
+/** Uctan atanabilen seviyeler; kurucu sirket kurulurken belirleniyor. */
+export const ASSIGNABLE_LEVELS = ['ADMIN', 'MEMBER'];
+
+export const LEVEL_HINTS = {
+  FOUNDER: 'Şirketi kuran kişi. Her şeye erişir, seviyesi değiştirilemez.',
+  ADMIN: 'Her şeye erişir; izin kümesiyle sınırlandırılamaz.',
+  MEMBER: 'Yetkisi tamamen rollerinden ve kişisel izinlerinden gelir.',
+};

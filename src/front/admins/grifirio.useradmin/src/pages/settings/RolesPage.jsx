@@ -1,189 +1,347 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
+import { describeError, fetchPermissionActions } from '../../services/companyService';
 import {
-  COMPANY_ROLES,
-  describeError,
-  fetchCompanyUsers,
-  fetchPermissionActions,
-  fetchRolePermissions,
-} from '../../services/companyService';
+  createRole,
+  deleteRole,
+  fetchRoles,
+  updateRole,
+} from '../../services/roleService';
 import { useCompany } from '../../contexts/companyContext';
 import { moduleName } from '../../constants/modules';
-import { actionLabel, permissionHint } from '../../constants/permissions';
+import { moduleOf } from '../../constants/permissions';
+import PermissionMatrix from '../../components/organisms/PermissionMatrix';
 import '../../styles/SettingsPages.css';
 
+const emptyForm = () => ({ name: '', description: '', permissions: [] });
+
 /**
- * Ayarlar › İzinler › Rol izinleri.
+ * Ayarlar › Roller.
  *
- * Matris artık elle yazılmıyor: satırlar sunucudan gelen izin anahtarları
- * (GET /permissions/actions), hücreler de rol tavanları (GET /permissions/roles).
- * Önceden tablo bu dosyada sabitti ve kendi yorumu "yeni satır eklenecekse önce
- * sunucuda karşılığı olmalı" diye uyarıyordu — ekranda yazan izinle sistemin
- * uyguladığı izin ayrışabiliyordu. Kaynak tek: AppPermissions.
+ * Rol, şirketin kendi adlandırdığı bir izin kümesi — "Muhasebe", "Saha". Sabit
+ * bir merdiven değil: kişinin etkin izni, taşıdığı rollerin ve kişisel
+ * izinlerinin birleşimi. Kime hangi rolün verildiği Kullanıcılar ekranında.
  *
- * Tablo salt okunur. Rol tavanını değiştiren bir uç yok; rol başına izin
- * düzenlemek yerine daraltma departman üzerinden yapılıyor.
- *
- * embedded: İzinler sayfası bu bileşeni "Rol izinleri" sekmesinde gösterir.
+ * Roller şirkete bağlı. Hangi şirketin rollerine bakıldığı Nav'daki şirket
+ * değiştiriciden geliyor; aynı kişi bir şirkette muhasebeci, diğerinde
+ * finansçı olabilsin diye her şirketin kendi şeması var.
  */
-const ROLE_ACCENT = {
-  COMPANY_ADMIN: 'var(--gf-navy)',
-  COMPANY_MANAGER: 'var(--gf-teal)',
-  COMPANY_USER: 'var(--gf-sun)',
-};
-
-/** Tablo kolonları: platform ekibi burada gösterilmiyor, müşteri rolü değil. */
-const COLUMNS = ['COMPANY_ADMIN', 'COMPANY_MANAGER', 'COMPANY_USER'];
-
-export default function RolesPage({ embedded = false } = {}) {
+export default function RolesPage() {
   const navigate = useNavigate();
   const { keycloak } = useKeycloak();
   const token = keycloak.token;
-  // Şirket seçiciden: aynı kullanıcı bir şubede yönetici, başka birinde
-  // sıradan kullanıcı olabiliyor ve kullanıcı sayıları da şubeye göre değişir.
-  const { selected: company } = useCompany();
+  const { selected: company, can } = useCompany();
   const companyId = company?.id;
 
-  const [users, setUsers] = useState([]);
+  const canCreate = can('ROLES.CREATE');
+  const canUpdate = can('ROLES.UPDATE');
+  const canDelete = can('ROLES.DELETE');
+  // İzin kümesini düzenlemek rolü yeniden adlandırmaktan ayrı bir yetki.
+  const canManagePermissions = can('ROLES.MANAGE_PERMISSIONS');
+
+  const [roles, setRoles] = useState([]);
   const [catalog, setCatalog] = useState([]);
-  const [ceilings, setCeilings] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const [actions, roles, members] = await Promise.all([
-          fetchPermissionActions(token),
-          fetchRolePermissions(token),
-          // Kullanıcı sayısı tablonun yanında bir bilgi; okunamazsa matris
-          // yine gösterilmeli.
-          companyId ? fetchCompanyUsers(token, companyId).catch(() => []) : Promise.resolve([]),
-        ]);
-        if (cancelled) return;
-        setCatalog(actions);
-        setCeilings(Object.fromEntries(roles.map((r) => [r.role, new Set(r.permissions)])));
-        setUsers(members);
-      } catch (err) {
-        if (!cancelled) setError(describeError(err, 'İzin tabloları okunamadı.'));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(emptyForm());
+  const [formOpen, setFormOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!companyId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const [list, actions] = await Promise.all([
+        fetchRoles(token, companyId),
+        // Matris okunamazsa sayfa yine açılıyor: rol adları ve üye sayıları
+        // görünür kalsın, kullanıcı boş ekranla karşılaşmasın.
+        fetchPermissionActions(token).catch(() => []),
+      ]);
+      setRoles(list);
+      setCatalog(actions);
+    } catch (err) {
+      setError(describeError(err, 'Roller okunamadı.'));
+    } finally {
+      setLoading(false);
+    }
   }, [token, companyId]);
 
-  const countFor = (code) => users.filter((u) => u.role === code).length;
-  const has = (role, permission) => ceilings[role]?.has(permission) ?? false;
+  useEffect(() => {
+    load();
+    setFormOpen(false);
+    setEditingId(null);
+  }, [load]);
+
+  const startCreate = () => {
+    setEditingId(null);
+    setForm(emptyForm());
+    setFormOpen(true);
+  };
+
+  const startEdit = (role) => {
+    setEditingId(role.id);
+    setForm({
+      name: role.name ?? '',
+      description: role.description ?? '',
+      permissions: role.permissions ?? [],
+    });
+    setFormOpen(true);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.name.trim()) {
+      setError('Rol adı gerekli.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const payload = {
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        permissions: form.permissions,
+      };
+
+      if (editingId) {
+        await updateRole(token, editingId, payload);
+        setNotice('Rol güncellendi.');
+      } else {
+        await createRole(token, { ...payload, companyId });
+        setNotice('Rol eklendi.');
+      }
+
+      setFormOpen(false);
+      setEditingId(null);
+      setForm(emptyForm());
+      await load();
+    } catch (err) {
+      setError(describeError(err, 'Rol kaydedilemedi.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (role) => {
+    setError('');
+    setNotice('');
+    try {
+      await deleteRole(token, role.id);
+      setNotice('Rol silindi.');
+      await load();
+    } catch (err) {
+      setError(describeError(err, 'Rol silinemedi.'));
+    }
+  };
 
   return (
-    <div className={embedded ? 'st-embed' : 'st'}>
-      {!embedded && (
-        <div className="st-head">
-          <div>
-            <p className="st-eyebrow">Ayarlar · Güvenlik</p>
-            <h1>Rol izinleri</h1>
-            <p className="st-lead">
-              Bir kullanıcının şirket içindeki rolü, hangi işlemleri yapabileceğinin üst sınırını
-              belirler.
-            </p>
-          </div>
+    <div className="st">
+      <div className="st-head">
+        <div>
+          <button type="button" className="st-back" onClick={() => navigate('/settings')}>
+            ← Ayarlar
+          </button>
+          <h1>Roller</h1>
+          <p className="st-lead">
+            {company
+              ? `${company.name} için tanımlı izin kümeleri.`
+              : 'Şirketin kendi adlandırdığı izin kümeleri.'}
+          </p>
+        </div>
+        {!loading && companyId && canCreate && (
           <div className="st-head-actions">
-            <button type="button" className="st-btn" onClick={() => navigate('/settings/users')}>
-              Kullanıcı rollerini yönet
+            <button type="button" className="st-btn" onClick={startCreate}>
+              + Rol ekle
             </button>
           </div>
+        )}
+      </div>
+
+      {error && <div className="st-alert">{error}</div>}
+      {notice && <div className="st-ok">{notice}</div>}
+      {loading && <div className="st-card st-empty">Yükleniyor…</div>}
+
+      {!loading && !companyId && (
+        <div className="st-card">
+          <p className="st-empty">Hesabınız henüz bir şirkete bağlı değil.</p>
         </div>
       )}
 
-      {error && <div className="st-alert">{error}</div>}
+      {!loading && companyId && formOpen && (
+        <section className="st-card">
+          <p className="st-caps">{editingId ? 'Rolü düzenle' : 'Yeni rol'}</p>
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="st-form-grid">
+              <label className="st-field">
+                <span>Ad</span>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Muhasebe"
+                  autoFocus
+                />
+                <small className="st-hint">Şirket içinde benzersiz olmalı.</small>
+              </label>
+              <label className="st-field">
+                <span>Açıklama</span>
+                <input
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Fatura ve belge işleri"
+                />
+              </label>
+            </div>
 
-      <div className="st-grid-3">
-        {COMPANY_ROLES.map((r) => (
-          <div className="st-kpi" key={r.code} style={{ '--accent-line': ROLE_ACCENT[r.code] }}>
-            <span className="st-kpi-label">{r.code}</span>
-            <strong style={{ fontSize: 20 }}>{r.name}</strong>
-            <p className="st-kpi-note" style={{ fontWeight: 500, color: 'var(--gf-muted)' }}>
-              {r.description}
-            </p>
-            <p className="st-mono st-dim" style={{ marginTop: 12 }}>
-              {loading ? '—' : `${countFor(r.code)} kullanıcı`}
-            </p>
+            <fieldset className="st-field" style={{ border: 0, margin: 0, padding: 0 }}>
+              <span>İzinler</span>
+              <PermissionMatrix
+                catalog={catalog}
+                value={form.permissions}
+                onChange={
+                  canManagePermissions
+                    ? (permissions) => setForm({ ...form, permissions })
+                    : undefined
+                }
+                emptyText="İzin listesi okunamadı; kaydedilen izinler korunuyor."
+              />
+              <small className="st-hint">
+                {canManagePermissions ? (
+                  <>
+                    Rol izin <strong>verir</strong>, daraltmaz: bir kişi birden fazla rol
+                    taşıyabilir ve etkin izni bunların birleşimidir. Kurucu ve adminler bu
+                    kümenin dışında — her şeye erişirler.
+                  </>
+                ) : (
+                  <>
+                    İzin kümesini değiştirmek ayrı bir yetki gerektiriyor; rolün diğer
+                    alanlarını düzenleyebilirsiniz.
+                  </>
+                )}
+              </small>
+            </fieldset>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="submit" className="st-btn" disabled={busy}>
+                {busy ? 'Kaydediliyor…' : editingId ? 'Kaydet' : '+ Ekle'}
+              </button>
+              <button
+                type="button"
+                className="st-btn st-btn--ghost"
+                onClick={() => {
+                  setFormOpen(false);
+                  setEditingId(null);
+                }}
+              >
+                Vazgeç
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {!loading && companyId && (
+        <section className="st-card">
+          <div className="st-card-head">
+            <div>
+              <h2>Tanımlı roller</h2>
+              <p className="st-card-sub">
+                Kime hangi rolün verildiği Kullanıcılar ekranında; oradan kişiye özel izin de
+                verilebiliyor.
+              </p>
+            </div>
+            <span className="st-head-meta">{roles.length} rol</span>
           </div>
-        ))}
-      </div>
 
-      <section className="st-card">
-        <div className="st-card-head">
-          <div>
-            <h2>İzin matrisi</h2>
-            <p className="st-card-sub">
-              Sunucunun şu an uyguladığı rol tavanları — doğrudan izin tanımından okunuyor.
-              Anahtarlar tıklanamaz: rolün tavanı sabit, daraltma departman izinleriyle yapılıyor.
+          {roles.length === 0 ? (
+            <p className="st-empty">
+              Henüz rol tanımlanmadı. “Rol ekle” ile başlayabilirsiniz.
             </p>
-          </div>
-        </div>
-
-        {loading && <p className="st-empty">Yükleniyor…</p>}
-
-        {!loading && catalog.length === 0 && (
-          <p className="st-empty">İzin listesi okunamadı.</p>
-        )}
-
-        {!loading && catalog.length > 0 && (
-          <div className="st-table-wrap">
-            <table className="st-table">
-              <thead>
-                <tr>
-                  <th>İzin</th>
-                  <th style={{ textAlign: 'center' }}>Yönetici</th>
-                  <th style={{ textAlign: 'center' }}>Müdür</th>
-                  <th style={{ textAlign: 'center' }}>Kullanıcı</th>
-                </tr>
-              </thead>
-              {/* Modül başına ayrı tbody: yirmi beş satırı tek blokta okumak
-                  zor, modül adı satırları arada başlık gibi duruyor. */}
-              {catalog.map(({ module, permissions }) => (
-                <tbody key={module} className="st-role-group">
+          ) : (
+            <div className="st-table-wrap">
+              <table className="st-table">
+                <thead>
                   <tr>
-                    <th colSpan={4}>{moduleName(module)}</th>
+                    <th>Ad</th>
+                    <th>İzinler</th>
+                    <th>Kişi</th>
+                    <th className="st-right">İşlem</th>
                   </tr>
-                  {permissions.map((permission) => (
-                    <tr key={permission}>
-                      <td className="st-strong">
-                        {actionLabel(permission)}
-                        <span
-                          className="st-mono st-dim"
-                          style={{ display: 'block', fontSize: 11.5, fontWeight: 500 }}
-                        >
-                          {permissionHint(permission) ?? permission}
-                        </span>
-                      </td>
-                      {COLUMNS.map((role) => (
-                        <td key={role} style={{ textAlign: 'center' }}>
-                          <span
-                            className="st-perm-toggle"
-                            data-on={has(role, permission)}
-                            data-locked="true"
-                            title="Salt okunur — rol tavanı sunucuda sabit"
-                          >
-                            <i />
-                          </span>
+                </thead>
+                <tbody>
+                  {roles.map((role) => {
+                    const permissions = role.permissions ?? [];
+                    const byModule = [...new Set(permissions.map(moduleOf))];
+
+                    return (
+                      <tr key={role.id}>
+                        <td className="st-strong">
+                          {role.name}
+                          {role.description && (
+                            <span className="st-doc-meta"> · {role.description}</span>
+                          )}
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                        <td className="st-dim">
+                          {permissions.length === 0 ? (
+                            // Bos liste "kisit yok" degil "hicbir izin" demek.
+                            <span className="st-badge st-badge--warn">izin verilmedi</span>
+                          ) : (
+                            <span className="st-module-tags">
+                              {byModule.map((m) => (
+                                <span
+                                  key={m}
+                                  className="st-chip"
+                                  title={permissions.filter((p) => moduleOf(p) === m).join(', ')}
+                                >
+                                  {moduleName(m)}
+                                  <b className="st-chip-count">
+                                    {permissions.filter((p) => moduleOf(p) === m).length}
+                                  </b>
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </td>
+                        <td className="st-mono st-dim">{role.memberCount}</td>
+                        <td className="st-right">
+                          {canUpdate && (
+                            <>
+                              <button
+                                type="button"
+                                className="st-link"
+                                onClick={() => startEdit(role)}
+                              >
+                                Düzenle
+                              </button>{' '}
+                            </>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className="st-link"
+                              onClick={() => remove(role)}
+                            >
+                              Sil
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
-              ))}
-            </table>
-          </div>
-        )}
-      </section>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

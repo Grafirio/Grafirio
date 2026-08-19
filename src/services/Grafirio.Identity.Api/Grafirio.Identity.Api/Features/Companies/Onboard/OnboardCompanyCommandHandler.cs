@@ -32,7 +32,7 @@ public class OnboardCompanyCommandHandler(
         // Tek kullanimlik olmasinin sarti bu: uyeligi olan biri buradan yeni
         // firma acamaz, normal CreateCompany ucunu ve onun yetki kurallarini
         // kullanmak zorunda.
-        var alreadyBelongs = await context.UserCompanyRoles
+        var alreadyBelongs = await context.CompanyMemberships
             .AnyAsync(x => x.KeycloakUserId == userId && x.IsActive, cancellationToken);
 
         if (alreadyBelongs)
@@ -77,12 +77,14 @@ public class OnboardCompanyCommandHandler(
             CreatedAt = now
         };
 
-        var role = new UserCompanyRole
+        // Sirketi kuran kisi kurucu: izin semasinin disinda, daraltilamaz ve
+        // (bugun) devredilemez. Sirketin kendini kilitlemesine karsi son guvence.
+        var membership = new CompanyMembership
         {
             Id = NewId.NextSequentialGuid(),
             KeycloakUserId = userId,
             CompanyId = company.Id,
-            Role = CompanyRoles.COMPANY_ADMIN,
+            Level = MembershipLevels.Founder,
             IsActive = true,
             AssignedAt = now,
             AssignedBy = identityService.UserName
@@ -98,7 +100,7 @@ public class OnboardCompanyCommandHandler(
 
         try
         {
-            await context.UserCompanyRoles.AddAsync(role, cancellationToken);
+            await context.CompanyMemberships.AddAsync(membership, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
         }
         catch
@@ -115,10 +117,10 @@ public class OnboardCompanyCommandHandler(
         // Yetki karari burada saklaniyor ama uygulanmasi token'daki claim'lere
         // bagli; Keycloak tarafindaki company_id / business_roles guncellenmezse
         // kullanici kendi kurdugu firmayi hic goremez.
-        await keycloakService.AssignUserToCompanyAsync(userId, company.Id, CompanyRoles.COMPANY_ADMIN);
+        await keycloakService.AssignUserToCompanyAsync(userId, company.Id, MembershipLevels.Admin);
 
         return ServiceResult<OnboardCompanyResponse>.SuccessAsCreated(
-            new OnboardCompanyResponse(company.Id, CompanyRoles.COMPANY_ADMIN),
+            new OnboardCompanyResponse(company.Id, MembershipLevels.Admin),
             $"/api/v1/companies/{company.Id}");
     }
 

@@ -29,7 +29,7 @@ export default function UsersRolesPage() {
             Şirketinizdeki kullanıcılar, rolleri ve yetkili oldukları firmalar.
           </p>
         </div>
-        {can('USERS_ROLES.CREATE') && (
+        {can('USERS.CREATE') && (
           <div className="st-head-actions">
             <button
               type="button"

@@ -36,7 +36,7 @@ public class OrderPaidConsumer(AppDbContext context, ILogger<OrderPaidConsumer> 
             return;
         }
 
-        var membership = await context.UserCompanyRoles
+        var membership = await context.CompanyMemberships
             .FirstOrDefaultAsync(x => x.KeycloakUserId == message.BuyerId && x.IsActive,
                 context_.CancellationToken);
 
