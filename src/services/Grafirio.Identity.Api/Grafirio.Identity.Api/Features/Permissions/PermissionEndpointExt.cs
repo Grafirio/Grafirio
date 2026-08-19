@@ -1,3 +1,4 @@
+using Grafirio.Identity.Api.Features.Permissions.UserAccess;
 using Grafirio.Identity.Api.Features.Users;
 using Asp.Versioning.Builder;
 using Grafirio.Shared.Identity.Permissions;
@@ -21,6 +22,32 @@ public static class PermissionEndpointExt
 
         // Panelin modul secim kutularini doldurmasi icin; sabit listeyi
         // istemciye kopyalamak, iki tarafin sessizce ayrisma yolu olurdu.
+        // Bir kisinin yetkisinin tamami tek parca: uyelik seviyesi, rolleri,
+        // kisisel izinleri ve birlesimi. Panel "bu izin nereden geliyor"
+        // sorusunu bundan cevapliyor.
+        group.MapGet("/users/{companyId:guid}/{keycloakUserId}",
+                async (Guid companyId, string keycloakUserId, IMediator mediator) =>
+                    (await mediator.Send(new GetUserAccessQuery(companyId, keycloakUserId)))
+                        .ToGenericResult())
+            .WithName("GetUserAccess")
+            .Produces<UserAccessDto>(StatusCodes.Status200OK)
+            .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
+            .RequireAuthorization("Password");
+
+        // Kisiye ozel izinler. Liste tam gonderiliyor: eksik gelen anahtar
+        // kaldirilmis sayiliyor, aksi halde izin kaldirmanin ayri bir ucu
+        // gerekirdi.
+        group.MapPut("/users/{companyId:guid}/{keycloakUserId}",
+                async (Guid companyId, string keycloakUserId,
+                    SetUserPermissionsRequest request, IMediator mediator) =>
+                    (await mediator.Send(new SetUserPermissionsCommand(
+                        companyId, keycloakUserId, request.Permissions))).ToGenericResult())
+            .WithName("SetUserPermissions")
+            .Produces(StatusCodes.Status200OK)
+            .Produces<ProblemDetails>(StatusCodes.Status400BadRequest)
+            .Produces<ProblemDetails>(StatusCodes.Status403Forbidden)
+            .RequireAuthorization("Password");
+
         group.MapGet("/modules", () => Results.Ok(AppModules.All))
             .WithName("GetModules")
             .Produces<string[]>(StatusCodes.Status200OK)
