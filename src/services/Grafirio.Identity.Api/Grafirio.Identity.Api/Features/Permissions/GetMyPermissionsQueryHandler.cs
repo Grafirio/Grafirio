@@ -1,4 +1,5 @@
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Permissions;
 

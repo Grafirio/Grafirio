@@ -1,6 +1,7 @@
 using AutoMapper;
 using Grafirio.Identity.Api.Features.Departments.Dtos;
 using Grafirio.Identity.Api.Features.Permissions;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments;
 

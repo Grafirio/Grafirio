@@ -2,6 +2,8 @@ using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
 
 namespace Grafirio.DataAnalysis.Api.Features.Connections;
@@ -22,27 +24,39 @@ public static class SavedConnectionEndpoints
         // kosuyor; zaten sirket suzgeci icin ona ihtiyacimiz var.
         var group = app.MapGroup("/api/connections").RequireAuthorization("CompanyAccess");
 
+        // Sirkete erisim yetmiyor: departman "veri kaynaklarini gorsun ama
+        // degistirmesin" diyebiliyor ve bu ayrimin uygulandigi yer burasi.
+        // Izinler Identity'den soruluyor (bkz. AddGrafirioPermissions).
         group.MapPost("/", SaveConnection)
+            .RequirePermission(AppPermissions.DataSourcesCreate)
             .WithName("SaveConnection")
             .WithTags("Saved Connections");
 
         group.MapGet("/", GetConnections)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("GetConnections")
             .WithTags("Saved Connections");
 
         group.MapGet("/{id:guid}", GetConnectionById)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("GetConnectionById")
             .WithTags("Saved Connections");
 
         group.MapPut("/{id:guid}", UpdateConnection)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
             .WithName("UpdateConnection")
             .WithTags("Saved Connections");
 
         group.MapDelete("/{id:guid}", DeleteConnection)
+            .RequirePermission(AppPermissions.DataSourcesDelete)
             .WithName("DeleteConnection")
             .WithTags("Saved Connections");
-            
+
+        // Cozulmus parola okumak READ degil UPDATE: baglanti bilgisini
+        // gormek ile veritabani parolasini almak ayni agirlikta isler degil,
+        // ve bu ucun tek kullanim yeri baglantiyi duzenleme formu.
         group.MapGet("/{id:guid}/decrypt", GetDecryptedConnection)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
             .WithName("GetDecryptedConnection")
             .WithTags("Saved Connections");
     }

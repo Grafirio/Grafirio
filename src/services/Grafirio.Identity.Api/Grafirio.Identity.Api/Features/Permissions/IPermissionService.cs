@@ -1,3 +1,4 @@
+using Grafirio.Shared.Identity.Permissions;
 namespace Grafirio.Identity.Api.Features.Permissions;
 
 /// <summary>
@@ -24,17 +25,7 @@ public interface IPermissionService
     Task<bool> CanSeeModuleAsync(Guid companyId, string module, CancellationToken ct);
 }
 
-/// <param name="Role">Kullanıcının şirketteki etkin rolü; erişimi yoksa null.</param>
-/// <param name="Modules">Girebileceği modüller — izinlerden türetiliyor.</param>
-/// <param name="Permissions">Etkin izinler (MODÜL.AKSİYON).</param>
-/// <param name="RestrictedByDepartment">
-/// İzin kümesinin departman ataması yüzünden daraltılıp daraltılmadığı.
-/// Panelde "neden bu menüyü göremiyorum" sorusunu cevaplamak için: kısıt
-/// rolden mi departmandan mı geliyor.
-/// </param>
-public record EffectivePermissions(
-    Guid CompanyId,
-    string? Role,
-    IReadOnlyList<string> Modules,
-    IReadOnlyList<string> Permissions,
-    bool RestrictedByDepartment);
+// EffectivePermissions burada tanimli degil: cevabin bicimi paylasilan
+// pakette (Grafirio.Shared.Identity.Permissions), cunku DataAnalysis.Api de
+// ayni govdeyi okuyor. Iki tarafin ayri tanimladigi bir sozlesme, sessizce
+// ayrisan bir sozlesmedir.

@@ -1,5 +1,6 @@
 using Grafirio.Identity.Api.Features.Permissions;
 using Grafirio.Identity.Api.Repositories;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments;
 

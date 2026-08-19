@@ -215,6 +215,15 @@ builder.Services.AddSingleton<BridgeInstaller>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddIdentityServicesExt();
 
+// Aksiyon seviyesinde yetki: "sirkete erisimi var mi" ile "baglantiyi
+// degistirebilir mi" ayri sorular ve bu servis simdiye kadar yalnizca ilkini
+// soruyordu. Departman matrisinde DATA_SOURCES.UPDATE'i kapatmak burada hicbir
+// sey degistirmiyordu.
+//
+// Cevap Identity'den geliyor, token'dan degil: izinler claim'e yazilsaydi bir
+// kullanicinin yetkisini almak token suresi kadar gecikirdi.
+builder.Services.AddGrafirioPermissions(builder.Configuration);
+
 var app = builder.Build();
 
 // Auto-migrate database on startup

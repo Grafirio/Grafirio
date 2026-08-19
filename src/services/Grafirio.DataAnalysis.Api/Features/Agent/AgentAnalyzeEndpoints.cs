@@ -5,6 +5,8 @@ using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
 using MassTransit;
 using Microsoft.AspNetCore.Mvc;
@@ -43,19 +45,25 @@ public static class AgentAnalyzeEndpoints
             .WithTags("AI Agent")
             .WithOpenApi();
 
+        // Analiz baglantinin semantik sozlugunu yazip kaydediyor; bu, veri
+        // kaynagini degistirmek demek, yalnizca okumak degil.
         group.MapPost("/analyze-connection/{connectionId:guid}", AnalyzeConnection)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
             .WithName("AnalyzeConnection")
             .WithDescription("Seçili tabloların profilini çıkarır ve semantik sözlük üretir");
 
         group.MapGet("/configs", ListConfigs)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("ListAnalysisConfigs")
             .WithDescription("Firmanın analiz edilmiş bağlantılarını listeler");
 
         group.MapGet("/config/{connectionId:guid}", GetConfig)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("GetAnalysisConfig")
             .WithDescription("Bağlantının semantik sözlüğünü getirir");
 
         group.MapGet("/config/{connectionId:guid}/status", GetConfigStatus)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("GetConfigStatus")
             .WithDescription("Analiz durumunu ve varsa soruları döndürür");
 

@@ -3,6 +3,7 @@ using Grafirio.Identity.Api.Features.Users;
 using Grafirio.Identity.Api.Repositories;
 using Microsoft.EntityFrameworkCore;
 using System.Net;
+using Grafirio.Shared.Identity.Permissions;
 
 namespace Grafirio.Identity.Api.Features.Departments.Update;
 
@@ -58,7 +59,7 @@ public class UpdateDepartmentCommandHandler(AppDbContext context, IPermissionSer
         department.ManagerKeycloakUserId = Clean(request.ManagerKeycloakUserId);
         department.CostCenter = Clean(request.CostCenter);
         // Taninmayan anahtarlar suzuluyor; bkz. CreateDepartmentCommandHandler.
-        var granted = AppPermissions.Sanitize(request.Permissions, request.Modules);
+        var granted = PermissionPolicy.Sanitize(request.Permissions, request.Modules);
 
         // Izin kumesini degistirmek departmani duzenlemekten ayri bir yetki:
         // ad, kod ve maliyet merkezi yalnizca gruplamaya dokunur, izin kumesi
