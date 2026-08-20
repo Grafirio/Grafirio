@@ -5,6 +5,7 @@ using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using StackExchange.Redis;
 using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Schema;
@@ -190,6 +191,26 @@ builder.Services.AddGrafirioMassTransit(
 // ve kullanici kimligini sorgu dizesinden aliyordu, yani isteyen istedigi
 // userId ile baskasinin kayitli baglantilarini okuyabiliyordu.
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
+
+// Varsayilan forbid/challenge semasi. Paylasilan kurulum AddAuthentication()'i
+// varsayilan sema VERMEDEN cagiriyor; adli politikalar semayi kendileri
+// belirttigi icin bu, yetkilendirme icin sorun degil. Sorun reddetme yolunda:
+//
+//   RequirePermission(...) izin yoksa `Results.Forbid()` donuyor — semasiz.
+//   Semasiz Forbid varsayilani ariyor, bulamayinca
+//   "No authenticationScheme was specified, and there was no DefaultForbidScheme
+//   found" ile ISTISNA firlatiyor. Global hata middleware'i bunu 400'e
+//   ceviriyor ve govdeye hicbir sey yazmiyor.
+//
+// Yani her yetki reddi, sebebini soylemeyen bir "400" olarak gorunuyordu:
+// yetkisi olmayan kullanici "Request failed with status code 400" goruyor,
+// gelistirici de teshis edecek hicbir sey bulamiyordu. Sema verilince
+// reddetme dogru kodu (403) donuyor.
+builder.Services.Configure<AuthenticationOptions>(options =>
+{
+    options.DefaultForbidScheme ??= JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme ??= JwtBearerDefaults.AuthenticationScheme;
+});
 
 // Bridge'ler de Keycloak token'i tasiyor — kendilerine ait bir client olarak,
 // client_credentials ile. Ayri bir kimlik dogrulama semasi YOK; tek fark
