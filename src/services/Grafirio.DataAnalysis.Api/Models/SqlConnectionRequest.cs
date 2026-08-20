@@ -1,14 +1,5 @@
 namespace Grafirio.DataAnalysis.Api.Models;
 
-public record SqlConnectionRequest(
-    string Host,
-    int Port,
-    string Database,
-    string Username,
-    string Password,
-    bool TrustServerCertificate = true
-);
-
 public record TestConnectionResponse(
     bool Success,
     string Message,

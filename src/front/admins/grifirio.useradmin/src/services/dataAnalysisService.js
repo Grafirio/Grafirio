@@ -41,17 +41,22 @@ export const normalizeHostAndPort = (host, port) => {
   return { host: trimmed, port: Number(port) > 0 ? Number(port) : 1433 };
 };
 
-// Test SQL Server connection
-export const testConnection = async (connectionInfo) => {
+/**
+ * Kayıtlı bir bağlantıya ulaşılabiliyor mu.
+ *
+ * Kimlik bilgisi değil bağlantı KİMLİĞİ gönderiliyor. Sebebi mimari: sorgunun
+ * hangi yoldan gideceği (doğrudan mı, bridge üzerinden mi) bağlantının bridge
+ * eşleşmesine bağlı, eşleşme de kimliğine. Ham host/kullanıcı/şifre gönderen
+ * eski uç bu yüzden bridge'i hiç kullanamıyor, firewall arkasındaki her
+ * veritabanı için hep başarısız oluyordu.
+ *
+ * Bu yüzden sıra da değişti: önce kaydet, sonra test et.
+ */
+export const testConnection = async (connectionId) => {
   try {
-    const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
-    const response = await axios.post(`${API_BASE_URL}/api/connections/test`, {
-      ...connectionInfo,
-      host,
-      port
-    }, {
-      timeout: 15000
-    });
+    const response = await axios.post(
+      `${API_BASE_URL}/api/connections/${connectionId}/test`, null, { timeout: 30000 }
+    );
     return response.data;
   } catch (error) {
     console.error('Connection test failed:', error);
@@ -59,13 +64,15 @@ export const testConnection = async (connectionInfo) => {
   }
 };
 
-// Save SQL Server connection
-export const saveConnection = async (userId, companyId, name, connectionInfo) => {
+/**
+ * Bağlantıyı kaydeder. userId ve companyId ARTIK GÖNDERİLMİYOR: sunucu ikisini
+ * de token'dan okuyor ve gövdedekini yok sayıyordu — arayüz ise oraya
+ * 'user-123' gibi uydurma değerler koyuyordu.
+ */
+export const saveConnection = async (name, connectionInfo) => {
   try {
     const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
     const payload = {
-      userId,
-      companyId,
       name,
       host,
       port,
@@ -107,10 +114,14 @@ export const getSavedConnections = async () => {
   }
 };
 
-// Get connection by ID (with decrypted password)
+/**
+ * Bağlantı, şifresi çözülmüş halde. Tek kullanım yeri düzenleme formu:
+ * kullanıcı şifreyi yeniden yazmak zorunda kalmasın diye. Tablo listesi ve
+ * ön analiz artık bunu ÇAĞIRMIYOR — o uçlar bağlantı kimliğiyle çalıştığı
+ * için parolanın tarayıcıya inmesi gerekmiyor.
+ */
 export const getConnectionById = async (connectionId) => {
   try {
-    // Decrypt endpoint'ini kullan - şifreyi çözülmüş olarak getir
     const response = await axios.get(`${API_BASE_URL}/api/connections/${connectionId}/decrypt`, {
       timeout: 10000
     });
@@ -121,12 +132,78 @@ export const getConnectionById = async (connectionId) => {
   }
 };
 
-// Get list of tables from database
-export const getTables = async (connectionInfo) => {
+/**
+ * Bağlantının şifresiz özeti (ad, host, veritabanı).
+ *
+ * Kanvas gibi yalnızca adı gösteren yerler bunu kullanmalı. Önceden oralar da
+ * `getConnectionById` çağırıyordu; o uç şifre çözdüğü için DATA_SOURCES.UPDATE
+ * yetkisi istiyor — yani "analizleri görsün ama veri kaynağını değiştirmesin"
+ * denen bir kullanıcıda kanvas, sebebi görünmeyen bir yetki hatasıyla boş
+ * açılıyordu.
+ */
+export const getConnectionSummary = async (connectionId) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/schema/tables`, connectionInfo, {
-      timeout: 30000
-    });
+    const response = await axios.get(
+      `${API_BASE_URL}/api/connections/${connectionId}`, { timeout: 10000 }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Get connection summary failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Kayıtlı bağlantıyı günceller. Boş bırakılan alanlar sunucuda olduğu gibi
+ * kalır; şifre alanı boşsa mevcut şifre korunur.
+ */
+export const updateConnection = async (connectionId, changes) => {
+  try {
+    const { host, port } = normalizeHostAndPort(changes.host, changes.port);
+    const response = await axios.put(
+      `${API_BASE_URL}/api/connections/${connectionId}`,
+      { ...changes, host, port },
+      { timeout: 10000 }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Update connection failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Bağlantıyı siler.
+ *
+ * Bu çağrı EKSİKTİ: "Sil" düğmesi kaydı yalnızca localStorage'dan çıkarıyordu.
+ * Sunucudaki kayıt duruyor, sayfa yenilenince bağlantı geri geliyordu — ve
+ * silindiği sanılan bir veri kaynağı okunmaya devam ediyordu.
+ */
+export const deleteConnection = async (connectionId) => {
+  try {
+    const response = await axios.delete(
+      `${API_BASE_URL}/api/connections/${connectionId}`, { timeout: 10000 }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Delete connection failed:', error);
+    throw error;
+  }
+};
+
+/**
+ * Bağlantıdaki tablolar. Kimlik bilgisi değil bağlantı kimliği gönderiliyor;
+ * sebebi `testConnection` ile aynı — eski uç bridge'i atlıyor ve tablo listesi
+ * firewall arkasındaki veritabanlarında hiç gelmiyordu. Tablo seçilemeyince
+ * "Analiz Et" de başlamıyor, sorgu da hiç çalıştırılamıyordu.
+ *
+ * Yan etkisi: veritabanı parolasının artık tarayıcıya inmesi gerekmiyor.
+ */
+export const getTables = async (connectionId) => {
+  try {
+    const response = await axios.get(
+      `${API_BASE_URL}/api/schema/${connectionId}/tables`, { timeout: 30000 }
+    );
     return response.data;
   } catch (error) {
     console.error('Failed to get tables:', error);
@@ -134,68 +211,36 @@ export const getTables = async (connectionInfo) => {
   }
 };
 
+/* ─────────────────────────────────────────────────────────────
+   Ön analiz uçları
 
-
-// Pre-Analysis Functions
-export const getDataQuality = async (connectionInfo, tables) => {
+   Yol ONARILDI: adres `/analysis/...` yazılıyordu, `/api` öneki eksikti.
+   Yani bu dört düğme hiçbir zaman çalışmamış, hep 404 almıştı — hata
+   "Analiz başarısız" diye gösterildiği için uç bulunamadığı anlaşılmıyordu.
+───────────────────────────────────────────────────────────── */
+const runPreAnalysis = async (connectionId, kind, tables) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/analysis/data-quality`, {
-      connectionInfo,
-      tables
-    }, {
-      timeout: 60000
-    });
+    const response = await axios.post(
+      `${API_BASE_URL}/api/analysis/${connectionId}/${kind}`, { tables }, { timeout: 60000 }
+    );
     return response.data;
   } catch (error) {
-    console.error('Data quality analysis failed:', error);
+    console.error(`Pre-analysis '${kind}' failed:`, error);
     throw error;
   }
 };
 
-export const getStatistics = async (connectionInfo, tables) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/analysis/statistics`, {
-      connectionInfo,
-      tables
-    }, {
-      timeout: 60000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Statistics analysis failed:', error);
-    throw error;
-  }
-};
+export const getDataQuality = (connectionId, tables) =>
+  runPreAnalysis(connectionId, 'data-quality', tables);
 
-export const getMissingData = async (connectionInfo, tables) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/analysis/missing-data`, {
-      connectionInfo,
-      tables
-    }, {
-      timeout: 60000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Missing data analysis failed:', error);
-    throw error;
-  }
-};
+export const getStatistics = (connectionId, tables) =>
+  runPreAnalysis(connectionId, 'statistics', tables);
 
-export const getRelationships = async (connectionInfo, tables) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/analysis/relationships`, {
-      connectionInfo,
-      tables
-    }, {
-      timeout: 60000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Relationship analysis failed:', error);
-    throw error;
-  }
-};
+export const getMissingData = (connectionId, tables) =>
+  runPreAnalysis(connectionId, 'missing-data', tables);
+
+export const getRelationships = (connectionId, tables) =>
+  runPreAnalysis(connectionId, 'relationships', tables);
 
 /* ─────────────────────────────────────────────────────────────
    Analiz hattı

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  testConnection, saveConnection, getSavedConnections, getConnectionById,
+  testConnection, saveConnection, updateConnection, deleteConnection,
+  getSavedConnections, getConnectionById,
   getDataQuality, getStatistics, getMissingData, getRelationships,
-  saveSelectedTables,
+  saveSelectedTables, getSelectedTables,
   getBridges, getBridgeBindings, bindConnectionToBridge,
   revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
@@ -153,57 +154,47 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     }
   };
 
-  // Load connections from database
+  /**
+   * Bağlantılar sunucudan okunuyor — ve yalnızca sunucudan.
+   *
+   * localStorage kopyası KALDIRILDI. İki kaynak olması gerçek bir arızaya yol
+   * açıyordu: "Kaydet" düğmesi kaydı yalnızca yerele yazdığı için listede
+   * sunucuda karşılığı olmayan, kimliği bir zaman damgası olan satırlar
+   * çıkıyordu. Böyle bir satırdan kanvas açıldığında sorgu ucu `Guid`
+   * bekliyor, gövde çözülemiyor ve istek gövdesiz bir 400 ile dönüyordu —
+   * ekranda sebebi yazmayan "400 hatası" tam olarak buydu. Aynı şekilde
+   * "Sil" de yalnızca yerelden siliyor, kayıt yenilemede geri geliyordu.
+   */
   const loadConnections = async () => {
     setIsLoadingConnections(true);
     setLoadError('');
     try {
       const result = await getSavedConnections();
 
-      if (result.success && result.connections) {
-        // API'den gelen bağlantıları localStorage formatına çevir
-        const formattedConnections = result.connections.map(conn => {
-          return {
-            id: conn.id,
-            savedConnectionId: conn.id, // Database'deki ID'yi sakla
-            name: conn.name,
-            host: conn.host,
-            port: conn.port,
-            database: conn.database,
-            username: conn.username,
-            password: '', // Şifre frontend'de saklanmaz
-            trustServerCertificate: conn.trustServerCertificate,
-            createdAt: conn.createdAt,
-            updatedAt: conn.updatedAt,
-            lastConnectedAt: conn.lastConnectedAt,
-            selectedTables: [] // Tables localStorage'da kalabilir veya ayrı bir API
-          };
-        });
-        
-        setConnections(formattedConnections);
-
-        // Backward compatibility için localStorage'a da kaydet
-        localStorage.setItem('sqlConnections', JSON.stringify(formattedConnections));
-      } else {
-        setConnections([]);
-      }
+      setConnections((result.connections ?? []).map(conn => ({
+        id: conn.id,
+        savedConnectionId: conn.id,
+        name: conn.name,
+        host: conn.host,
+        port: conn.port,
+        database: conn.database,
+        username: conn.username,
+        // Şifre tarayıcıda saklanmıyor ve artık hiçbir uç için gerekmiyor;
+        // düzenleme formu onu açıldığında ayrıca çözüyor.
+        password: '',
+        trustServerCertificate: conn.trustServerCertificate,
+        createdAt: conn.createdAt,
+        updatedAt: conn.updatedAt,
+        lastConnectedAt: conn.lastConnectedAt,
+        // Seçim sunucuda; tablo/analiz ekranı açılırken oradan okunuyor.
+        selectedTables: []
+      })));
     } catch (error) {
       console.error('Failed to load connections from database:', error);
-
-      // Database hatası varsa fallback olarak localStorage'dan yükle
-      const saved = localStorage.getItem('sqlConnections');
-      let recovered = false;
-      if (saved) {
-        try {
-          setConnections(JSON.parse(saved));
-          recovered = true;
-        } catch (e) {
-          console.error('Failed to load connections from localStorage', e);
-        }
-      }
-      if (!recovered) {
-        setLoadError('Bağlantılar yüklenemedi. Lütfen tekrar deneyin.');
-      }
+      setConnections([]);
+      setLoadError(
+        error?.response?.data?.error ?? 'Bağlantılar yüklenemedi. Lütfen tekrar deneyin.'
+      );
     } finally {
       setIsLoadingConnections(false);
     }
@@ -214,12 +205,6 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     loadConnections();
   }, []);
 
-  // Save connections to localStorage
-  const saveConnections = (newConnections) => {
-    localStorage.setItem('sqlConnections', JSON.stringify(newConnections));
-    setConnections(newConnections);
-  };
-
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -228,110 +213,87 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     }));
   };
 
+  const isFormIncomplete = () =>
+    !formData.name || !formData.host || !formData.database || !formData.username;
+
+  const describeError = (error) =>
+    error?.response?.data?.error ?? error?.message ?? 'Bilinmeyen hata';
+
+  /**
+   * Formu sunucuya yazar ve bağlantı kimliğini döndürür. Artık TEK kayıt yolu.
+   *
+   * Önceden iki tane vardı ve ikisi de eksikti: "Kaydet" düğmesi kaydı
+   * yalnızca localStorage'a yazıyordu — sunucuda böyle bir bağlantı hiç
+   * oluşmuyor, kimliği de bir zaman damgası oluyordu; sunucuya yazan tek yol
+   * ise "Test Et"in içine gömülüydü, yani test geçmeden bağlantı
+   * kaydedilemiyordu. Bridge'e bağlanacak bir veritabanında test her zaman
+   * başarısız olduğu için o bağlantılar hiç kaydedilemiyordu.
+   *
+   * Sıra artık şu ve tek yönlü: kaydet → bridge'e bağla → test et. Testin
+   * bridge'i kullanabilmesi buna bağlı: yol seçimi bağlantının eşleşmesinden,
+   * eşleşme de kimliğinden okunuyor.
+   */
+  const persistConnection = async () => {
+    const name = formData.name?.trim() || `${formData.host}-${formData.database}`;
+    let connectionId = savedConnectionId;
+
+    if (connectionId) {
+      await updateConnection(connectionId, { ...formData, name });
+    } else {
+      const saved = await saveConnection(name, formData);
+      if (!saved?.success || !saved.connectionId) {
+        throw new Error(saved?.message ?? 'Bağlantı kaydedilemedi.');
+      }
+      connectionId = saved.connectionId;
+      setSavedConnectionId(connectionId);
+    }
+
+    // Hangi yoldan okunacağı ayrı bir kayıt: bağlantının kendisi Postgres'te,
+    // eşleme Mongo'da duruyor.
+    await applyBridgeBinding(connectionId, formData.bridgeId);
+    await loadConnections();
+
+    return connectionId;
+  };
+
   const handleTest = async () => {
+    if (isFormIncomplete()) {
+      setTestStatus({ type: 'error', message: '❌ Lütfen tüm zorunlu alanları doldurun' });
+      return;
+    }
+
     setIsTesting(true);
     setTestStatus({ type: '', message: '' });
 
     try {
-      const result = await testConnection({
-        host: formData.host,
-        port: parseInt(formData.port),
-        database: formData.database,
-        username: formData.username,
-        password: formData.password,
-        trustServerCertificate: formData.trustServerCertificate
-      });
+      const connectionId = await persistConnection();
+      const result = await testConnection(connectionId);
 
-      if (result.success) {
-        setTestStatus({ 
-          type: 'success', 
-          message: '✅ Bağlantı başarılı!' 
-        });
-        
-        // Test başarılıysa bağlantıyı database'e kaydet
-        try {
-          // TODO: Gerçek userId ve companyId - şimdilik mock
-          const userId = 'user-123';
-          const companyId = 'company-456';
-          
-          const saveResult = await saveConnection(
-            userId,
-            companyId,
-            formData.name || `${formData.host}-${formData.database}`,
-            {
-              host: formData.host,
-              port: parseInt(formData.port),
-              database: formData.database,
-              username: formData.username,
-              password: formData.password,
-              trustServerCertificate: formData.trustServerCertificate
-            }
-          );
-          
-          if (saveResult.success) {
-            setSavedConnectionId(saveResult.connectionId);
-            const message = saveResult.message || 'Bağlantı kaydedildi!';
-            setTestStatus({
-              type: 'success',
-              message: `✅ Bağlantı başarılı ve güvenli şekilde ${message.toLowerCase()}`
-            });
-
-            // Hangi yoldan okunacağı ayrı bir kayıt: bağlantının kendisi
-            // Postgres'te, eşleme Mongo'da duruyor.
-            await applyBridgeBinding(saveResult.connectionId, formData.bridgeId);
-
-            // Bağlantılar listesini yeniden yükle
-            await loadConnections();
-          }
-        } catch (saveError) {
-          console.error('Connection save error:', saveError);
-          // Test başarılı ama kayıt başarısız - kullanıcıya bilgi ver ama devam et
-          setTestStatus({ 
-            type: 'warning', 
-            message: '✅ Bağlantı başarılı! (Ancak kaydedilemedi: ' + saveError.message + ')' 
-          });
-        }
-      } else {
-        setTestStatus({ 
-          type: 'error', 
-          message: `❌ ${result.message}` 
-        });
-      }
+      setTestStatus(result.success
+        ? { type: 'success', message: `✅ ${result.message}` }
+        : { type: 'error', message: `❌ ${result.message}` });
     } catch (error) {
-      setTestStatus({ 
-        type: 'error', 
-        message: `❌ Bağlantı hatası: ${error.message}` 
-      });
+      console.error('Connection test failed:', error);
+      setTestStatus({ type: 'error', message: `❌ ${describeError(error)}` });
     } finally {
       setIsTesting(false);
     }
   };
 
-  const handleSave = () => {
-    if (!formData.name || !formData.host || !formData.database || !formData.username) {
+  const handleSave = async () => {
+    if (isFormIncomplete()) {
       setTestStatus({ type: 'error', message: '❌ Lütfen tüm zorunlu alanları doldurun' });
       return;
     }
 
-    const newConnection = {
-      id: editingConnection?.id || Date.now(),
-      ...formData,
-      createdAt: editingConnection?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    let newConnections;
-    if (editingConnection) {
-      newConnections = connections.map(c => 
-        c.id === editingConnection.id ? newConnection : c
-      );
-    } else {
-      newConnections = [...connections, newConnection];
+    try {
+      await persistConnection();
+      handleCancel();
+      setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
+    } catch (error) {
+      console.error('Connection save failed:', error);
+      setTestStatus({ type: 'error', message: `❌ Bağlantı kaydedilemedi: ${describeError(error)}` });
     }
-
-    saveConnections(newConnections);
-    handleCancel();
-    setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
   };
 
   const handleEdit = async (connection) => {
@@ -367,10 +329,26 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setTestStatus({ type: '', message: '' });
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm('Bu bağlantıyı silmek istediğinizden emin misiniz?')) {
-      const newConnections = connections.filter(c => c.id !== id);
-      saveConnections(newConnections);
+  /**
+   * Bağlantıyı siler. Silme SUNUCUYA gidiyor: önceden kayıt yalnızca
+   * listeden ve localStorage'dan çıkarılıyordu, sunucudaki kayıt duruyordu.
+   * Sayfa yenilenince bağlantı geri geliyor, silindiği sanılan veri kaynağı
+   * okunmaya devam ediyordu.
+   */
+  const handleDelete = async (id) => {
+    if (!window.confirm('Bu bağlantıyı silmek istediğinizden emin misiniz?')) return;
+
+    try {
+      await deleteConnection(id);
+      await loadConnections();
+    } catch (error) {
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Bağlantı silinemedi',
+        message: describeError(error),
+        details: ''
+      });
     }
   };
 
@@ -391,54 +369,35 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setTestStatus({ type: '', message: '' });
   };
 
-  // Listeleme uçları şifreyi taşımaz (loadConnections onu boş bırakır), ama tablo
-  // listesi ve ön analiz doğrudan SQL'e bağlandığı için gerçek şifreye ihtiyaç
-  // duyar. Boş şifreyle gidildiğinde sunucu "Login failed" döndürüyordu.
-  const resolveCredentials = async (connection) => {
-    if (connection.password) return connection;
+  /**
+   * Tablo seçimi kutusunu açar.
+   *
+   * Şifre ÇÖZÜLMÜYOR. Önceden burada `/decrypt` çağrılıp veritabanı parolası
+   * tarayıcıya indiriliyordu, çünkü tablo listesi ucu ham kimlik bilgisi
+   * istiyordu. Uç artık bağlantı kimliğiyle çalışıyor: parolanın bulutun
+   * dışına çıkması için bir sebep kalmadı ve bridge'e bağlı bağlantılarda
+   * liste ilk kez geliyor.
+   *
+   * Seçim sunucudan okunuyor: liste ucu onu taşımıyor, ve varsayılan olarak
+   * boş bırakmak "hiç tablo seçilmemiş" gibi görünmesine yol açıyordu.
+   */
+  const handleOpenModal = async (connection) => {
+    const connectionId = connection.savedConnectionId || connection.id;
 
-    const id = connection.savedConnectionId || connection.id;
-    if (!id) return connection;
+    setCurrentConnectionId(connectionId);
+    setSelectedConnectionForModal({ id: connectionId, name: connection.name });
 
+    let selected = connection.selectedTables ?? [];
     try {
-      const result = await getConnectionById(id);
-      if (result?.success && result.connection?.password) {
-        return { ...connection, password: result.connection.password };
+      const stored = await getSelectedTables(connectionId);
+      if (Array.isArray(stored?.tables)) {
+        selected = stored.tables.map((fullName) => ({ fullName, tableName: fullName }));
       }
     } catch (error) {
-      console.error('Failed to resolve connection password:', error);
-    }
-    return connection;
-  };
-
-  const warnMissingPassword = () => {
-    setNotification({
-      show: true,
-      type: 'error',
-      title: 'Bağlantı şifresi alınamadı',
-      message: 'Kayıtlı şifre çözülemedi. Bağlantıyı düzenleyip şifreyi yeniden kaydedin.',
-      details: ''
-    });
-  };
-
-  // Modal handlers
-  const handleOpenModal = async (connection) => {
-    const resolved = await resolveCredentials(connection);
-    if (!resolved.password) {
-      warnMissingPassword();
-      return;
+      console.error('Kayıtlı tablo seçimi okunamadı:', error);
     }
 
-    setCurrentConnectionId(connection.id);
-    setSelectedConnectionForModal({
-      host: resolved.host,
-      port: resolved.port,
-      database: resolved.database,
-      username: resolved.username,
-      password: resolved.password,
-      trustServerCertificate: resolved.trustServerCertificate
-    });
-    setSelectedTablesForSave(connection.selectedTables || []);
+    setSelectedTablesForSave(selected);
     setIsModalOpen(true);
   };
 
@@ -453,20 +412,14 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setSelectedTablesForSave(tables);
   };
 
-  // Secim artik sunucuya kaydediliyor. Onceden yalnizca localStorage'daydi;
-  // sunucu hangi tablolarin secildigini bilmedigi icin "yalnizca secili
-  // tablolar islenir" kurali uygulanamiyordu. localStorage kopyasi arayuzun
-  // anlik gosterimi icin korunuyor, ama artik dogru kaynak sunucu.
+  // Seçimin doğru kaynağı sunucu. Buradaki liste kopyası yalnızca açık olan
+  // ekranın anlık gösterimi; bir sonraki açılışta seçim yine sunucudan okunuyor.
   const handleSaveSelectedTables = async () => {
     if (!currentConnectionId) return;
 
-    const connectionId = selectedConnectionForModal?.savedConnectionId
-      || connections.find(c => c.id === currentConnectionId)?.savedConnectionId
-      || currentConnectionId;
-
     try {
       await saveSelectedTables(
-        connectionId,
+        currentConnectionId,
         selectedTablesForSave.map(t => t.fullName || t.name).filter(Boolean)
       );
     } catch (error) {
@@ -474,19 +427,18 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         show: true,
         type: 'error',
         title: 'Tablo seçimi kaydedilemedi',
-        message: error.response?.data?.error || error.message,
+        message: describeError(error),
         details: ''
       });
       return;
     }
 
-    const updatedConnections = connections.map(conn =>
-      conn.id === currentConnectionId
+    setConnections(current => current.map(conn =>
+      (conn.savedConnectionId || conn.id) === currentConnectionId
         ? { ...conn, selectedTables: selectedTablesForSave, analysisStatus: 'none', updatedAt: new Date().toISOString() }
         : conn
-    );
+    ));
 
-    saveConnections(updatedConnections);
     handleCloseModal();
 
     setNotification({
@@ -501,17 +453,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   };
 
   const handleShowAnalysisPanel = async (connection) => {
-    // Ön analiz uçları da doğrudan SQL'e bağlanır — şifreyi önce çöz.
-    const resolved = await resolveCredentials(connection);
-    if (!resolved.password) {
-      warnMissingPassword();
-      return;
+    // Ön analiz uçları da bağlantı kimliğiyle çalışıyor; şifre çözmeye
+    // gerek yok. Seçili tablolar sunucudan okunuyor — panel bunları
+    // listelediği için boş bırakmak "hiç tablo seçilmemiş" gibi görünüyordu.
+    const connectionId = connection.savedConnectionId || connection.id;
+
+    let selectedTables = connection.selectedTables ?? [];
+    try {
+      const stored = await getSelectedTables(connectionId);
+      if (Array.isArray(stored?.tables)) {
+        selectedTables = stored.tables.map((fullName) => ({ fullName, tableName: fullName }));
+      }
+    } catch (error) {
+      console.error('Kayıtlı tablo seçimi okunamadı:', error);
     }
 
-    setSelectedConnectionForAnalysis({
-      ...resolved,
-      savedConnectionId: connection.savedConnectionId || connection.id || savedConnectionId // Try multiple sources
-    });
+    setSelectedConnectionForAnalysis({ ...connection, savedConnectionId: connectionId, selectedTables });
     setShowAnalysisPanel(true);
   };
 
@@ -529,30 +486,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setActiveAnalysisTab(type);
 
     try {
-      const connectionInfo = {
-        host: selectedConnectionForAnalysis.host,
-        port: selectedConnectionForAnalysis.port,
-        database: selectedConnectionForAnalysis.database,
-        username: selectedConnectionForAnalysis.username,
-        password: selectedConnectionForAnalysis.password,
-        trustServerCertificate: selectedConnectionForAnalysis.trustServerCertificate
-      };
-
+      const connectionId = selectedConnectionForAnalysis.savedConnectionId;
       const tables = selectedConnectionForAnalysis.selectedTables?.map(t => t.fullName) || [];
 
       let result;
       switch (type) {
         case 'quality':
-          result = await getDataQuality(connectionInfo, tables);
+          result = await getDataQuality(connectionId, tables);
           break;
         case 'statistics':
-          result = await getStatistics(connectionInfo, tables);
+          result = await getStatistics(connectionId, tables);
           break;
         case 'missing':
-          result = await getMissingData(connectionInfo, tables);
+          result = await getMissingData(connectionId, tables);
           break;
         case 'relationships':
-          result = await getRelationships(connectionInfo, tables);
+          result = await getRelationships(connectionId, tables);
           break;
         default:
           return;
@@ -562,7 +511,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     } catch (error) {
       setAnalysisResults({
         success: false,
-        message: `Analiz başarısız: ${error.message}`
+        message: `Analiz başarısız: ${describeError(error)}`
       });
     } finally {
       setAnalysisLoading(false);
@@ -1385,8 +1334,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     )}
                   </div>
 
-                  <TableList 
-                    connectionInfo={selectedConnectionForModal}
+                  <TableList
+                    connectionId={selectedConnectionForModal.id}
                     onTableSelect={handleMultiTableSelect}
                     multiSelect={true}
                     selectedTables={selectedTablesForSave}
