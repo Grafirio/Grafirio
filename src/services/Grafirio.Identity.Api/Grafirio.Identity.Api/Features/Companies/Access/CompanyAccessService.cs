@@ -4,7 +4,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.Identity.Api.Features.Companies.Access;
 
-public class CompanyAccessService(AppDbContext context, IIdentityService identityService)
+public class CompanyAccessService(
+    AppDbContext context,
+    IIdentityService identityService,
+    ILogger<CompanyAccessService> logger)
     : ICompanyAccessService
 {
     /// İstek boyunca aynı kullanıcının üyelikleri birden çok kez soruluyor
@@ -20,17 +23,46 @@ public class CompanyAccessService(AppDbContext context, IIdentityService identit
     {
         if (IsPlatformAdmin) return PlatformRoles.PLATFORM_ADMIN;
 
+        // Üç ayrı sebeple null dönülüyor ve üçü de SESSİZDİ. Dışarıdan hepsi
+        // aynı görünüyor ("her uç reddediyor") ama yapılacak şey farklı:
+        // üyeliğin hiç olmaması, şirketin bulunamaması ve üyeliğin başka bir
+        // şirkete ait olması birbirine karıştırılamaz. Sebep yazılmadığı için
+        // kurucu bir kullanıcının neden yetkisiz sayıldığı ancak veritabanına
+        // elle bakarak anlaşılabiliyordu.
         var memberships = await GetMembershipsAsync(ct);
-        if (memberships.Count == 0) return null;
+        if (memberships.Count == 0)
+        {
+            logger.LogWarning(
+                "Erişim yok: kullanıcı {UserId} için hiç etkin üyelik kaydı yok " +
+                "(sorulan şirket {CompanyId}).",
+                identityService.UserId, companyId);
+            return null;
+        }
 
         var path = await GetPathAsync(companyId, ct);
-        if (path.Count == 0) return null;
+        if (path.Count == 0)
+        {
+            logger.LogWarning(
+                "Erişim yok: {CompanyId} şirketi veritabanında bulunamadı. " +
+                "Kullanıcı {UserId} bu şirketi token'ındaki company_id claim'inden taşıyor olabilir.",
+                companyId, identityService.UserId);
+            return null;
+        }
 
         // Birden fazla üyelik zincirde kesişirse en yetkilisi kazanır: üst
         // şirkette kurucu olup alt şirkette üye olarak da eklenmiş biri
         // kuruculuğunu kaybetmemeli.
         var matching = memberships.Where(m => path.Contains(m.CompanyId)).ToList();
-        if (matching.Count == 0) return null;
+        if (matching.Count == 0)
+        {
+            logger.LogWarning(
+                "Erişim yok: kullanıcı {UserId} üye ama başka şirketlerde. " +
+                "Üyelikleri: {MembershipCompanyIds}. Sorulan şirketin zinciri: {Path}.",
+                identityService.UserId,
+                string.Join(", ", memberships.Select(m => $"{m.CompanyId}:{m.Level}")),
+                string.Join(", ", path));
+            return null;
+        }
 
         foreach (var level in LevelsByPrecedence)
         {

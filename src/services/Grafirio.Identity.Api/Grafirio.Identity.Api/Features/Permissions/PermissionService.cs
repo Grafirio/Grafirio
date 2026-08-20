@@ -9,7 +9,8 @@ namespace Grafirio.Identity.Api.Features.Permissions;
 public class PermissionService(
     AppDbContext context,
     ICompanyAccessService access,
-    IIdentityService identityService)
+    IIdentityService identityService,
+    ILogger<PermissionService> logger)
     : IPermissionService
 {
     /// Aynı istek içinde birden çok izin sorulabiliyor; şirket başına bir kez
@@ -28,9 +29,19 @@ public class PermissionService(
 
         // Şirkete erişimi yoksa izin de yok; çağıran tarafın ayrıca erişim
         // kontrolü yapmasına gerek kalmıyor.
+        //
+        // Bu dal SESSİZDİ ve teşhisi imkânsız kılıyordu. Kurucu bile olsa,
+        // üyelik bulunamayan kullanıcı boş izin kümesi alıyor; aşağıdaki
+        // kuruculuk muafiyetine hiç sıra gelmiyor. Dışarıdan görünen tek şey
+        // "her uç reddediyor" oluyor ve sebep hiçbir yere yazılmıyordu.
         if (level is null)
         {
-            return Store(new EffectivePermissions(companyId, null, [], []));
+            logger.LogWarning(
+                "Yetki reddi: kullanıcı {UserId} için {CompanyId} şirketinde etkin üyelik yok. " +
+                "Boş izin kümesi dönülüyor; kuruculuk muafiyeti uygulanmıyor.",
+                identityService.UserId, companyId);
+
+            return Store(new EffectivePermissions(companyId, null, [], [], false));
         }
 
         // Kurucu, admin ve platform ekibi izin şemasının dışında: rol
@@ -85,9 +96,14 @@ public class PermissionService(
 
     /// Modül listesi ayrı tutulmuyor, izinlerden türetiliyor: iki liste ayrı
     /// hesaplanırsa menü ile uygulanan kural sessizce ayrışır.
+    ///
+    /// <c>RestrictedByDepartment</c> bugün her zaman <c>false</c>: bu serviste
+    /// departmana göre daraltma YOK — sözleşme alanı, daraltmayı yapacak iş
+    /// (Yetki Faz 8) yazılmadan önce eklenmiş. Uydurma bir değer değil,
+    /// bugünün doğrusu; daraltma geldiğinde burası onunla birlikte değişir.
     private static EffectivePermissions Build(
         Guid companyId, string level, IReadOnlyCollection<string> permissions)
-        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions]);
+        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions], false);
 
     private EffectivePermissions Store(EffectivePermissions value)
         => _cache[value.CompanyId] = value;
