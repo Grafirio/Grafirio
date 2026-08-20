@@ -155,6 +155,28 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   };
 
   /**
+   * Bir yükleme hatasını, kullanıcının ne yapacağını bilebileceği bir cümleye
+   * çevirir. Durum kodu da yazılıyor: destek istendiğinde sorulacak ilk şey o.
+   */
+  const describeLoadFailure = (error) => {
+    const status = error?.response?.status;
+    const serverSaid = error?.response?.data?.error;
+
+    if (serverSaid) return `${serverSaid} (HTTP ${status})`;
+
+    switch (status) {
+      case 401:
+        return 'Oturumunuz düşmüş görünüyor. Çıkış yapıp tekrar giriş yapın. (HTTP 401)';
+      case 403:
+        return 'Veri kaynaklarını görme yetkiniz yok. Şirket yöneticinizle görüşün. (HTTP 403)';
+      case undefined:
+        return `Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin. (${error?.message ?? 'ağ hatası'})`;
+      default:
+        return `Bağlantılar yüklenemedi — sunucu ${status} döndü. Lütfen tekrar deneyin.`;
+    }
+  };
+
+  /**
    * Bağlantılar sunucudan okunuyor — ve yalnızca sunucudan.
    *
    * localStorage kopyası KALDIRILDI. İki kaynak olması gerçek bir arızaya yol
@@ -192,9 +214,10 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     } catch (error) {
       console.error('Failed to load connections from database:', error);
       setConnections([]);
-      setLoadError(
-        error?.response?.data?.error ?? 'Bağlantılar yüklenemedi. Lütfen tekrar deneyin.'
-      );
+      // Sebep ekranda yazıyor. "Tekrar deneyin" tek başına, oturumun mu
+      // düştüğünü (401) yetkinin mi yetmediğini (403) sunucunun mu hata
+      // verdiğini (5xx) ayırt ettirmiyordu — üçünün de yapılacak şeyi farklı.
+      setLoadError(describeLoadFailure(error));
     } finally {
       setIsLoadingConnections(false);
     }
