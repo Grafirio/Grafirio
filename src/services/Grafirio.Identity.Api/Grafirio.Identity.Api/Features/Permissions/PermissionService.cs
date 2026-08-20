@@ -105,6 +105,31 @@ public class PermissionService(
         Guid companyId, string level, IReadOnlyCollection<string> permissions)
         => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions], false);
 
+    /// <summary>
+    /// Hesaplanan kümeyi saklar ve ne hesaplandığını yazar.
+    ///
+    /// Log şart: bu ucun cevabı başka bir servisin yetki kararı oluyor ve
+    /// reddedildiğinde geriye "403" dışında hiçbir iz kalmıyordu. Seviye ile
+    /// izin listesini birlikte görmek, üç ayrı arızayı tek bakışta ayırıyor:
+    /// üyelik bulunamaması (seviye boş), muafiyetin çalışmaması (seviye
+    /// FOUNDER/ADMIN ama liste kısa) ve rolün eksik olması (seviye MEMBER,
+    /// liste yalnızca PANEL.READ).
+    ///
+    /// İzin adları gizli veri değil; kullanıcı kimliği dışında kişisel bilgi
+    /// yazılmıyor.
+    /// </summary>
     private EffectivePermissions Store(EffectivePermissions value)
-        => _cache[value.CompanyId] = value;
+    {
+        logger.LogInformation(
+            "Etkin yetki hesaplandı: kullanıcı {UserId}, şirket {CompanyId}, " +
+            "seviye {Level}, muafiyet {Bypass}, {Count} izin: {Permissions}",
+            identityService.UserId,
+            value.CompanyId,
+            value.Role ?? "(yok)",
+            MembershipLevels.BypassesPermissions(value.Role),
+            value.Permissions.Count,
+            string.Join(", ", value.Permissions));
+
+        return _cache[value.CompanyId] = value;
+    }
 }
