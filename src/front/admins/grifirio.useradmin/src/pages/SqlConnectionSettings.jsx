@@ -5,7 +5,7 @@ import {
   getSavedConnections, getConnectionById,
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables, getSelectedTables,
-  getBridges, getBridgeBindings, bindConnectionToBridge,
+  getBridges,
   revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
@@ -46,10 +46,11 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   /* ── Bridge ────────────────────────────────────────────────────────
      Kurumsal veritabanlarının çoğu firewall arkasında ve buluttan
      erişilemiyor. Bridge yönü çeviriyor: bağlantıyı müşterinin kendi
-     sunucusu dışarı doğru kurar. Panelin buradaki işi, hangi bağlantının
-     hangi bridge üzerinden okunacağını seçtirmek.                        */
+     sunucusu dışarı doğru kurar. Panelin buradaki işi yalnızca kurulumu
+     başlatmak ve durumu göstermek: hangi bağlantının hangi makineden
+     okunacağı SORULMUYOR — çevrimiçi bir bridge varsa hepsi oradan
+     okunuyor.                                                           */
   const [bridges, setBridges] = useState([]);
-  const [bridgeBindings, setBridgeBindings] = useState({});
   const [bridgeError, setBridgeError] = useState('');
   const [installer, setInstaller] = useState(null);
   const [enrollment, setEnrollment] = useState(null);
@@ -61,9 +62,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     database: '',
     username: '',
     password: '',
-    trustServerCertificate: true,
-    // Boş string = doğrudan bağlantı (bugünkü davranış).
-    bridgeId: ''
+    trustServerCertificate: true
   });
 
   const [testStatus, setTestStatus] = useState({ type: '', message: '' });
@@ -96,12 +95,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const loadBridges = async () => {
     setBridgeError('');
     try {
-      const [list, bindings] = await Promise.all([getBridges(), getBridgeBindings()]);
-
+      const list = await getBridges();
       setBridges(Array.isArray(list) ? list : []);
-      setBridgeBindings(
-        Object.fromEntries((bindings ?? []).map((b) => [b.connectionId, b.bridgeId]))
-      );
     } catch (error) {
       console.error('Bridge bilgileri alınamadı:', error);
       setBridges([]);
@@ -115,44 +110,16 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     loadBridges();
   }, []);
 
-  /** Bir bağlantının hangi bridge üzerinden okunduğu; yoksa null (doğrudan). */
-  const bridgeOf = (connectionId) => {
-    const bridgeId = bridgeBindings[connectionId];
-    return bridgeId ? bridges.find((b) => b.id === bridgeId) ?? { id: bridgeId } : null;
-  };
-
   /**
-   * Bağlantının okunma yolunu kaydeder.
+   * Şirketin çevrimiçi masaüstü uygulaması; yoksa null.
    *
-   * Başarısızlık kaydı geri almıyor ama sessizce de geçilmiyor: bağlantı
-   * kaydedilmiş ama bridge'e bağlanmamışsa, sorgular buluttan doğrudan
-   * gitmeye çalışır ve firewall arkasındaki bir veritabanında bu, sebebi
-   * anlaşılmayan bir zaman aşımı olarak görünür.
+   * Yol artık bağlantı başına SEÇİLMİYOR, türetiliyor: çevrimiçi bir bridge
+   * varsa şirketin bütün bağlantıları oradan okunuyor. Kullanıcıya "bu
+   * bağlantı hangi makineden okunsun" diye sormanın karşılığı yoktu —
+   * masaüstü uygulamasını kuran biri zaten veritabanına buluttan
+   * ulaşılamadığı için kuruyor.
    */
-  const applyBridgeBinding = async (connectionId, bridgeId) => {
-    if (!connectionId) return;
-
-    try {
-      await bindConnectionToBridge(connectionId, bridgeId || null);
-      setBridgeBindings((current) => {
-        const next = { ...current };
-        if (bridgeId) next[connectionId] = bridgeId;
-        else delete next[connectionId];
-        return next;
-      });
-    } catch (error) {
-      console.error('Bridge eşlemesi kaydedilemedi:', error);
-      setNotification({
-        show: true,
-        type: 'warning',
-        title: 'Bağlantı kaydedildi, bridge seçimi kaydedilemedi',
-        message:
-          'Bağlantı şimdilik doğrudan mod ile çalışacak. Veritabanınız ' +
-          'firewall arkasındaysa sorgular zaman aşımına uğrayabilir.',
-        details: error?.response?.data?.error ?? error.message,
-      });
-    }
-  };
+  const onlineBridge = () => bridges.find((b) => b.online) ?? null;
 
   /**
    * Bir yükleme hatasını, kullanıcının ne yapacağını bilebileceği bir cümleye
@@ -271,9 +238,6 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       setSavedConnectionId(connectionId);
     }
 
-    // Hangi yoldan okunacağı ayrı bir kayıt: bağlantının kendisi Postgres'te,
-    // eşleme Mongo'da duruyor.
-    await applyBridgeBinding(connectionId, formData.bridgeId);
     await loadConnections();
 
     return connectionId;
@@ -342,10 +306,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: connection.database,
       username: connection.username,
       password: decryptedPassword, // Decrypt edilmiş şifre
-      trustServerCertificate: connection.trustServerCertificate,
-      // Mevcut yol seçili gelmeli: düzenlerken sessizce doğrudan moda
-      // düşmek, firewall arkasındaki bir bağlantıyı bozar.
-      bridgeId: bridgeBindings[connection.savedConnectionId || connection.id] ?? ''
+      trustServerCertificate: connection.trustServerCertificate
     });
     setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
     setIsFormOpen(true);
@@ -386,8 +347,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true,
-      bridgeId: ''
+      trustServerCertificate: true
     });
     setTestStatus({ type: '', message: '' });
   };
@@ -552,8 +512,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true,
-      bridgeId: ''
+      trustServerCertificate: true
     });
     setTestStatus({ type: '', message: '' });
   };
@@ -879,36 +838,18 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
               </label>
             </div>
 
-            {/* Bağlantı yolu. Varsayılan doğrudan: bugünkü davranış değişmiyor. */}
+            {/* Sorguların hangi yoldan gideceği SORULMUYOR: şirketin çevrimiçi
+                bir masaüstü uygulaması varsa hepsi oradan okunuyor. Kullanıcı
+                seçim yapmıyor, yalnızca durumu görüyor. */}
             <div className="form-group">
-              <label htmlFor="bridgeId">Bağlantı yolu</label>
-              <select
-                id="bridgeId"
-                name="bridgeId"
-                value={formData.bridgeId}
-                onChange={handleChange}
-              >
-                <option value="">Doğrudan — Grafirio sunucudan bağlanır</option>
-                {bridges.map((bridge) => (
-                  <option key={bridge.id} value={bridge.id}>
-                    {bridge.name || bridge.machineName}
-                    {bridge.online ? ' — çevrimiçi' : ' — çevrimdışı'}
-                  </option>
-                ))}
-              </select>
               <small className="form-hint">
-                {formData.bridgeId
-                  ? 'Sorgular sizin sunucunuzdaki bridge üzerinden çalışır; ' +
-                    'veritabanı şifreniz orada kalır.'
-                  : 'Veritabanınız firewall arkasındaysa doğrudan bağlantı kurulamaz. ' +
-                    'Bu durumda bir bridge kurun.'}
+                {onlineBridge()
+                  ? `Sorgular masaüstü uygulamanız (${onlineBridge().name || onlineBridge().machineName}) ` +
+                    "üzerinden çalışacak; veritabanı şifreniz sizin makinenizde kalır."
+                  : "Sorgular Grafirio sunucudan doğrudan çalışacak. Veritabanınız firewall " +
+                    "arkasındaysa masaüstü uygulamasını kurun; kurulduğunda bu bağlantı da " +
+                    "otomatik olarak oradan okunur."}
               </small>
-              {bridges.length === 0 && !bridgeError && (
-                <small className="form-hint">
-                  Tanımlı bridge yok. Aşağıdaki “Bridge Ekle” ile kurulum
-                  başlatabilirsiniz.
-                </small>
-              )}
             </div>
           </div>
 
@@ -1021,34 +962,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     </div>
                   )}
 
-                  {/* Bağlantının hangi yoldan okunduğu. Bridge çevrimdışıyken
-                      analiz başlamıyor; kullanıcının sebebi görebileceği tek
-                      yer burası. */}
+                  {/* Sorgunun hangi yoldan gittiği. Bağlantı başına bir seçim
+                      değil, şirket geneli bir durum: çevrimiçi masaüstü
+                      uygulaması varsa hepsi oradan okunuyor. */}
                   {(() => {
-                    const bridge = bridgeOf(connection.savedConnectionId || connection.id);
-                    if (!bridge) {
-                      return (
-                        <div className="detail-item">
-                          <i className="ti ti-cloud"></i>
-                          <span>Doğrudan bağlantı</span>
-                        </div>
-                      );
-                    }
+                    const bridge = onlineBridge();
 
-                    return (
+                    return bridge ? (
                       <div className="detail-item">
                         <i className="ti ti-transfer"></i>
-                        <span>{bridge.name || bridge.machineName || 'Bridge'}</span>
-                        <span
-                          className={`badge ${bridge.online ? 'badge-success' : 'badge-danger'}`}
-                          title={
-                            bridge.lastSeenAt
-                              ? `Son görülme: ${new Date(bridge.lastSeenAt).toLocaleString('tr-TR')}`
-                              : 'Henüz hiç bağlanmadı'
-                          }
-                        >
-                          {bridge.online ? 'Çevrimiçi' : 'Çevrimdışı'}
-                        </span>
+                        <span>{bridge.name || bridge.machineName || "Masaüstü uygulaması"}</span>
+                        <span className="badge badge-success">Çevrimiçi</span>
+                      </div>
+                    ) : (
+                      <div className="detail-item">
+                        <i className="ti ti-cloud"></i>
+                        <span>Doğrudan bağlantı</span>
                       </div>
                     );
                   })()}

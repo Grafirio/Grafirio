@@ -1,5 +1,6 @@
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Grafirio.Shared.Identity.Extensions;
@@ -65,6 +66,8 @@ public static class SavedConnectionEndpoints
         [FromBody] SaveConnectionRequest request,
         [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
+        [FromServices] BridgeConnectionSync bridgeSync,
+        [FromServices] BridgeRegistry bridgeRegistry,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
@@ -112,7 +115,10 @@ public static class SavedConnectionEndpoints
                 existingConnection.UpdatedAt = DateTime.UtcNow;
                 
                 await db.SaveChangesAsync();
-                
+
+                await PushToBridgeAsync(
+                    bridgeSync, bridgeRegistry, logger, existingConnection.Id, existingConnection.CompanyId);
+
                 return Results.Ok(new
                 {
                     success = true,
@@ -143,6 +149,9 @@ public static class SavedConnectionEndpoints
             db.SavedConnections.Add(connection);
             await db.SaveChangesAsync();
 
+            await PushToBridgeAsync(
+                bridgeSync, bridgeRegistry, logger, connection.Id, connection.CompanyId);
+
             logger.LogInformation("Connection saved successfully: {ConnectionId}", connection.Id);
 
             return Results.Ok(new
@@ -156,6 +165,38 @@ public static class SavedConnectionEndpoints
         {
             logger.LogError(ex, "Error saving connection");
             return Results.Problem("Bağlantı kaydedilemedi: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Baglanti tanimini sirketin cevrimici bridge'ine iletir.
+    ///
+    /// Bu adim ZORUNLU: bridge yalnizca kendi deposunda tanimli baglantilara
+    /// sorgu calistiriyor. Gonderilmezse yeni kaydedilen baglanti, bridge bir
+    /// sonraki yeniden baglanmasina kadar "bu baglanti bridge uzerinde tanimli
+    /// degil" ile duser — kullanicinin anlayamayacagi bir hata.
+    ///
+    /// Hata yutuluyor ama loglaniyor: tanim gonderilemedi diye KAYIT
+    /// basarisiz sayilmamali. Baglanti Postgres'te duruyor ve bridge
+    /// baglandiginda hepsi yeniden gonderiliyor; yani bu, kendi kendini
+    /// onaran bir eksiklik.
+    /// </summary>
+    private static async Task PushToBridgeAsync(
+        BridgeConnectionSync bridgeSync,
+        BridgeRegistry bridgeRegistry,
+        ILogger logger,
+        Guid connectionId,
+        string companyId)
+    {
+        try
+        {
+            await bridgeSync.SyncOneAsync(connectionId, companyId, bridgeRegistry);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Bağlantı tanımı bridge'e gönderilemedi: {ConnectionId}. " +
+                "Bridge bağlandığında yeniden gönderilecek.", connectionId);
         }
     }
 
@@ -317,6 +358,8 @@ public static class SavedConnectionEndpoints
         [FromBody] UpdateConnectionRequest request,
         [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
+        [FromServices] BridgeConnectionSync bridgeSync,
+        [FromServices] BridgeRegistry bridgeRegistry,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
@@ -356,6 +399,11 @@ public static class SavedConnectionEndpoints
 
             await db.SaveChangesAsync();
 
+            // Degisen tanim bridge'e de gitmeli: sifre ya da host degistiginde
+            // bridge eski bilgiyle sorgu calistirmaya devam ederdi.
+            await PushToBridgeAsync(
+                bridgeSync, bridgeRegistry, logger, connection.Id, connection.CompanyId);
+
             logger.LogInformation("Connection updated: {ConnectionId}", id);
 
             return Results.Ok(new { success = true, message = "Bağlantı güncellendi" });
@@ -371,6 +419,8 @@ public static class SavedConnectionEndpoints
         Guid id,
         [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
+        [FromServices] BridgeConnectionSync bridgeSync,
+        [FromServices] BridgeRegistry bridgeRegistry,
         [FromServices] ILogger<SaveConnectionRequest> logger)
     {
         try
@@ -398,6 +448,18 @@ public static class SavedConnectionEndpoints
             connection.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync();
+
+            // Silinen baglantiyi bridge de unutmali. Aksi halde tanim (ve
+            // sifre) musterinin diskinde kalmaya devam ederdi.
+            try
+            {
+                await bridgeSync.ForgetAsync(id, connection.CompanyId, bridgeRegistry);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Silinen bağlantı bridge'e bildirilemedi: {ConnectionId}", id);
+            }
 
             logger.LogInformation("Connection deleted: {ConnectionId}", id);
 

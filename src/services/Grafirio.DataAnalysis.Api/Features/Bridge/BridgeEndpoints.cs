@@ -63,11 +63,14 @@ public static class BridgeEndpoints
         managed.MapDelete("/{bridgeId:guid}", RevokeBridge)
             .WithDescription("Bridge'in erişimini iptal eder");
 
-        managed.MapPut("/connections/{connectionId:guid}", BindConnection)
-            .WithDescription("Bağlantının hangi bridge üzerinden okunacağını belirler");
-
-        managed.MapGet("/connections", ListBindings)
-            .WithDescription("Hangi bağlantının hangi bridge'e bağlı olduğunu listeler");
+        // Baglanti → bridge eslestirme uclari KALDIRILDI.
+        //
+        // Yol artik secilmiyor, tureniyor: sirketin cevrimici bir bridge'i
+        // varsa sorgular oradan gidiyor (bkz. DataSourceFactory.ResolveRouteAsync).
+        // Kullaniciya "bu baglanti hangi makineden okunsun" diye sormanin
+        // karsiligi yoktu — masaustu uygulamasini kuran biri, zaten
+        // veritabanina buluttan ulasilamadigi icin kuruyor. Eslestirme
+        // yapilmadiginda ise kurulum sessizce ise yaramiyordu.
     }
 
     /// <summary>
@@ -163,23 +166,6 @@ public static class BridgeEndpoints
         }));
     }
 
-    private static async Task<IResult> ListBindings(
-        BridgeStore store,
-        IIdentityService identity,
-        CancellationToken ct)
-    {
-        if (CompanyOf(identity) is not { } companyId)
-            return Results.BadRequest(new { error = "Token'da şirket bilgisi yok." });
-
-        var bindings = await store.GetBindingsAsync(companyId, ct);
-
-        return Results.Ok(bindings.Select(kv => new
-        {
-            connectionId = kv.Key,
-            bridgeId = kv.Value
-        }));
-    }
-
     private static async Task<IResult> RevokeBridge(
         Guid bridgeId,
         BridgeStore store,
@@ -200,56 +186,6 @@ public static class BridgeEndpoints
 
         return Results.NoContent();
     }
-
-    private static async Task<IResult> BindConnection(
-        Guid connectionId,
-        [FromBody] BindConnectionRequest request,
-        BridgeStore store,
-        DataAnalysisDbContext db,
-        BridgeConnectionSync sync,
-        BridgeRegistry registry,
-        IIdentityService identity,
-        CancellationToken ct)
-    {
-        if (CompanyOf(identity) is not { } companyId)
-            return Results.BadRequest(new { error = "Token'da şirket bilgisi yok." });
-
-        // Baglanti gercekten bu sirkete mi ait. Olmadan, baska bir sirketin
-        // baglanti kimligini bilen biri onu kendi bridge'ine yonlendirebilirdi.
-        var connection = await db.SavedConnections.FirstOrDefaultAsync(
-            c => c.Id == connectionId && c.CompanyId == companyId, ct);
-
-        if (connection is null) return Results.NotFound(new { error = "Bağlantı bulunamadı." });
-
-        if (request.BridgeId is { } bridgeId)
-        {
-            var bridges = await store.ListAsync(companyId, ct);
-            if (bridges.All(b => b.Id != bridgeId))
-                return Results.BadRequest(new { error = "Bridge bulunamadı." });
-        }
-
-        // Onceki bridge'e "bu baglantiyi unut" demek gerekiyor: sifrenin
-        // artik kullanilmayan bir bridge'in diskinde kalmasi, moddan
-        // cikmanin yarim kalmis hali olurdu.
-        var previousBridgeId = await store.GetBoundBridgeAsync(connectionId, ct);
-
-        await store.BindConnectionAsync(connectionId, companyId, request.BridgeId, ct);
-
-        if (previousBridgeId is { } previous && previous != request.BridgeId)
-            await sync.ForgetAsync(connectionId, previous, companyId, registry, ct);
-
-        // Tanimi yeni bridge'e gonder. Bridge cevrimdisiyse bu sessizce
-        // atlanir; baglandiginda hub zaten hepsini yolluyor.
-        if (request.BridgeId is { } target)
-            await sync.SyncOneAsync(connectionId, target, companyId, registry, ct);
-
-        return Results.Ok(new
-        {
-            connectionId,
-            mode = request.BridgeId is null ? "direct" : "bridge",
-            bridgeId = request.BridgeId
-        });
-    }
 }
 
 public record EnrollRequest(
@@ -258,4 +194,3 @@ public record EnrollRequest(
     string ProtocolVersion,
     string? Name = null);
 
-public record BindConnectionRequest(Guid? BridgeId);

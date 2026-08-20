@@ -10,12 +10,23 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// Baglanti tanimlarini bridge'e gonderir.
 ///
 /// Bridge yalnizca kendi yerel deposunda tanimli baglantilara sorgu
-/// calistiriyor; oraya nasil geldigi bu sinifin isi. Iki tetikleyici var ve
-/// ikisi de gerekli:
+/// calistiriyor; oraya nasil geldigi bu sinifin isi.
 ///
-///   * Panelden bir baglanti bridge'e baglandiginda.
-///   * Bridge her baglandiginda. Bu SART: baglama aninda bridge cevrimdisi
-///     olabilir, ayrica sifre ya da izin listesi sonradan degismis olabilir.
+/// <b>Kapsam sirket.</b> Bir bridge, sirketinin BUTUN baglantilarini aliyor.
+/// Onceden baglanti basina elle yapilan bir eslestirme vardi ve yalnizca
+/// eslesenler gonderiliyordu; o kavram kalkti, cunku kullaniciya "bu baglanti
+/// hangi makineden okunsun" diye sormanin karsiligi yoktu — masaustu
+/// uygulamasini kuran biri zaten veritabanina buluttan ulasilamadigi icin
+/// kuruyor.
+///
+/// Uc tetikleyici var ve ucu de gerekli:
+///
+///   * Bridge her baglandiginda (<see cref="SyncAllAsync"/>). Sifre ya da
+///     tablo secimi arada degismis olabilir.
+///   * Yeni bir baglanti kaydedildiginde ya da guncellendiginde
+///     (<see cref="SyncOneAsync"/>). Bu olmadan yeni baglanti, bridge bir
+///     sonraki yeniden baglanmasina kadar "tanimli degil" ile duserdi.
+///   * Baglanti silindiginde (<see cref="ForgetAsync"/>).
 ///
 /// Sifre burada cozulup kanaldan gonderiliyor ve bridge'in diskinde kaliyor.
 /// Bulut kalici bir kopya tutmuyor.
@@ -28,31 +39,28 @@ public class BridgeConnectionSync(
     ILogger<BridgeConnectionSync> logger)
 {
     /// <summary>
-    /// Bridge'e ait butun baglantilari yeniden gonderir. Bridge baglandiginda
-    /// cagriliyor.
+    /// Sirketin butun baglantilarini bridge'e yeniden gonderir. Bridge
+    /// baglandiginda cagriliyor.
     /// </summary>
     public async Task SyncAllAsync(
         Guid bridgeId, string companyId, string signalRConnectionId, CancellationToken ct = default)
     {
-        // Hub'in omru istek disi; DbContext scoped oldugu icin kendi kapsamı
+        // Hub'in omru istek disi; DbContext scoped oldugu icin kendi kapsami
         // aciliyor.
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
 
-        var bindings = await bridges.GetBindingsAsync(companyId, ct);
-        var connectionIds = bindings.Where(kv => kv.Value == bridgeId).Select(kv => kv.Key).ToList();
+        var connections = await db.SavedConnections
+            .Where(c => c.CompanyId == companyId && c.IsActive)
+            .ToListAsync(ct);
 
-        if (connectionIds.Count == 0)
+        if (connections.Count == 0)
         {
             logger.LogInformation(
-                "Bridge {BridgeId} için tanımlı bağlantı yok; gönderilecek bir şey de yok.",
+                "Bridge {BridgeId} için şirkette kayıtlı bağlantı yok; gönderilecek bir şey de yok.",
                 bridgeId);
             return;
         }
-
-        var connections = await db.SavedConnections
-            .Where(c => connectionIds.Contains(c.Id) && c.CompanyId == companyId)
-            .ToListAsync(ct);
 
         foreach (var connection in connections)
         {
@@ -74,19 +82,18 @@ public class BridgeConnectionSync(
             "Bridge {BridgeId} için {Count} bağlantı gönderildi.", bridgeId, connections.Count);
     }
 
-    /// <summary>Tek bir baglantiyi bagli bridge'e gonderir.</summary>
+    /// <summary>
+    /// Tek bir baglantiyi sirketin cevrimici bridge'ine gonderir. Kayit ve
+    /// guncelleme sonrasi cagriliyor.
+    /// </summary>
     public async Task SyncOneAsync(
-        Guid connectionId, Guid bridgeId, string companyId,
-        BridgeRegistry registry, CancellationToken ct = default)
+        Guid connectionId, string companyId, BridgeRegistry registry, CancellationToken ct = default)
     {
-        if (!registry.IsOnline(bridgeId))
+        if (await OnlineBridgeAsync(companyId, registry, ct) is not { } bridgeId)
         {
             // Cevrimdisi bir bridge'e gonderemeyiz; baglandiginda SyncAllAsync
-            // zaten hepsini yollayacak. Sessiz kalmiyoruz ki kullanici
-            // "neden hemen calismadi" sorusunun cevabini logda bulabilsin.
-            logger.LogInformation(
-                "Bridge {BridgeId} çevrimdışı; bağlantı tanımı o bağlandığında gönderilecek.",
-                bridgeId);
+            // zaten hepsini yollayacak. Sirkette hic bridge yoksa da normal:
+            // sorgular buluttan dogrudan gidiyor.
             return;
         }
 
@@ -97,17 +104,31 @@ public class BridgeConnectionSync(
             registry.ConnectionIdOf(bridgeId, companyId), connectionId, companyId, db, ct);
     }
 
-    /// <summary>Baglantiyi bridge'e unutturur.</summary>
+    /// <summary>Baglantiyi bridge'e unutturur. Silme sonrasi cagriliyor.</summary>
     public async Task ForgetAsync(
-        Guid connectionId, Guid bridgeId, string companyId,
-        BridgeRegistry registry, CancellationToken ct = default)
+        Guid connectionId, string companyId, BridgeRegistry registry, CancellationToken ct = default)
     {
-        if (!registry.IsOnline(bridgeId)) return;
+        if (await OnlineBridgeAsync(companyId, registry, ct) is not { } bridgeId) return;
 
         await hub.Clients.Client(registry.ConnectionIdOf(bridgeId, companyId))
             .SendAsync(
                 BridgeProtocol.ServerToBridge.RemoveConnection,
                 new RemoveConnectionRequest(connectionId), ct);
+    }
+
+    /// <summary>
+    /// Sirketin cevrimici bridge'i; yoksa <c>null</c>. Yol secimiyle ayni
+    /// kural — bkz. <c>DataSourceFactory.ResolveRouteAsync</c>.
+    /// </summary>
+    private async Task<Guid?> OnlineBridgeAsync(
+        string companyId, BridgeRegistry registry, CancellationToken ct)
+    {
+        foreach (var bridge in await bridges.ListAsync(companyId, ct))
+        {
+            if (registry.IsOnline(bridge.Id)) return bridge.Id;
+        }
+
+        return null;
     }
 
     private async Task SendAsync(

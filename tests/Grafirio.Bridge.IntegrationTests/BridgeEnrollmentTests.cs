@@ -79,24 +79,9 @@ public class BridgeEnrollmentTests(MongoFixture mongo) : IClassFixture<MongoFixt
         Assert.DoesNotContain(list, b => b.MachineName == "SRV-B");
     }
 
-    [SkippableFact]
-    public async Task Baglanti_bridge_e_baglanip_cozuluyor()
-    {
-        Skip.IfNot(mongo.Available, mongo.SkipReason);
-
-        var store = Store();
-        var connectionId = Guid.NewGuid();
-        var bridgeId = Guid.NewGuid();
-        await store.RegisterAsync(bridgeId, "firma-a", "Merkez", "SRV-01", "1.0.0");
-
-        // Başlangıçta bağlı değil: yani doğrudan bağlantı.
-        Assert.Null(await store.GetBoundBridgeAsync(connectionId));
-
-        await store.BindConnectionAsync(connectionId, "firma-a", bridgeId);
-        Assert.Equal(bridgeId, await store.GetBoundBridgeAsync(connectionId));
-
-        // null'a çevirmek bağlantıyı doğrudan moda geri döndürmeli.
-        await store.BindConnectionAsync(connectionId, "firma-a", null);
-        Assert.Null(await store.GetBoundBridgeAsync(connectionId));
-    }
+    // "Baglanti_bridge_e_baglanip_cozuluyor" testi KALDIRILDI: olctugu kavram
+    // — baglanti basina bridge eslestirmesi — artik yok. Yol secilmiyor,
+    // tureniyor: sirketin cevrimici bir bridge'i varsa butun baglantilari
+    // oradan okunuyor (bkz. DataSourceFactory.ResolveRouteAsync). Sirket
+    // suzgecinin dogru calistigini yukaridaki ListAsync testi olcuyor.
 }

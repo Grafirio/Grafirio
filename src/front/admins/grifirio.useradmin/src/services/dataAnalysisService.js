@@ -44,11 +44,12 @@ export const normalizeHostAndPort = (host, port) => {
 /**
  * Kayıtlı bir bağlantıya ulaşılabiliyor mu.
  *
- * Kimlik bilgisi değil bağlantı KİMLİĞİ gönderiliyor. Sebebi mimari: sorgunun
- * hangi yoldan gideceği (doğrudan mı, bridge üzerinden mi) bağlantının bridge
- * eşleşmesine bağlı, eşleşme de kimliğine. Ham host/kullanıcı/şifre gönderen
- * eski uç bu yüzden bridge'i hiç kullanamıyor, firewall arkasındaki her
- * veritabanı için hep başarısız oluyordu.
+ * Kimlik bilgisi değil bağlantı KİMLİĞİ gönderiliyor. Sebebi mimari: test,
+ * sorgunun gerçekte gideceği yoldan gitmeli — şirketin çevrimiçi bir masaüstü
+ * uygulaması varsa oradan, yoksa buluttan. Ham host/kullanıcı/şifre gönderen
+ * eski uç bunu yapamıyor, firewall arkasındaki her veritabanı için hep
+ * başarısız oluyordu; test geçmeden kayıt da yapılmadığı için o bağlantılar
+ * hiç kaydedilemiyordu.
  *
  * Bu yüzden sıra da değişti: önce kaydet, sonra test et.
  */
@@ -391,10 +392,14 @@ export const getSelectedTables = async (connectionId) => {
    erişilemiyor. Bridge yönü çeviriyor — bağlantıyı müşterinin sunucusu
    dışarı doğru kurar, firewall'da hiçbir port açılmaz.
 
-   Panelin bu uçlarla tek işi var: hangi bağlantının hangi bridge
-   üzerinden okunacağını belirlemek. Kurulumun kendisi panelden
-   geçmiyor — bridge açılışta kendi kodunu gösteriyor ve onay
-   Keycloak'ın device flow ekranında veriliyor.
+   Panelin bu uçlarla işi kurulumu başlatmak ve durumu göstermekle sınırlı.
+   Hangi bağlantının hangi makineden okunacağı SORULMUYOR: şirketin
+   çevrimiçi bir bridge'i varsa hepsi oradan okunuyor. Eşleştirme uçları
+   bu yüzden kaldırıldı — kullanıcıya sorulacak bir soru değildi ve
+   yapılmadığında kurulum sessizce işe yaramıyordu.
+
+   Kurulumun kendisi panelden geçmiyor — bridge açılışta kendi kodunu
+   gösteriyor ve onay Keycloak'ın device flow ekranında veriliyor.
 ───────────────────────────────────────────────────────────── */
 
 /** Şirketin bridge'leri ve çevrimiçi durumları. */
@@ -429,23 +434,3 @@ export const revokeBridge = async (bridgeId) => {
   return response.data;
 };
 
-/**
- * Bağlantının hangi yoldan okunacağını belirler.
- * `bridgeId` null verilirse bağlantı doğrudan moda döner.
- */
-export const bindConnectionToBridge = async (connectionId, bridgeId) => {
-  const response = await axios.put(
-    `${API_BASE_URL}/api/bridges/connections/${connectionId}`,
-    { bridgeId: bridgeId ?? null },
-    { timeout: 15000 }
-  );
-  return response.data;
-};
-
-/** Hangi bağlantının hangi bridge'e bağlı olduğu. Tek çağrı — kart başına değil. */
-export const getBridgeBindings = async () => {
-  const response = await axios.get(
-    `${API_BASE_URL}/api/bridges/connections`, { timeout: 15000 }
-  );
-  return response.data;
-};
