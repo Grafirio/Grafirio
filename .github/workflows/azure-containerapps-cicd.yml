@@ -67,14 +67,24 @@ jobs:
           filters: |
             pycaret-engine:
               - 'src/ai/ai-service-pycaret-engine/**'
+            # Paylasilan kutuphanelerin surumu shared-packages.ref'te sabit ve
+            # asagidaki dort servisin hepsi ondan derleniyor. Dosya degisince
+            # HEPSI birlikte yeniden derlenmeli: yarisi yeni yarisi eski
+            # kutuphaneyle kalirsa ayni sistemde iki farkli sozlesme olusur ve
+            # bu, sessizce yanlis calisan bir sistem demek. 2026-08-20'de tam
+            # olarak bu yasandi. Ayrintisi: shared-packages.md
             identity-api:
               - 'src/services/Grafirio.Identity.Api/**'
+              - 'shared-packages.ref'
             commerce-api:
               - 'src/services/Grafirio.Commerce.Api/**'
+              - 'shared-packages.ref'
             data-analysis-api:
               - 'src/services/Grafirio.DataAnalysis.Api/**'
+              - 'shared-packages.ref'
             gateway:
               - 'src/services/Grafirio.Gateway/**'
+              - 'shared-packages.ref'
             # Paylasilan tema bu iki uygulamanin icine derleniyor; degisince
             # ikisi de yeniden yayinlanmali, yoksa renk canliya cikmaz.
             frontend:
@@ -218,7 +228,18 @@ jobs:
           # .NET imajlari paylasilan paketleri artik kaynagindan derliyor
           # (bkz. ilgili Dockerfile'lar), bu yuzden derlemenin hicbir pakete
           # ozel kimlik bilgisine ihtiyaci yok.
+          #
+          # Hangi surumun derlenecegi shared-packages.ref'te yaziyor ve buradan
+          # geciriliyor. Dockerfile'daki varsayilan "main" DEGIL: dal takip
+          # etmek, servislerin farkli zamanlarda derlenip birbirinden
+          # ayrismasina yol aciyordu. Ref .NET disi imajlarda kullanilmiyor;
+          # bilinmeyen build-arg zararsiz ve tek bir build komutu tutmak
+          # matrisi basit tutuyor.
+          shared_ref="$(tr -d '[:space:]' < shared-packages.ref)"
+          echo "Paylasilan paket ref: $shared_ref"
+
           docker build -t "$full_image" \
+            --build-arg "SHARED_PACKAGES_REF=$shared_ref" \
             -f "${{ matrix.service.dockerfile }}" "${{ matrix.service.context }}"
 
           echo "Pushing $full_image"

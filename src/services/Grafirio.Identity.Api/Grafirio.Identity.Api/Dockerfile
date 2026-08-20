@@ -13,6 +13,14 @@ COPY ["src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Grafirio.Identit
 # istiyor ve CI'da calisan bir kimlik bulunamadi. Kaynak deposu public oldugu
 # icin paketleri burada kaynagindan derleyip yerel bir feed olarak kullaniyoruz;
 # boylece derleme hicbir token'a bagli kalmiyor.
+# Hangi surumun derlenecegi. CI bunu shared-packages.ref dosyasindan
+# --build-arg ile GECIYOR; buradaki "main" yalnizca elle derleme icin.
+#
+# Dal DEGIL commit sabitlemenin sebebi somut: CI yalnizca dosyasi degisen
+# servisi yeniden derliyor, dolayisiyla "main" kullanildiginda Packages
+# ilerledikce servisler birbirinden ayrisiyordu — biri yeni kutuphaneyle,
+# otekiler eskisiyle. Ayrica bu depoda hicbir sey degismeden derleme
+# kirilabiliyordu. Ayrintisi: shared-packages.md
 ARG SHARED_PACKAGES_REF=main
 
 # Tarball RUN degil ADD ile aliniyor. RUN satiri degismedigi icin Docker onu
@@ -26,7 +34,7 @@ ARG SHARED_PACKAGES_REF=main
 # korunuyor. Commit bilgisini ayrica sorgulamak yerine dogrudan tarball
 # kullaniliyor — tek indirme, ayrica GitHub API'nin kimliksiz saatlik
 # limitine takilma riski yok (takilsaydi butun derlemeler patlardi).
-ADD https://github.com/Grafirio/Packages/archive/refs/heads/${SHARED_PACKAGES_REF}.tar.gz /tmp/shared-packages.tar.gz
+ADD https://github.com/Grafirio/Packages/archive/${SHARED_PACKAGES_REF}.tar.gz /tmp/shared-packages.tar.gz
 
 # Tarball, dal adindaki "/" karakterini "-" yaparak aciliyor: "feat/x" klasoru
 # "Packages-feat-x" olarak cikiyor, yani klasor adi ref ile birebir ayni degil.
