@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getTables } from '../../services/dataAnalysisService';
 import './TableList.css';
 
-const TableList = ({ connectionInfo, onTableSelect, multiSelect = false, selectedTables = [] }) => {
+// Bileşen artık ham bağlantı bilgisi değil bağlantı KİMLİĞİ alıyor: tablo
+// listesi ucu kimlikle çalışıyor, böylece bridge üzerinden okunan bağlantılar
+// da listelenebiliyor ve veritabanı parolasının tarayıcıya inmesi gerekmiyor.
+const TableList = ({ connectionId, onTableSelect, multiSelect = false, selectedTables = [] }) => {
   const [tables, setTables] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -11,18 +14,18 @@ const TableList = ({ connectionInfo, onTableSelect, multiSelect = false, selecte
   const [checkedTables, setCheckedTables] = useState(selectedTables);
 
   useEffect(() => {
-    if (connectionInfo) {
+    if (connectionId) {
       loadTables();
     }
-  }, [connectionInfo]);
+  }, [connectionId]);
 
   const loadTables = async () => {
     setIsLoading(true);
     setError('');
 
     try {
-      const result = await getTables(connectionInfo);
-      
+      const result = await getTables(connectionId);
+
       if (result.success) {
         setTables(result.tables);
       } else {

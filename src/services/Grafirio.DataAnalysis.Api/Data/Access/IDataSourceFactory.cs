@@ -22,8 +22,16 @@ public interface IDataSourceFactory
     /// <summary>
     /// "Test Et": baglanilabiliyor mu. Hata firlatmaz — basarisizlik da bir
     /// cevaptir ve kullaniciya sebebiyle birlikte gosterilir.
+    ///
+    /// Kayitli baglanti aliyor, ham kimlik bilgisi DEGIL. Onceden
+    /// <see cref="DataSourceTarget"/> aliyordu ve bu, testin bridge'i hic
+    /// kullanamamasi demekti: yol secimi baglantinin bridge esleşmesine bagli,
+    /// esleşme de baglantinin kimligine. Sonucu somuttu — firewall arkasindaki
+    /// bir veritabani icin "Test Et" HER ZAMAN basarisiz oluyordu, bridge
+    /// kurulu ve cevrimici olsa bile; arayuz kaydi teste bagladigi icin o
+    /// baglanti hic kaydedilemiyordu.
     /// </summary>
-    Task<ProbeResult> ProbeAsync(DataSourceTarget target, CancellationToken ct = default);
+    Task<ProbeResult> ProbeAsync(SavedConnection connection, CancellationToken ct = default);
 }
 
 public sealed record ProbeResult(bool Success, string Message);
@@ -70,17 +78,31 @@ public sealed class DataSourceFactory(
     }
 
     public async Task<ProbeResult> ProbeAsync(
-        DataSourceTarget target, CancellationToken ct = default)
+        SavedConnection connection, CancellationToken ct = default)
     {
-        // Kullanici adi ve sifre loglanmiyor; host/veritabani teshis icin gerekli.
-        _logger.LogInformation("Bağlantı deneniyor: {Target}", target);
+        var bridgeId = await bridges.GetBoundBridgeAsync(connection.Id, ct);
+        var route = bridgeId is null ? "doğrudan" : $"bridge {bridgeId}";
 
+        // Kullanici adi ve sifre loglanmiyor; host/veritabani teshis icin gerekli.
+        _logger.LogInformation(
+            "Bağlantı deneniyor ({Route}): {Target}",
+            route, DataSourceTarget.From(connection));
+
+        // Dogrudan yolda baglantiyi acabilmek yeterli bir kanit; bridge
+        // yolunda degil. Orada kanal ayakta olsa bile bridge veritabanina
+        // ulasamiyor ya da baglantiyi henuz tanimiyor olabilir, ve bunlarin
+        // ikisi de ancak gercek bir sorgu gonderilince ortaya cikar. Tek ve
+        // ayni kanit ikisinde de kullaniliyor: calisan bir SELECT.
         try
         {
-            await using var session = await DirectDataSourceSession.OpenAsync(
-                target, DataSourceTarget.ProbeConnectTimeoutSeconds, ct);
+            await using var session = await OpenProbeSessionAsync(connection, bridgeId, ct);
 
-            return new ProbeResult(true, "Bağlantı başarılı");
+            await session.ScalarAsync<int>(
+                "SELECT 1", timeoutSeconds: DataSourceTarget.ProbeConnectTimeoutSeconds, ct: ct);
+
+            return new ProbeResult(true, bridgeId is null
+                ? "Bağlantı başarılı"
+                : "Bağlantı başarılı (bridge üzerinden)");
         }
         catch (SqlException ex)
         {
@@ -89,8 +111,29 @@ public sealed class DataSourceFactory(
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Bağlantı kurulamadı");
+            _logger.LogWarning(ex, "Bağlantı kurulamadı ({Route})", route);
             return new ProbeResult(false, $"Bağlantı kurulamadı: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Test icin oturum. <see cref="OpenAsync(SavedConnection, CancellationToken)"/>
+    /// ile ayni yol secimini yapiyor; tek fark dogrudan yolda kullanilan
+    /// zaman asimi. Kullanici ekranin basinda bekliyor, yanlis yazilmis bir
+    /// host icin yarim dakika beklemesinin anlami yok.
+    /// </summary>
+    private async Task<IDataSourceSession> OpenProbeSessionAsync(
+        SavedConnection connection, Guid? bridgeId, CancellationToken ct)
+    {
+        if (bridgeId is null)
+        {
+            return await DirectDataSourceSession.OpenAsync(
+                DataSourceTarget.From(connection),
+                DataSourceTarget.ProbeConnectTimeoutSeconds, ct);
+        }
+
+        return new BridgeDataSourceSession(
+            bridgeId.Value, connection.Id, connection.CompanyId, hub, registry,
+            loggerFactory.CreateLogger<BridgeDataSourceSession>());
     }
 }
