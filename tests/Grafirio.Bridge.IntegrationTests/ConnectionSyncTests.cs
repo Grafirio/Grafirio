@@ -45,7 +45,7 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
     }
 
     /// <summary>Gerçek bir kayıtlı bağlantı yazar; şifresi AES ile şifreli.</summary>
-    private async Task<Guid> SeedConnectionAsync()
+    private async Task<Guid> SeedConnectionAsync(string? companyId = null)
     {
         await using var db = postgres.CreateContext();
 
@@ -53,7 +53,7 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
         {
             Id = Guid.NewGuid(),
             UserId = PostgresFixture.TestUserId,
-            CompanyId = CompanyId,
+            CompanyId = companyId ?? CompanyId,
             Name = "Sync Test",
             Host = "127.0.0.1",
             Port = 1433,
@@ -211,11 +211,9 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
 
         await using var harness = await StartAsync();
 
-        // Eşlemeyi bridge bağlandıktan SONRA değil, önce yazmalıyız ki
-        // OnConnectedAsync onu görsün. Bu yüzden bridge yeniden bağlanıyor.
-        var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        await store.BindConnectionAsync(connectionId, CompanyId, harness.BridgeId);
-
+        // Eslestirme YOK: baglanti sirkete ait oldugu icin bridge
+        // baglandiginda kendiliginden iniyor. Yeniden baglanmanin sebebi,
+        // baglantinin harness ayaga kalktiktan sonra tohumlanmis olmasi.
         await harness.Client.StopAsync();
         await harness.Client.StartAsync();
 
@@ -250,9 +248,6 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
 
         await using var harness = await StartAsync();
 
-        var store = new BridgeStore(mongo.Database, NullLogger<BridgeStore>.Instance);
-        await store.BindConnectionAsync(connectionId, CompanyId, harness.BridgeId);
-
         await harness.Client.StopAsync();
         await harness.Client.StartAsync();
 
@@ -267,13 +262,18 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
     }
 
     [SkippableFact]
-    public async Task Bagli_olmayan_baglanti_gonderilmiyor()
+    public async Task Baska_sirketin_baglantisi_gonderilmiyor()
     {
         SkipUnlessReady();
 
-        // Eşlemesi olmayan bir bağlantı bridge'e inmemeli: aksi hâlde
-        // müşterinin sunucusunda kullanılmayan şifreler birikirdi.
-        var connectionId = await SeedConnectionAsync();
+        // Kapsam artik sirket: bridge, sirketinin BUTUN baglantilarini aliyor.
+        // Sinir tam da burada olmali — baska bir sirketin baglantisi inerse,
+        // o musterinin veritabani sifresi baskasinin diskine yazilmis olurdu.
+        //
+        // Bu test, kaldirilan "eslesmemis baglanti gonderilmiyor" testinin
+        // yerini aliyor: eslestirme kavrami kalkti ama korunmasi gereken
+        // gercek ozellik buydu.
+        var foreignConnectionId = await SeedConnectionAsync("baska-firma");
 
         await using var harness = await StartAsync();
 
@@ -281,6 +281,6 @@ public class ConnectionSyncTests(MongoFixture mongo, PostgresFixture postgres, S
         await harness.Client.StartAsync();
         await Task.Delay(1500);
 
-        Assert.Null(harness.State.FindConnection(connectionId));
+        Assert.Null(harness.State.FindConnection(foreignConnectionId));
     }
 }

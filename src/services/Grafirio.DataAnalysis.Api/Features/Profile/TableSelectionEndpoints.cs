@@ -1,5 +1,6 @@
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,9 @@ public static class TableSelectionEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ConnectionProfileStore store,
         [FromServices] IIdentityService identity,
+        [FromServices] BridgeConnectionSync sync,
+        [FromServices] BridgeRegistry registry,
+        [FromServices] ILogger<SelectedTablesRequest> logger,
         CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
@@ -75,6 +79,24 @@ public static class TableSelectionEndpoints
 
         foreach (var config in stale) config.IsActive = false;
         if (stale.Count > 0) await db.SaveChangesAsync(ct);
+
+        // Secim ayni zamanda bridge'in izin listesi: bridge, listede olmayan
+        // bir tabloya giden sorguyu bulut ne gonderirse gondersin reddediyor.
+        // Yeni secim gonderilmezse bridge eski listeyle calismaya devam eder —
+        // yani yeni secilen tablo, sebebi arayuzde gorunmeden reddedilir.
+        //
+        // Bu tetikleyici eskiden baglanti–bridge eslestirmesine bagliydi; o
+        // kavram kalkinca buraya tasindi.
+        try
+        {
+            await sync.SyncOneAsync(connectionId, scopedCompanyId, registry, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Tablo seçimi bridge'e gönderilemedi: {ConnectionId}. " +
+                "Bridge bağlandığında yeniden gönderilecek.", connectionId);
+        }
 
         return Results.Ok(new
         {

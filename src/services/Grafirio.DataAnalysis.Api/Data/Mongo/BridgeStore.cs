@@ -19,13 +19,9 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
     : Features.Bridge.IBridgePresence
 {
     public const string BridgeCollectionName = "Bridges";
-    public const string BindingCollectionName = "BridgeConnectionBindings";
 
     private IMongoCollection<BsonDocument> Bridges =>
         database.GetCollection<BsonDocument>(BridgeCollectionName);
-
-    private IMongoCollection<BsonDocument> Bindings =>
-        database.GetCollection<BsonDocument>(BindingCollectionName);
 
     /* ── Bridge kaydi ─────────────────────────────────────────────────── */
 
@@ -108,63 +104,6 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
             cancellationToken: ct);
 
         return result.ModifiedCount > 0;
-    }
-
-    /* ── Baglanti → bridge eslemesi ───────────────────────────────────── */
-
-    /// <summary>
-    /// Bir kayitli baglantinin hangi bridge uzerinden okunacagini yazar.
-    /// <paramref name="bridgeId"/> <c>null</c> ise baglanti dogrudan moda doner.
-    /// </summary>
-    public async Task BindConnectionAsync(
-        Guid connectionId, string companyId, Guid? bridgeId, CancellationToken ct = default)
-    {
-        await Bindings.UpdateOneAsync(
-            Builders<BsonDocument>.Filter.Eq("_id", connectionId.ToString()),
-            Builders<BsonDocument>.Update
-                .Set("companyId", companyId)
-                .Set("bridgeId", bridgeId?.ToString() ?? (BsonValue)BsonNull.Value)
-                .Set("updatedAt", DateTime.UtcNow),
-            new UpdateOptions { IsUpsert = true }, ct);
-
-        logger.LogInformation(
-            "Bağlantı {ConnectionId} artık {Mode} modunda.",
-            connectionId, bridgeId is null ? "doğrudan" : $"bridge ({bridgeId})");
-    }
-
-    /// <summary>
-    /// Baglanti bir bridge'e bagli mi. Bagli degilse <c>null</c> — yani
-    /// dogrudan baglanti.
-    /// </summary>
-    public async Task<Guid?> GetBoundBridgeAsync(Guid connectionId, CancellationToken ct = default)
-    {
-        var document = await Bindings
-            .Find(Builders<BsonDocument>.Filter.Eq("_id", connectionId.ToString()))
-            .FirstOrDefaultAsync(ct);
-
-        var value = document?.GetValue("bridgeId", BsonNull.Value);
-        return value is null || value == BsonNull.Value ? null : Guid.Parse(value.AsString);
-    }
-
-    /// <summary>
-    /// Sirketin butun baglanti eslemeleri, tek okumada.
-    ///
-    /// Panel her baglanti karti icin ayri bir istek atmasin diye toplu:
-    /// yirmi baglantisi olan bir sirkette bu, ekran acilisinda yirmi cagri
-    /// demek olurdu.
-    /// </summary>
-    public async Task<IReadOnlyDictionary<Guid, Guid>> GetBindingsAsync(
-        string companyId, CancellationToken ct = default)
-    {
-        var documents = await Bindings
-            .Find(Builders<BsonDocument>.Filter.And(
-                Builders<BsonDocument>.Filter.Eq("companyId", companyId),
-                Builders<BsonDocument>.Filter.Ne("bridgeId", BsonNull.Value)))
-            .ToListAsync(ct);
-
-        return documents.ToDictionary(
-            d => Guid.Parse(d["_id"].AsString),
-            d => Guid.Parse(d["bridgeId"].AsString));
     }
 
     private static RegisteredBridge Map(BsonDocument document) => new(
