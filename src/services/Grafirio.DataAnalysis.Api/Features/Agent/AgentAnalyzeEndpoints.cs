@@ -327,6 +327,13 @@ public static class AgentAnalyzeEndpoints
                 root["columns"] = columns;
             }
 
+            var tables = root["tables"] as JsonArray;
+            if (tables is null)
+            {
+                tables = [];
+                root["tables"] = tables;
+            }
+
             var remaining = new JsonArray();
 
             foreach (var node in questions)
@@ -343,7 +350,36 @@ public static class AgentAnalyzeEndpoints
 
                 var table = question["table"]?.GetValue<string>();
                 var column = question["column"]?.GetValue<string>();
-                if (column is null) continue;
+
+                // Kolonu olmayan soru, tablonun kendisi hakkindadir: "bu tablo
+                // ne tutuyor?". Yaniti tablonun `purpose` alanina yaziliyor —
+                // sorgu aninda tabloyu secen kural once oraya bakiyor.
+                if (column is null)
+                {
+                    if (table is null) continue;
+
+                    var tableEntry = tables.OfType<JsonObject>().FirstOrDefault(t =>
+                        string.Equals(t["name"]?.GetValue<string>(), table, StringComparison.OrdinalIgnoreCase));
+
+                    if (tableEntry is null)
+                    {
+                        tables.Add(new JsonObject
+                        {
+                            ["name"] = table,
+                            ["purpose"] = answer,
+                            ["confidence"] = "high",
+                            ["source"] = "user"
+                        });
+                    }
+                    else
+                    {
+                        tableEntry["purpose"] = answer;
+                        tableEntry["confidence"] = "high";
+                        tableEntry["source"] = "user";
+                    }
+
+                    continue;
+                }
 
                 var existing = columns.OfType<JsonObject>().FirstOrDefault(c =>
                     string.Equals(c["column"]?.GetValue<string>(), column, StringComparison.OrdinalIgnoreCase) &&
@@ -417,13 +453,19 @@ public static class AgentAnalyzeEndpoints
                         ? o.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToList()
                         : []))
                 .Where(q => q.Question.Length > 0)
-                // Bir kolona bagli olmayan soru, kolon anlamini sormuyor
-                // demektir — genellikle "raporda neyi gormek istersiniz"
-                // turunden bir tercih sorusu. Onlar sorgu anininin isi.
-                .Where(q => !string.IsNullOrWhiteSpace(q.Column))
-                // Ayni kolon icin birden fazla soru sorulmasin.
+                // Kolonu bos olan soru tablonun kendisi hakkindadir ("bu tablo
+                // ne tutuyor?") ve sorulmasi gerekir; yanlis tablo secmek
+                // yanlis kolon secmekten pahali. Ne tabloya ne kolona bagli
+                // olan soru ise bir tercih sorusudur — "raporda neyi gormek
+                // istersiniz" turunden — ve sorgu aninin isi.
+                .Where(q => !string.IsNullOrWhiteSpace(q.Table))
+                // Ayni tablo/kolon icin birden fazla soru sorulmasin.
                 .GroupBy(q => $"{q.Table}.{q.Column}", StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
+                // Tablo sorulari once: kolon anlamini bilmek, yanlis tablodan
+                // okundugunda ise yaramiyor. Tavana dayanilirsa kirpilanlar
+                // kolon sorulari olsun.
+                .OrderBy(q => string.IsNullOrWhiteSpace(q.Column) ? 0 : 1)
                 // Kurulum adimi bir ankete donusmesin.
                 .Take(MaxQuestions)
                 .ToList();
