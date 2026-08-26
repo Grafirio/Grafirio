@@ -124,9 +124,14 @@ public class LlmAnalysisService
         çıkarılmış tablo profili var: kolon adları, tipler, istatistikler ve —
         gizlilik politikasının izin verdiği kolonlarda — örnek değerler.
 
-        Görevin bu veritabanının SÖZLÜĞÜNÜ çıkarmak: her kolonun ne işe
-        yaradığını yaz. Çözemediğin kolonlar için veritabanını bilen kişiye
-        soru sor.
+        Görevin bu veritabanının SÖZLÜĞÜNÜ çıkarmak: her TABLONUN ve her
+        KOLONUN ne işe yaradığını yaz. Çözemediklerin için veritabanını bilen
+        kişiye soru sor.
+
+        Tablolar kolonlar kadar önemli. Kullanıcı "ithalatta en çok hangi
+        ülke" diye sorduğunda sistemin önce doğru TABLOYU seçmesi gerekiyor;
+        bunu yapabilmesinin tek yolu, senin burada her tablonun ne olduğunu ve
+        kullanıcının ondan nasıl bahsedeceğini yazmandır.
 
         ## Profil
         ```json
@@ -135,19 +140,37 @@ public class LlmAnalysisService
 
         ## Sözlük kuralları
         1. YALNIZCA profilde geçen tablo ve kolon adlarını kullan. Ad uydurma.
-        2. Kolonun adı yanıltıcı olabilir, içeriği olmaz — örnek değerlere bak.
+        2. Adı yanıltıcı olabilir, içeriği olmaz — örnek değerlere bak.
         3. Her kolon için kullanıcının o alandan bahsederken kullanabileceği
            Türkçe karşılıkları yaz.
+        4. Her TABLO için de aynısını yap: ne tuttuğunu, bir satırının neyi
+           temsil ettiğini ve kullanıcının o tablodan bahsederken
+           kullanabileceği Türkçe ifadeleri yaz.
+        5. Tablo adlarındaki kalıpları çöz. Önekler genellikle bir aileyi
+           (kaynak sistem, modül), gövde ise konuyu anlatır. Aynı öneki
+           paylaşan tablolar akrabadır; adları yalnızca bir kelimede ayrışan
+           tablolar (Import/Export, In/Out, Order/Offer gibi) birbirinin
+           KARŞITIDIR ve karıştırılmaları en pahalı hatadır. Böyle çiftleri
+           fark ettiğinde her birinin `synonyms` alanını, kullanıcının hangi
+           kelimeyi kullanırsa hangisini kastedeceği ayırt edilecek şekilde
+           doldur.
+        6. Profildeki `relationships` bilgisini kullan: bir tablonun hangi
+           tablolarla bağlantılı olduğunu `relatedTables` alanına yaz.
 
         ## Soru kuralları — bunlara harfiyen uy
 
-        Soru sormanın TEK sebebi var: bir kolonun ne olduğunu çözememek.
+        Soru sormanın TEK sebebi var: bir TABLONUN ya da bir KOLONUN ne
+        olduğunu çözememek.
 
-        - Her soru TEK bir kolon hakkında olacak ve o kolonun adını içerecek.
-        - Kalıp şu: "<Tablo> tablosunda <Kolon> alanını görüyorum, ne işe
-          yaradığını çözemedim. Aşağıdakilerden hangisi?"
-        - Şıklar o alanın OLABİLECEĞİ anlamlar olacak. Kısa, somut, en fazla
-          5 kelime. Sonuncu şık her zaman "Başka bir şey".
+        - Her soru TEK bir tablo ya da TEK bir kolon hakkında olacak ve o
+          tablonun/kolonun adını içerecek.
+        - Kolon sorusunda `column` alanını doldur, kalıp şu: "<Tablo>
+          tablosunda <Kolon> alanını görüyorum, ne işe yaradığını çözemedim.
+          Aşağıdakilerden hangisi?"
+        - Tablo sorusunda `column` alanını null bırak, kalıp şu: "<Tablo>
+          tablosunun ne tuttuğunu çözemedim. Aşağıdakilerden hangisi?"
+        - Şıklar o alanın/tablonun OLABİLECEĞİ anlamlar olacak. Kısa, somut,
+          en fazla 5 kelime. Sonuncu şık her zaman "Başka bir şey".
         - Soru TEK cümle olacak. Parantez içi açıklama, "yani", "örneğin"
           zincirleri yok. Veritabanını bilen ama teknik olmayan biri okuyup
           hemen cevaplayabilmeli.
@@ -163,8 +186,12 @@ public class LlmAnalysisService
         öğreniyoruz, rapor tasarlamıyoruz.
 
         Adından ve içeriğinden anlamı zaten belli olan kolonlara soru sorma
-        (CreatedDate, Quantity, CustomerName gibi). En fazla 8 soru sor;
-        çözemediğin kolon yoksa `questions` boş kalsın.
+        (CreatedDate, Quantity, CustomerName gibi); aynısı tablolar için de
+        geçerli. En fazla 8 soru sor; çözemediğin tablo ya da kolon yoksa
+        `questions` boş kalsın.
+
+        Tablo soruları kolon sorularından önce gelsin: yanlış tablo seçmek,
+        yanlış kolon seçmekten daha büyük hata.
 
         JSON bloğunu ```json ve ``` arasında ver:
 
@@ -176,6 +203,9 @@ public class LlmAnalysisService
             {
               "name": "dbo.Shipments",
               "purpose": "Sevkiyat kayıtları — her satır bir gönderi",
+              "synonyms": ["sevkiyat", "gönderi", "taşıma", "yük"],
+              "relatedTables": ["dbo.Customers"],
+              "confidence": "high",
               "isPrimary": true
             }
           ],
@@ -192,6 +222,19 @@ public class LlmAnalysisService
           "questions": [
             {
               "id": "q1",
+              "table": "dbo.L_INT_ImportReference",
+              "column": null,
+              "question": "L_INT_ImportReference tablosunun ne tuttuğunu çözemedim. Aşağıdakilerden hangisi?",
+              "options": [
+                "İthalat kayıtları",
+                "İhracat kayıtları",
+                "Stok hareketleri",
+                "Gümrük beyannameleri",
+                "Başka bir şey"
+              ]
+            },
+            {
+              "id": "q2",
               "table": "dbo.Shipments",
               "column": "ReferenceId",
               "question": "Shipments tablosunda ReferenceId alanını görüyorum, ne işe yaradığını çözemedim. Aşağıdakilerden hangisi?",
@@ -246,10 +289,12 @@ public class LlmAnalysisService
         {{schemaSummary}}
 
         ## Semantik sözlük
-        Bu veritabanının tek doğru kaynağı. `columns[].synonyms` kullanıcının o
-        alandan bahsederken kullanabileceği ifadeleri, `role` ise kolonun
-        ölçüm mü kırılım mı olduğunu söyler. `answers` varsa, veritabanını
-        bilen kişinin verdiği yanıtlardır ve sözlükteki tanımı ezer.
+        Bu veritabanının tek doğru kaynağı. `tables[].purpose` ve
+        `tables[].synonyms` her tablonun ne tuttuğunu ve kullanıcının ondan
+        nasıl bahsedeceğini, `columns[].synonyms` kullanıcının bir alandan
+        bahsederken kullanabileceği ifadeleri, `role` ise kolonun ölçüm mü
+        kırılım mı olduğunu söyler. `answers` varsa, veritabanını bilen
+        kişinin verdiği yanıtlardır ve sözlükteki tanımı ezer.
 
         ```json
         {{dictionaryJson}}
@@ -279,24 +324,37 @@ public class LlmAnalysisService
         ## Kurallar
         1. YALNIZCA sözlükte geçen tablo ve kolon adlarını kullan. Kolon adı
            uydurma, tahmin etme, benzetme yapma.
-        2. Kullanıcının ifadesini `synonyms` üzerinden eşleştir. Örneğin
+        2. ÖNCE TABLOYU SEÇ, SONRA KOLONU. Sorunun konusunu `tables[].purpose`
+           ve `tables[].synonyms` ile eşleştirip `target_table`'ı belirle;
+           kolonları ancak ondan sonra seç. Aynı kolon adı birden fazla
+           tabloda bulunabilir, o yüzden kolondan tabloya gitmek yanlış
+           tabloya götürür.
+        3. Sorunun konusuyla ÇELİŞEN tabloyu seçme. Kullanıcı "ithalat"
+           diyorsa ihracat tablosu, "gelen" diyorsa giden tablosu yanlıştır —
+           kolonları ne kadar uysa da. Böyle bir çelişki görüyorsan ve doğru
+           tablonun hangisi olduğundan emin değilsen, tahmin etmek yerine
+           Kural 9'u uygula.
+        4. Kullanıcının ifadesini `synonyms` üzerinden eşleştir. Örneğin
            "gidilen ülke" sözlükte hangi kolonun eş anlamlısıysa o kolondur.
-        3. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
+        5. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
            yapılacak alan `dimension`, zaman filtresi `date` olmalı.
-        4. `aggregation` seçtiysen `group_by` MUTLAKA dolu olmalı ve kırılım
+        6. `aggregation` seçtiysen `group_by` MUTLAKA dolu olmalı ve kırılım
            yapılacak `dimension` kolonunu içermeli. Satır sayısı soruluyorsa
            `aggregation: "count"`, `target_column: null` yeterlidir.
-        5. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
+        7. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
            Kimlik numarasının ortalaması anlamsızdır; onları yalnızca saymak
            (`count`) için kullan.
-        6. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
-        7. Soruyu karşılayan kolonu sözlükte bulamıyorsan uydurma —
-           `target_table` alanını boş bırak ve `description` içinde kullanıcıya
-           SORULACAK cümleyi yaz. Bu cümle doğrudan kullanıcıya gösterilecek:
-           neyi çözemediğini söyle ve hangi alanı kastettiğini sor. Örnek:
-           "Hangi tutardan bahsettiğinizi çözemedim — navlun bedeli mi, sigorta
-           bedeli mi?" Teknik terim ve kolon adı kullanma.
-        8. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe yaz.
+        8. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
+        9. Soruyu karşılayan TABLOYU ya da KOLONU sözlükte bulamıyorsan
+           uydurma — `target_table` alanını boş bırak ve `description` içinde
+           kullanıcıya SORULACAK cümleyi yaz. Bu cümle doğrudan kullanıcıya
+           gösterilecek: neyi çözemediğini söyle ve hangisini kastettiğini sor.
+           Kolon için örnek: "Hangi tutardan bahsettiğinizi çözemedim — navlun
+           bedeli mi, sigorta bedeli mi?" Tablo için örnek: "İthalat mı ihracat
+           mı sorduğunuzu çözemedim — hangisini istersiniz?" Teknik terim,
+           tablo adı ve kolon adı kullanma.
+        10. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe
+            yaz.
 
         ## Zaman ifadeleri
 

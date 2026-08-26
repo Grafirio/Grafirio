@@ -148,9 +148,11 @@ export default function AnalysisTracker() {
 
               {analysis.questions.map((q) => (
                 <div key={q.id} className="analysis-section" style={{ marginBottom: 16 }}>
-                  {q.column && (
+                  {(q.column || q.table) && (
                     <div className="gf-badge" style={{ marginBottom: 6 }}>
-                      {q.table ? `${q.table}.${q.column}` : q.column}
+                      {q.column
+                        ? (q.table ? `${q.table}.${q.column}` : q.column)
+                        : q.table}
                     </div>
                   )}
                   <p style={{ marginBottom: 8 }}>{q.question}</p>
