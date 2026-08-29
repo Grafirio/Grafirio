@@ -132,7 +132,6 @@ public sealed class LlmClient : ILlmClient
             ? new[] { true, false }
             : new[] { false, true };
 
-        HttpResponseMessage? response = null;
         string body = "";
 
         for (var attempt = 0; attempt < attempts.Length; attempt++)
@@ -146,6 +145,10 @@ public sealed class LlmClient : ILlmClient
             const int maxRateLimitRetries = 4;
             var rateLimitAttempt = 0;
 
+            // Yanittan yalnizca bu ucu lazim; nesnenin kendisi dongunun
+            // disinda yasamiyor.
+            System.Net.HttpStatusCode status;
+
             while (true)
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, url);
@@ -154,10 +157,22 @@ public sealed class LlmClient : ILlmClient
                     BuildAzurePayload(prompt, temperature, maxTokens, legacy),
                     Encoding.UTF8, "application/json");
 
-                response = await client.SendAsync(request, cancellationToken);
-                body = await response.Content.ReadAsStringAsync(cancellationToken);
+                TimeSpan? retryAfter;
 
-                if (response.StatusCode != System.Net.HttpStatusCode.TooManyRequests) break;
+                // Yanit okunur okunmaz birakiliyor. Onceden hicbir yolda
+                // dispose edilmiyordu: ne 429 dongusunde, ne govde secimi
+                // degisirken, ne de basarili cikista. Tek cagrida sorun
+                // degildi; sozluk uretimi dorderli dalgalar halinde yirmiden
+                // fazla cagri yapmaya baslayinca birikmelerinin savunulacak
+                // tarafi kalmadi.
+                using (var response = await client.SendAsync(request, cancellationToken))
+                {
+                    body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    status = response.StatusCode;
+                    retryAfter = response.Headers.RetryAfter?.Delta;
+                }
+
+                if (status != System.Net.HttpStatusCode.TooManyRequests) break;
 
                 if (++rateLimitAttempt > maxRateLimitRetries)
                 {
@@ -167,7 +182,7 @@ public sealed class LlmClient : ILlmClient
                         $"Sunucu yanıtı: {Truncate(body, 200)}");
                 }
 
-                var wait = response.Headers.RetryAfter?.Delta
+                var wait = retryAfter
                            ?? TimeSpan.FromSeconds(Math.Pow(2, rateLimitAttempt) * 2);
 
                 _logger.LogWarning(
@@ -177,7 +192,7 @@ public sealed class LlmClient : ILlmClient
                 await Task.Delay(wait, cancellationToken);
             }
 
-            if (!lastAttempt && response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
+            if (!lastAttempt && status == System.Net.HttpStatusCode.BadRequest &&
                 IsUnsupportedParameter(body))
             {
                 _logger.LogInformation(
@@ -186,7 +201,7 @@ public sealed class LlmClient : ILlmClient
                 continue;
             }
 
-            if (!response.IsSuccessStatusCode)
+            if ((int)status is < 200 or > 299)
             {
                 // Baglam penceresi asildiginda Azure'un dondurdugu JSON
                 // dogrudan kullaniciya gosteriliyordu; "Input tokens exceed the
@@ -204,8 +219,7 @@ public sealed class LlmClient : ILlmClient
                         $"(Azure: {Truncate(body, 200)})");
                 }
 
-                throw new InvalidOperationException(
-                    DescribeFailure((int)response.StatusCode, body));
+                throw new InvalidOperationException(DescribeFailure((int)status, body));
             }
 
             Volatile.Write(ref _paramMode, legacy ? ParamModeLegacy : ParamModeModern);
