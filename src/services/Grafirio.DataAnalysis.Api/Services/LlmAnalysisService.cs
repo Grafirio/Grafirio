@@ -42,7 +42,13 @@ public class LlmAnalysisService
     {
         Success = false,
         IsConfigurationError = true,
-        Error = "LLM yapılandırılmamış. Sunucuda AZURE_OPENAI_* değişkenleri tanımlı olmalı."
+        // Ayarlar iki yerden okunuyor ve ortam degiskeni yapilandirmayi eziyor
+        // (bkz. LlmClient.Read). Yalnizca birini soylemek, appsettings'i
+        // duzeltip sonuc alamayan kisiyi yanlis dosyaya gonderiyordu.
+        Error = "Yapay zekâ servisi yapılandırılmamış. Azure OpenAI endpoint, "
+              + "deployment ve API anahtarı tanımlı olmalı — AZURE_OPENAI_* ortam "
+              + "değişkenleri ya da AzureOpenAI:* ayarları. Ortam değişkeni "
+              + "tanımlıysa yapılandırma ayarını ezer."
     };
 
     /// <summary>

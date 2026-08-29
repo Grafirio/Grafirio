@@ -73,7 +73,11 @@ public sealed class LlmClient : ILlmClient
             string.IsNullOrWhiteSpace(apiKey))
         {
             throw new InvalidOperationException(
-                "AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_DEPLOYMENT / AZURE_OPENAI_API_KEY eksik");
+                "Azure OpenAI ayarları eksik: endpoint, deployment ve API anahtarı "
+                + "gerekiyor. Her biri iki yerden okunuyor — AZURE_OPENAI_ENDPOINT / "
+                + "AZURE_OPENAI_DEPLOYMENT / AZURE_OPENAI_API_KEY ortam değişkenleri "
+                + "ya da AzureOpenAI:Endpoint / AzureOpenAI:Deployment / "
+                + $"AzureOpenAI:ApiKey ayarları. {SettingPrecedence}");
         }
 
         var url = $"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={apiVersion}";
@@ -261,6 +265,18 @@ public sealed class LlmClient : ILlmClient
     /// soylemek gerekiyor. Ham govde yine sonda duruyor — teshis icin lazim,
     /// ama artik cumlenin tamami degil.
     /// </summary>
+    /// <summary>
+    /// Ayarlarin iki kaynagi var ve oncelikleri esit degil: <see cref="Read"/>
+    /// once ortam degiskenine bakiyor, yoksa yapilandirma anahtarina dusuyor.
+    ///
+    /// Teshis mesajinda yazmasinin sebebi somut: appsettings'i duzeltip sonuc
+    /// alamayan kisi, cogu zaman ayni ayarin ortam degiskeni olarak da tanimli
+    /// oldugunu ve onu ezdigini bilmiyor. Yalnizca bir kaynagi soylemek,
+    /// teshisi yanlis dosyaya gonderiyordu.
+    /// </summary>
+    private const string SettingPrecedence =
+        "Ortam değişkeni tanımlıysa yapılandırma ayarını ezer.";
+
     private static string DescribeFailure(int status, string body)
     {
         var detail = $"(Azure: {Truncate(body, 200)})";
@@ -269,12 +285,14 @@ public sealed class LlmClient : ILlmClient
         {
             401 or 403 =>
                 "Yapay zekâ servisi isteği reddetti: API anahtarı geçersiz ya da bu "
-                + "deployment'a yetkisi yok. Sunucuda AZURE_OPENAI_API_KEY kontrol "
-                + $"edilmeli. {detail}",
+                + "deployment'a yetkisi yok. Anahtar iki yerden okunuyor — "
+                + $"AZURE_OPENAI_API_KEY ya da AzureOpenAI:ApiKey. {SettingPrecedence} {detail}",
 
             404 =>
-                "Yapay zekâ servisinde bu deployment bulunamadı. AZURE_OPENAI_DEPLOYMENT "
-                + $"ve AZURE_OPENAI_ENDPOINT değerleri kontrol edilmeli. {detail}",
+                "Yapay zekâ servisinde bu deployment bulunamadı. Deployment adı ve "
+                + "endpoint iki yerden okunuyor — AZURE_OPENAI_DEPLOYMENT / "
+                + "AZURE_OPENAI_ENDPOINT ya da AzureOpenAI:Deployment / "
+                + $"AzureOpenAI:Endpoint. {SettingPrecedence} {detail}",
 
             >= 500 =>
                 "Yapay zekâ servisi geçici olarak yanıt veremedi. Birkaç dakika sonra "
