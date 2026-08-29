@@ -305,11 +305,16 @@ export const listAnalyses = async () => {
 
 
 // Doğal dil sorgusu gönder → LLM + PyCaret
-export const submitAgentQuery = async (connectionId, question) => {
+export const submitAgentQuery = async (connectionId, question, parentQueryId = null) => {
   try {
     const response = await axios.post(`${API_BASE_URL}/api/agent/query`, {
       connectionId,
-      question
+      question,
+      // Konuşmanın zinciri: bu soru hangi turun altına yazıldı. Tuvalde
+      // düğümler görsel olarak bağlıydı ama bu bilgi sunucuya hiç gitmiyordu,
+      // dolayısıyla sistem kendi sorduğu soruya gelen cevabı yeni bir soru
+      // sanıyordu. Sol panelden sorulan soru yeni konuşma başlatır: null.
+      parentQueryId
     }, {
       timeout: 120000 // 2 dakika
     });

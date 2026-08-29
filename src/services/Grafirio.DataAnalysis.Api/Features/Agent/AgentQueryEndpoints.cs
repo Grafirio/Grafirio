@@ -47,7 +47,16 @@ public static class AgentQueryEndpoints
             .WithDescription("Bağlantıya ait sorgu geçmişini getirir");
     }
 
-    public record QueryRequest(Guid ConnectionId, string Question);
+    /// <param name="ParentQueryId">
+    /// Kullanicinin altina yazdigi onceki sorunun kimligi. Tuvalde bir soru
+    /// dugumunun uzerinden devam edildiginde dolu gelir; sol panelden sorulan
+    /// soru yeni konusma baslattigi icin bos gecer.
+    ///
+    /// Bu alan yoktu: tuvalde dugumler gorsel olarak birbirine bagliydi ama
+    /// sunucuya giden istek { connectionId, question }'dan ibaretti — hangi
+    /// dugumun altina yazildigi yola bile cikmiyordu.
+    /// </param>
+    public record QueryRequest(Guid ConnectionId, string Question, Guid? ParentQueryId = null);
 
     private static async Task<IResult> SubmitQuery(
         [FromBody] QueryRequest request,
@@ -101,11 +110,32 @@ public static class AgentQueryEndpoints
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
 
-        // 3. Soruyu semantik sozlukle birlikte LLM'e gonder → analiz parametreleri.
+        // 3. Konusmanin gecmisi. Zincirin kapsami BAGLANTI: "Analiz Et" her
+        // calistiginda yeni bir config uretiliyor, dolayisiyla bir onceki tur
+        // baska (eski) bir config'e bagli olabilir. Yalnizca aktif config'e
+        // bakmak, yeniden analizden sonra konusmayi sifirlamak olurdu.
+        //
+        // Sirket suzgeci configIds'in kendisinde: baska bir sirketin sorgu
+        // kimligini bilen biri o konusmayi kendi prompt'una tasiyamaz.
+        var connectionConfigIds = await db.AnalysisConfigs
+            .Where(c => c.ConnectionId == request.ConnectionId && c.CompanyId == scopedCompanyId)
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        var conversation = await ConversationContext.LoadAsync(
+            db, request.ParentQueryId, connectionConfigIds);
+
+        // Zincir kurulamadiysa bag da yazilmiyor. Istemci herhangi bir kimlik
+        // gonderebilir; kapsam disi bir kimligi kayda gecirmek, hicbir zaman
+        // cozulmeyecek bir isaretciyi kalici hale getirmek olurdu.
+        var parentQueryId = conversation.Count > 0 ? request.ParentQueryId : null;
+
+        // 4. Soruyu semantik sozlukle birlikte LLM'e gonder → analiz parametreleri.
         // Sozluk, "Analiz Et" adiminin ciktisi: kolon adlari, ne anlama
         // geldikleri ve kullanicinin onlara ne diyebilecegi burada yaziyor.
         var translation = await llm.TranslateQuestionAsync(
-            request.Question, config.ConfigJson, config.SchemaSummary);
+            request.Question, config.ConfigJson, config.SchemaSummary,
+            ConversationContext.Render(conversation));
 
         // Eksik yapilandirma bir cokme degil; 500 yerine 503 donuluyor ki
         // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
@@ -133,23 +163,52 @@ public static class AgentQueryEndpoints
             logger.LogInformation(
                 "Soru çözümlenemedi, kullanıcıya soruluyor: {Question}", request.Question);
 
+            var asked = string.IsNullOrWhiteSpace(clarification)
+                ? "Sorunuzun hangi alanla ilgili olduğunu çözemedim. Hangi tabloyu "
+                  + "ya da alanı kastettiğinizi yazar mısınız?"
+                : clarification;
+
+            // Netlestirme turu da yaziliyor. Onceden bu dönüş, QueryHistory
+            // kaydinin olusturuldugu satirdan ONCE geliyordu: sistem soruyu
+            // sorup sordugunu unutuyordu. Kullanici cevap verdiginde ortada
+            // cevaplanacak bir soru olduguna dair kayit yoktu — baglami
+            // tasisak bile tasinacak bir sey olmayacakti.
+            var clarificationRow = new QueryHistory
+            {
+                Id = Guid.NewGuid(),
+                ConfigId = config.Id,
+                UserId = config.UserId,
+                Question = request.Question,
+                ParentQueryId = parentQueryId,
+                PyCaretParamsJson = translation.Json,
+                ClarificationQuestion = asked,
+                Status = ConversationContext.ClarificationStatus,
+                CreatedAt = DateTime.UtcNow,
+                // Tur burada bitiyor: bekleyen bir is yok, bekleyen bir cevap var.
+                CompletedAt = DateTime.UtcNow
+            };
+
+            db.QueryHistories.Add(clarificationRow);
+            await db.SaveChangesAsync();
+
             return Results.BadRequest(new
             {
-                error = string.IsNullOrWhiteSpace(clarification)
-                    ? "Sorunuzun hangi alanla ilgili olduğunu çözemedim. Hangi tabloyu "
-                      + "ya da alanı kastettiğinizi yazar mısınız?"
-                    : clarification,
-                needsClarification = true
+                error = asked,
+                needsClarification = true,
+                // Kimlik disari veriliyor ki kullanicinin cevabi bu tura
+                // baglanabilsin; zincirin halkasi bu.
+                queryId = clarificationRow.Id
             });
         }
 
-        // 4. QueryHistory kaydet
+        // 5. QueryHistory kaydet
         var queryHistory = new QueryHistory
         {
             Id = Guid.NewGuid(),
             ConfigId = config.Id,
             UserId = config.UserId,
             Question = request.Question,
+            ParentQueryId = parentQueryId,
             PyCaretParamsJson = translation.Json,
             Status = "processing",
             CreatedAt = DateTime.UtcNow
@@ -158,7 +217,7 @@ public static class AgentQueryEndpoints
         db.QueryHistories.Add(queryHistory);
         await db.SaveChangesAsync();
 
-        // 5. PyCaret Engine'e HTTP ile gönder
+        // 6. PyCaret Engine'e HTTP ile gönder
         try
         {
             // Kimlik bilgisi gonderilmiyor: PyCaret veriyi /internal/data/query
@@ -470,6 +529,11 @@ public static class AgentQueryEndpoints
                 completedAt = q.CompletedAt,
                 result = TryParse(q.ResultJson),
                 llmParameters = TryParse(q.PyCaretParamsJson),
+                // Zincir de geri donuyor: tuval yeniden yuklendiginde takip
+                // sorusu hangi turun altinda soruldusa oraya baglanmali,
+                // yoksa konusma bagimsiz sorular yiginina donusuyor.
+                parentQueryId = q.ParentQueryId,
+                clarificationQuestion = q.ClarificationQuestion,
             })
             .ToList();
 

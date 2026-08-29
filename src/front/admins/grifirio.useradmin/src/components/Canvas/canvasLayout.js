@@ -2,16 +2,21 @@
    Tuval yerleşimi — tarayıcıda saklanan görünüm tercihi
 
    Sorular ve sonuçlar sunucuda (`QueryHistory`) duruyor; tuval her
-   açılışta oradan yeniden kuruluyor. Ama sunucu üç şeyi bilmiyor:
+   açılışta oradan yeniden kuruluyor. Ama sunucu iki şeyi bilmiyor:
 
    1. Kullanıcının düğümü nereye sürüklediği,
-   2. Hangi düğümü sildiği,
-   3. Hangi sorunun hangi sorunun devamı olarak sorulduğu.
+   2. Hangi düğümü sildiği.
 
-   Bunlar veri değil, o veriye bakış biçimi. Sunucuya taşımak şema
-   değişikliği ister; o gelene kadar tarayıcıda tutuluyor. Kaybolduğunda
-   kaybedilen tek şey yerleşim — sorular ve grafikler yerinde duruyor,
-   yalnızca ilk hâllerine dönüyorlar.
+   Bunlar veri değil, o veriye bakış biçimi. Kaybolduğunda kaybedilen tek şey
+   yerleşim — sorular ve grafikler yerinde duruyor, yalnızca ilk hâllerine
+   dönüyorlar.
+
+   Üçüncü bir madde vardı: hangi sorunun hangi sorunun devamı olarak
+   sorulduğu. O artık sunucuda (`QueryHistory.ParentQueryId`) — konuşmanın
+   zinciri yerleşim tercihi değil, verinin kendisi. Buradaki `parents` kaydı
+   yine de duruyor ve sunucudan gelen bağı EZİYOR: sunucu hangi TURUN devamı
+   olduğunu biliyor, yerel kayıt hangi DÜĞÜMÜN altına yazıldığını — ikincisi
+   daha ince ve kullanıcının gördüğü şey o.
 
    Düğüm kimlikleri sorgu kimliğinden türetildiği için (bkz.
    `buildCanvasNodes`) aynı soru her açılışta aynı kimliği alıyor;
@@ -105,7 +110,14 @@ export const applyLayout = ({ nodes, edges }, layout = emptyLayout()) => {
   const placed = visible.map((n) =>
     positions[n.id] ? { ...n, position: { ...positions[n.id] } } : n);
 
-  const kept = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+  // Sunucudan gelen zincir kenarları (`chain-…`), aynı soru için yerel bir
+  // bağ varsa düşürülüyor. İkisi de doğru ama farklı inceliktedir: sunucu
+  // hangi turun devamı olduğunu, yerel kayıt hangi düğümün altına yazıldığını
+  // biliyor. İkisini birden çizmek aynı ilişkiyi iki ok olarak gösterirdi.
+  const localChildren = new Set(Object.keys(layout.parents ?? {}));
+  const kept = edges.filter((e) =>
+    ids.has(e.source) && ids.has(e.target)
+    && !(String(e.id).startsWith('chain-') && localChildren.has(e.target)));
   const seen = new Set(kept.map((e) => e.id));
 
   // Takip soruları: "bu grafiğin üzerinden sor" ile açılan dallar.

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconRobot, IconUser, IconSend, IconLoader2, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
 import { loadLayout, saveLayout, applyLayout, emptyLayout } from '../components/Canvas/canvasLayout';
-import { nodeIds, collectSubtree } from '../components/Canvas/canvasGraph';
+import { nodeIds, collectSubtree, persistedQueryIdOf } from '../components/Canvas/canvasGraph';
 import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
 import {
   getConnectionSummary, getSelectedTables,
@@ -80,26 +80,60 @@ const buildCanvasNodes = (report, parentId, posRef, queryId, sourceQuestion = ''
  * değil ve yanlış çalıştığında kullanıcı geçmişini kaybetmiş sanıyor.
  *
  * Her soru kendi dalını açar: soru solda, cevap ve grafikler sağında.
- * Sorular birbirine BAĞLANMAZ. Önceden her soru bir öncekine ok ile
- * bağlanıyordu; bu, aralarında olmayan bir ilişkiyi çiziyordu — sol
- * panelden sorulan iki soru birbirinden bağımsız. İlişki kurmanın yolu
- * soru düğümünün üzerindeki kutudan devam etmek.
+ *
+ * Sol panelden sorulan sorular birbirine BAĞLANMAZ — aralarında olmayan bir
+ * ilişkiyi çizmek olurdu. Bağ yalnızca gerçekten kurulmuşsa var: bir soru bir
+ * düğümün üzerinden sorulduysa sunucu bunu `parentQueryId` ile biliyor ve
+ * zincir buradan geri kuruluyor. Önceden bilmiyordu; tuval her yeniden
+ * yüklenişte konuşma, birbirinden bağımsız sorular yığınına dönüşüyordu.
  */
+const CHAIN_INDENT = 40;
+const CHAIN_MAX_LEVEL = 5;
+const RESTORE_BASE_X = 80;
+/* Cevap üretmemiş bir turun (netleştirme ya da hata) kapladığı dikey yer. */
+const RESTORE_STUB_HEIGHT = 220;
+
 export const restoreFromHistory = (queries = []) => {
   const messages = [];
   const nodes = [];
   const edges = [];
-  const posRef = { current: { x: 80, y: 80 } };
+  const posRef = { current: { x: RESTORE_BASE_X, y: 80 } };
+
+  /* Bir turun altına yazılan soru, o turun KULLANICIYA DÖNEN düğümüne
+     bağlanıyor: cevap düğümü varsa ona, yoksa sorunun kendisine. Canlıda da
+     kullanıcı o kutunun üzerinden devam ediyor. */
+  const anchors = new Map();  // sorgu kimliği → bağlanacak düğüm
+  const depths = new Map();   // sorgu kimliği → zincirdeki derinlik
 
   for (const item of queries) {
+    const parentAnchor = item.parentQueryId ? anchors.get(item.parentQueryId) : null;
+    const depth = depths.has(item.parentQueryId) ? depths.get(item.parentQueryId) + 1 : 0;
+    depths.set(item.queryId, depth);
+
     const qNodeId = nodeIds.question(item.queryId);
-    const qPos = { ...posRef.current };
+    // Derinlik kadar içeri: zincirin nerede başlayıp nerede dallandığı, ok
+    // takip etmeden de okunabilsin. Beşten sonra artmıyor — sonsuz kayan bir
+    // sütun okunaklılığa katkı sağlamıyor.
+    const qPos = {
+      x: RESTORE_BASE_X + Math.min(depth, CHAIN_MAX_LEVEL) * CHAIN_INDENT,
+      y: posRef.current.y,
+    };
     const ts = new Date(item.createdAt).getTime();
 
     nodes.push({
       id: qNodeId, type: 'biInsightNode', position: qPos,
       data: { type: 'question', title: '💬 Soru', description: item.question },
     });
+
+    if (parentAnchor) {
+      // Kimlik öneki `chain-`: yerel yerleşimde daha kesin bir bağ varsa
+      // (hangi DÜĞÜMÜN altına yazıldığı) bu kenar onun lehine düşürülüyor.
+      edges.push({
+        id: `chain-${parentAnchor}-${qNodeId}`,
+        source: parentAnchor, target: qNodeId,
+        animated: false, style: { stroke: 'var(--accent)' },
+      });
+    }
 
     messages.push({ role: 'user', content: item.question, ts });
 
@@ -119,7 +153,31 @@ export const restoreFromHistory = (queries = []) => {
         qNodeId, posRef, item.queryId, item.question);
       nodes.push(...built.newNodes);
       edges.push(...built.newEdges);
-      posRef.current = { x: qPos.x, y: posRef.current.y };
+      posRef.current = { x: RESTORE_BASE_X, y: posRef.current.y };
+
+      anchors.set(item.queryId, nodeIds.answer(item.queryId));
+    } else if (item.status === 'clarification') {
+      // Sistem soru sordu ve cevap bekliyor. Bu tur eskiden hiç
+      // kaydedilmediği için tuvalde de yoktu: kullanıcı sayfayı yenilediğinde
+      // sorulan soru kaybolur, cevabını yazacağı kutu da ortadan kalkardı.
+      const asked = item.clarificationQuestion
+        || 'Bu soruyu çözemedim; biraz daha açık yazar mısınız?';
+      const askNodeId = nodeIds.answer(item.queryId);
+
+      messages.push({ role: 'ai', content: asked, ts });
+
+      nodes.push({
+        id: askNodeId, type: 'biInsightNode',
+        position: { x: qPos.x + 460, y: qPos.y },
+        data: { type: 'warning', title: '💬 Bir sorum var', description: asked },
+      });
+      edges.push({
+        id: `e-${qNodeId}-${askNodeId}`, source: qNodeId, target: askNodeId,
+        animated: false, style: { stroke: 'var(--accent)' },
+      });
+
+      posRef.current = { x: RESTORE_BASE_X, y: qPos.y + RESTORE_STUB_HEIGHT };
+      anchors.set(item.queryId, askNodeId);
     } else {
       // Yarım kalmış sorgu da gösteriliyor: sessizce yutmak, kullanıcının
       // sorduğu bir soruyu hiç sorulmamış gibi göstermek olurdu.
@@ -127,10 +185,24 @@ export const restoreFromHistory = (queries = []) => {
         role: 'ai', error: true, ts,
         content: `❌ ${result.error || 'Bu analiz tamamlanmadı.'}`,
       });
+
+      // Konum ilerletiliyor: ilerletilmediğinde sıradaki soru bu düğümün tam
+      // üstüne biniyordu.
+      posRef.current = { x: RESTORE_BASE_X, y: qPos.y + RESTORE_STUB_HEIGHT };
+      anchors.set(item.queryId, qNodeId);
     }
   }
 
-  return { messages, nodes, edges, nextPos: { ...posRef.current } };
+  /* Son tur bir netleştirmeyse konuşma cevap bekliyor demektir. Sayfa
+     yenilendikten sonra da beklemeye devam etmeli: kullanıcı geri döndüğünde
+     sistemin sorusu ekranda duruyor ama cevabı hiçbir yere bağlanmıyorsa,
+     sistem sorduğunu yine unutmuş olur. */
+  const last = queries[queries.length - 1];
+  const pendingAsk = last && last.status === 'clarification'
+    ? { queryId: last.queryId, nodeId: nodeIds.answer(last.queryId) }
+    : null;
+
+  return { messages, nodes, edges, pendingAsk, nextPos: { ...posRef.current } };
 };
 
 /**
@@ -142,7 +214,7 @@ export const restoreFromHistory = (queries = []) => {
 const AGENT_POLL_MS = 3000;
 const AGENT_MAX_ATTEMPTS = 100; // ~5 dakika
 
-const askViaAgent = async (question, { connectionId, onProgress }) => {
+const askViaAgent = async (question, { connectionId, parentQueryId = null, onProgress }) => {
   if (!connectionId) {
     return { success: false, error: 'Bu kanvas bir bağlantıya bağlı değil.' };
   }
@@ -153,7 +225,7 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
   // gorunuyordu — yani sunucu sebebi biliyor, ekran soylemiyordu.
   let submitted;
   try {
-    submitted = await submitAgentQuery(connectionId, question);
+    submitted = await submitAgentQuery(connectionId, question, parentQueryId);
   } catch (err) {
     const body = err.response?.data;
     return {
@@ -163,6 +235,9 @@ const askViaAgent = async (question, { connectionId, onProgress }) => {
       // Sunucu soruyu cozemedigini soyluyor ve ne sormasi gerektigini
       // yaziyor. Bu bir hata degil, karsi soru — ekranda da oyle gorunmeli.
       needsClarification: Boolean(body?.needsClarification),
+      // Netlestirme turu artik sunucuda kayitli ve kendi kimligi var.
+      // Kullanicinin cevabi bu kimlige baglanacak; zincirin halkasi bu.
+      queryId: body?.queryId,
     };
   }
 
@@ -263,6 +338,18 @@ export default function CanvasPage() {
   const [canvasNodes, setCanvasNodes] = useState([]);
   const [canvasEdges, setCanvasEdges] = useState([]);
   const nextPosRef = useRef({ x: 80, y: 80 });
+
+  /* Cevap bekleyen soru — sistem sordu, kullanıcı henüz yanıtlamadı.
+
+     Sol panelden gelen sorular normalde birbirine bağlanmaz; aralarında
+     olmayan bir ilişkiyi çizmek olurdu. Ama sistem BİR SORU SORDUYSA,
+     kullanıcının panele yazdığı sonraki şey neredeyse her zaman o sorunun
+     cevabıdır ve "hangi düğümün altına yazdın" diye beklemek anlamsız —
+     kullanıcı en doğal yere, sohbet kutusuna yazıyor. Bağlamamak, sistemin
+     sorduğunu unutmasıyla aynı sonucu verirdi.
+
+     `{ queryId, nodeId }` — biri zinciri sunucuda, öteki tuvalde kuruyor. */
+  const pendingAskRef = useRef(null);
 
   // Silme onayı bekleyen düğüm
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -369,6 +456,9 @@ export default function CanvasPage() {
         setCanvasNodes(laidOut.nodes);
         setCanvasEdges(laidOut.edges);
         nextPosRef.current = restored.nextPos;
+        // Sistemin sorusu cevapsız kaldıysa beklemeye kaldığı yerden devam
+        // ediyor — kullanıcının cevabı yine o tura bağlanacak.
+        pendingAskRef.current = restored.pendingAsk;
       } catch {
         // Geçmiş okunamazsa kanvas boş açılır ve yeni soru sorulabilir.
         // Eski sohbeti gösterememek, ekranı tamamen kilitlemekten iyidir.
@@ -432,6 +522,18 @@ export default function CanvasPage() {
     const connId = analysis?.connectionId || analysis?.requestId;
     const stamp = Date.now();
 
+    // Ebeveyn düğümün kimliği hangi sorgudan geliyorsa konuşmanın önceki turu
+    // odur: soru düğümünün de, o soruya ait grafiğin de altına yazmak aynı
+    // tura devam etmek demek.
+    //
+    // Tuvalden bir düğüm gösterilmediyse cevap bekleyen soruya bakılıyor:
+    // sistem sorduysa, panele yazılan şey o sorunun cevabıdır.
+    const pendingAsk = parentId ? null : pendingAskRef.current;
+    const linkTo = parentId || pendingAsk?.nodeId || null;
+    const parentQueryId = parentId
+      ? persistedQueryIdOf(parentId)
+      : (pendingAsk?.queryId ?? null);
+
     setMessages(p => [
       ...p,
       { role: 'user', content: text, ts: stamp, origin },
@@ -457,10 +559,11 @@ export default function CanvasPage() {
     ]);
     setCanvasEdges(p => [
       ...p,
-      // Sol panelden gelen soru bir öncekine bağlanmıyor; yalnızca tuval
-      // üzerinden sorulan takip sorusunun ebeveyni var.
-      ...(parentId ? [{
-        id: `e-${parentId}-${qNodeId}`, source: parentId, target: qNodeId,
+      // Sol panelden gelen soru bir öncekine bağlanmıyor — cevap bekleyen
+      // bir soru yoksa. Bağ ya tuval üzerinden kuruluyor ya da sistemin
+      // sorduğu soruya verilen cevapla.
+      ...(linkTo ? [{
+        id: `e-${linkTo}-${qNodeId}`, source: linkTo, target: qNodeId,
         animated: false, style: { stroke: 'var(--accent)' },
       }] : []),
       {
@@ -472,6 +575,7 @@ export default function CanvasPage() {
     try {
       const res = await askViaAgent(text, {
         connectionId: connId,
+        parentQueryId,
         onProgress: (message) => {
           if (!message) return;
           setCanvasNodes(p => p.map(n =>
@@ -484,11 +588,14 @@ export default function CanvasPage() {
         renameNode(qNodeId, finalId);
         qNodeId = finalId;
       }
-      if (parentId) {
-        layoutRef.current.parents[qNodeId] = parentId;
+      if (linkTo) {
+        layoutRef.current.parents[qNodeId] = linkTo;
       }
 
       if (res.success) {
+        // Cevap üretildi: ortada bekleyen bir soru kalmadı.
+        pendingAskRef.current = null;
+
         const answer = res.answer || '';
         setMessages(p => {
           const a = [...p];
@@ -537,13 +644,31 @@ export default function CanvasPage() {
         const label = asksBack ? '💬 Bir sorum var' : '❌ Hata';
         const body = res.error || 'Hata oluştu';
 
+        // Netleştirme düğümü konuşmanın bir halkası: kullanıcı cevabını bunun
+        // üzerinden yazacak ve o cevap bu tura bağlanacak. Bunun için düğümün
+        // geçici kimlikten sunucudaki gerçek kimliğe taşınması gerekiyor —
+        // `pending-…` kimliği hem zinciri kuramaz hem yeniden yüklemede kaybolur.
+        const askNodeId = asksBack && res.queryId
+          ? nodeIds.answer(res.queryId)
+          : loadingNodeId;
+        const askPos = { x: qPos.x + 460, y: qPos.y };
+        renameNode(loadingNodeId, askNodeId);
+
+        // Cevap bekleyen soru güncelleniyor. Hata durumunda temizleniyor:
+        // ortada cevaplanacak bir soru yok, sonraki mesaj yeni bir sorudur.
+        pendingAskRef.current = (asksBack && res.queryId)
+          ? { queryId: res.queryId, nodeId: askNodeId }
+          : null;
+
         setCanvasNodes(p => p.map(n =>
-          n.id === loadingNodeId
+          n.id === askNodeId
             ? { ...n, type: 'biInsightNode', data: { type: asksBack ? 'warning' : 'error', title: label, description: body } }
             : n
         ));
-        setCanvasEdges(p => p.map(e => (e.target === loadingNodeId ? { ...e, animated: false } : e)));
-        rememberPositions([{ id: qNodeId, position: qPos }]);
+        setCanvasEdges(p => p.map(e => (e.target === askNodeId ? { ...e, animated: false } : e)));
+        rememberPositions(askNodeId === loadingNodeId
+          ? [{ id: qNodeId, position: qPos }]
+          : [{ id: qNodeId, position: qPos }, { id: askNodeId, position: askPos }]);
 
         setMessages(p => {
           const a = [...p];
@@ -564,6 +689,7 @@ export default function CanvasPage() {
         }
       }
     } catch (e) {
+      pendingAskRef.current = null;
       setCanvasNodes(p => p.map(n =>
         n.id === loadingNodeId
           ? { ...n, type: 'biInsightNode', data: { type: 'error', title: '❌ Hata', description: e.message } }
@@ -614,11 +740,20 @@ export default function CanvasPage() {
      sorunun iki cevabını yan yana bırakıyor ve hangisinin geçerli olduğu
      kaybolyor. Düzeltme sonucu bu düğümün yerine geçiyor.
 
-     Ajan hattı sohbet geçmişi almıyor; bağlam soruya gömülerek veriliyor. */
+     Bağlam artık soruya gömülmüyor. Önceden asıl soru metni düzeltmenin önüne
+     yapıştırılıyordu, çünkü ajan hattı sohbet geçmişi almıyordu; şimdi alıyor
+     ve düzeltilen grafiği doğuran tur `parentQueryId` ile gösteriliyor. Fark
+     yalnızca temizlik değil: prompt'a giden şey artık o turun metni değil,
+     ürettiği parametrelerin tamamı — model üzerine ekleme yapabiliyor. */
   const handleNodeRefine = useCallback(async (node, text) => {
     const connId = analysis?.connectionId || analysis?.requestId;
+    const parentQueryId = persistedQueryIdOf(node.id);
+    // Zincir kurulamıyorsa (kimliği sunucuya hiç yazılmamış bir düğüm) eski
+    // yönteme dönülüyor: bağlamsız düzeltme, yanlış grafikten de kötü.
     const original = node.data?.sourceQuestion;
-    const composed = original ? `${original}\n\nDüzeltme isteği: ${text}` : text;
+    const composed = (!parentQueryId && original)
+      ? `${original}\n\nDüzeltme isteği: ${text}`
+      : text;
     const previousData = node.data;
     const stamp = Date.now();
 
@@ -637,6 +772,7 @@ export default function CanvasPage() {
     try {
       const res = await askViaAgent(composed, {
         connectionId: connId,
+        parentQueryId,
         onProgress: (message) => {
           if (!message) return;
           setCanvasNodes(p => p.map(n =>
@@ -914,6 +1050,30 @@ export default function CanvasPage() {
                             )}
                             {describeFilters(msg.audit) && (
                               <div><dt>Filtre</dt><dd>{describeFilters(msg.audit)}</dd></div>
+                            )}
+                            {/* Eşik ayrı satır: filtreyle karıştırılması en
+                                kolay şey. Filtre satırları toplamadan önce
+                                eler, eşik grupları toplandıktan sonra —
+                                ikisi farklı soruları cevaplar ve hangisinin
+                                uygulandığı buradan görülmeli. */}
+                            {msg.audit.having && (
+                              <div><dt>Eşik</dt><dd>{msg.audit.having}</dd></div>
+                            )}
+                            {msg.audit.window && (
+                              <div><dt>Kırılım üstü hesap</dt><dd>{msg.audit.window}</dd></div>
+                            )}
+                            {/* Birleşimde grafikteki her seri ayrı bir
+                                tablodan geliyor; hangisinin nereden geldiği
+                                söylenmezse iki seri tek veri sanılır. */}
+                            {msg.audit.union?.length > 0 && (
+                              <div>
+                                <dt>Kaynaklar</dt>
+                                <dd>
+                                  {msg.audit.union.map((note, i) => (
+                                    <div key={i}>{note}</div>
+                                  ))}
+                                </dd>
+                              </div>
                             )}
                             {typeof msg.audit.groupCount === 'number' && msg.audit.groupCount > 0 && (
                               <div><dt>Toplam grup</dt><dd>{msg.audit.groupCount}</dd></div>

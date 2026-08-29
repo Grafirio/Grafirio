@@ -21,6 +21,21 @@ export const nodeIds = {
 /** Düğüm kimliğinin ikinci parçası sorgu kimliği: `chart:<queryId>:0`. */
 export const queryIdOf = (nodeId) => String(nodeId).split(':')[1] || null;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Sunucudan gelmiş GERÇEK sorgu kimliği — yoksa null.
+ *
+ * Soru düğümü, sorgu kimliği daha gelmeden `q:pending-<zaman>` kimliğiyle
+ * çiziliyor (kullanıcı sorusunun tuvale düştüğünü hemen görmeli). O yer
+ * tutucu sunucuya gönderilirse konuşma zinciri var olmayan bir turu işaret
+ * eder; istek de Guid ayrıştıramayıp reddedilir.
+ */
+export const persistedQueryIdOf = (nodeId) => {
+  const id = queryIdOf(nodeId);
+  return id && UUID.test(id) ? id : null;
+};
+
 /**
  * Bir düğümden çıkan bütün dalları toplar (kök dahil).
  *

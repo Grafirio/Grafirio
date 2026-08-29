@@ -748,5 +748,369 @@ check("hata sonucu error alanı taşır", failure.get("error"), "kolon yok")
 check("hata sonucu success=False", failure.get("success"), False)
 
 
+# ── Bolum 4: Toplulastirma sonrasi kosul, pencere ve birlesim ─────────────
+#
+# Ucu de "calisan ama baska bir soruyu cevaplayan sorgu" uretmeye acik:
+#
+#   * HAVING ile WHERE karistirilirsa sorgu calisir, sonuc baskadir.
+#   * Sirali bir birikim penceresine cerceve verilmezse esit degerler tek
+#     satirda toplanir ve grafikte fark edilmez.
+#   * Birlesimin dallari farkli kolonlar uretirse veritabani onlari sirayla
+#     eslestirir ve seriler birbirine karisir.
+
+from query_spec import (  # noqa: E402
+    FRAME_CUMULATIVE, FRAME_MOVING, HavingPredicate, UnionBranch, UnionSpec,
+    WindowExpr, render_union,
+)
+
+agg4 = AliasFactory()
+fatura = TableRef("dbo", "Faturalar", agg4.take())
+musteri_adi = ColumnRef(fatura.alias, "MusteriAdi")
+tutar = ColumnRef(fatura.alias, "Tutar")
+toplam = Aggregate("sum", tutar, "value")
+
+having_spec = QuerySpec(
+    base=fatura,
+    group_by=[musteri_adi],
+    aggregate=toplam,
+    having=[HavingPredicate(toplam, ">", ["h0"])],
+    order_by=[OrderBy("value", "desc")],
+)
+
+check(
+    "HAVING gruplamadan sonra, sıralamadan önce",
+    render(having_spec),
+    "SELECT [t0].[MusteriAdi], SUM([t0].[Tutar]) AS [value] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "GROUP BY [t0].[MusteriAdi] "
+    "HAVING SUM([t0].[Tutar]) > :h0 "
+    "ORDER BY [value] DESC",
+)
+
+# Elenen gruplari da sayarsak "5 grup gosteriliyor (toplam 37)" yalan olur.
+check(
+    "grup sayımı HAVING'i de uygular",
+    "HAVING SUM([t0].[Tutar]) > :h0" in render_group_count(having_spec),
+    True,
+)
+
+expect_error(
+    "kırılımsız sorguda HAVING olmaz",
+    lambda: render(QuerySpec(base=fatura, aggregate=toplam,
+                             having=[HavingPredicate(toplam, ">", ["h0"])])),
+    "Kırılımı olmayan sorguda HAVING anlamsız", QuerySpecError,
+)
+
+expect_error(
+    "toplulaştırmasız sorguda HAVING olmaz",
+    lambda: render(QuerySpec(base=fatura, select_all=True,
+                             having=[HavingPredicate(toplam, ">", ["h0"])])),
+    "Toplulaştırması olmayan sorguda HAVING", QuerySpecError,
+)
+
+# Pencere fonksiyonlari.
+ay = ColumnRef(fatura.alias, "Ay")
+
+check(
+    "birikimli toplam iç içe toplulaştırma üretir",
+    render(QuerySpec(
+        base=fatura, group_by=[ay], aggregate=toplam,
+        windows=[WindowExpr(func="sum", label="birikim", over=toplam,
+                            order_by=[OrderBy(ay, "asc")],
+                            frame=FRAME_CUMULATIVE)])),
+    "SELECT [t0].[Ay], SUM([t0].[Tutar]) AS [value], "
+    "SUM(SUM([t0].[Tutar])) OVER (ORDER BY [t0].[Ay] ASC "
+    "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS [birikim] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "GROUP BY [t0].[Ay]",
+)
+
+check(
+    "sıra numarası ölçünün kendisine göre sıralanır",
+    render(QuerySpec(
+        base=fatura, group_by=[musteri_adi], aggregate=toplam,
+        windows=[WindowExpr(func="rank", label="sira",
+                            order_by=[OrderBy(toplam, "desc")])])),
+    "SELECT [t0].[MusteriAdi], SUM([t0].[Tutar]) AS [value], "
+    "RANK() OVER (ORDER BY SUM([t0].[Tutar]) DESC) AS [sira] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "GROUP BY [t0].[MusteriAdi]",
+)
+
+check(
+    "hareketli ortalama kaç satır geriye bakacağını yazar",
+    "ROWS BETWEEN 3 PRECEDING AND CURRENT ROW" in render(QuerySpec(
+        base=fatura, group_by=[ay], aggregate=toplam,
+        windows=[WindowExpr(func="avg", label="ortalama", over=toplam,
+                            order_by=[OrderBy(ay, "asc")],
+                            frame=FRAME_MOVING, preceding=3)])),
+    True,
+)
+
+# Bu, bolumun asil sebebi: cerceve yazilmazsa SQL varsayilani birikim gibi
+# gorunur ama esit siralama degerlerini tek satirda toplar.
+expect_error(
+    "sıralı birikim penceresinde çerçeve zorunlu",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[ay], aggregate=toplam,
+        windows=[WindowExpr(func="sum", label="birikim", over=toplam,
+                            order_by=[OrderBy(ay, "asc")])])),
+    "çerçeve açıkça", QuerySpecError,
+)
+
+expect_error(
+    "hareketli pencere satır sayısı ister",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[ay], aggregate=toplam,
+        windows=[WindowExpr(func="avg", label="ort", over=toplam,
+                            order_by=[OrderBy(ay, "asc")],
+                            frame=FRAME_MOVING)])),
+    "kaç satır geriye bakılacağı", QuerySpecError,
+)
+
+expect_error(
+    "pencere kırılımda olmayan kolona bakamaz",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[ay], aggregate=toplam,
+        windows=[WindowExpr(func="sum", label="birikim", over=toplam,
+                            partition_by=[musteri_adi],
+                            order_by=[OrderBy(ay, "asc")],
+                            frame=FRAME_CUMULATIVE)])),
+    "kırılımda yok", QuerySpecError,
+)
+
+expect_error(
+    "pencere etiketi ölçünün adını alamaz",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[musteri_adi], aggregate=toplam,
+        windows=[WindowExpr(func="rank", label="value",
+                            order_by=[OrderBy(toplam, "desc")])])),
+    "sonuçta zaten var", QuerySpecError,
+)
+
+expect_error(
+    "sıralama fonksiyonu sırasız olamaz",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[musteri_adi], aggregate=toplam,
+        windows=[WindowExpr(func="row_number", label="sira")])),
+    "sıralama olmadan anlamsız", QuerySpecError,
+)
+
+expect_error(
+    "satır bazlı sorguda pencere olmaz",
+    lambda: render(QuerySpec(
+        base=fatura, select_all=True,
+        windows=[WindowExpr(func="row_number", label="sira",
+                            order_by=[OrderBy(ay, "asc")])])),
+    "yalnızca toplulaştırmalı sorguda", QuerySpecError,
+)
+
+expect_error(
+    "pencere içinde çıktı adına göre sıralanamaz",
+    lambda: render(QuerySpec(
+        base=fatura, group_by=[musteri_adi], aggregate=toplam,
+        windows=[WindowExpr(func="rank", label="sira",
+                            order_by=[OrderBy("value", "desc")])])),
+    "pencere içinde takma ad görünmez", QuerySpecError,
+)
+
+# Birlesim.
+uni = AliasFactory()
+ithalat = TableRef("dbo", "Ithalat", uni.take())
+ihracat = TableRef("dbo", "Ihracat", uni.take())
+
+
+def union_of(**overrides):
+    """İki dallı birleşim; testler yalnızca değiştirdikleri alanı verir."""
+    branches = overrides.pop("branches", None)
+    if branches is None:
+        branches = [
+            UnionBranch(QuerySpec(
+                base=ithalat,
+                group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+                aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value"),
+            ), "src0"),
+            UnionBranch(QuerySpec(
+                base=ihracat,
+                # Iki tablo ayni seyi farkli adla tutuyor: etiket olmadan
+                # birlesimin cikti adlari tutmaz.
+                group_by=[ColumnRef(ihracat.alias, "Country", label="UlkeAdi")],
+                aggregate=Aggregate("sum", ColumnRef(ihracat.alias, "Amount"), "value"),
+            ), "src1"),
+        ]
+    spec = UnionSpec(branches=branches, **overrides)
+    return spec
+
+
+check(
+    "birleşim dalları alt alta eklenir ve kaynağını söyler",
+    render_union(union_of(order_by=[OrderBy("value", "desc")], limit=10)),
+    "SELECT TOP (10) * FROM ("
+    "SELECT [t0].[UlkeAdi], SUM([t0].[Tutar]) AS [value], :src0 AS [Kaynak] "
+    "FROM [dbo].[Ithalat] AS [t0] GROUP BY [t0].[UlkeAdi]"
+    " UNION ALL "
+    "SELECT [t1].[Country] AS [UlkeAdi], SUM([t1].[Amount]) AS [value], :src1 AS [Kaynak] "
+    "FROM [dbo].[Ihracat] AS [t1] GROUP BY [t1].[Country]"
+    ") AS [u] ORDER BY [value] DESC",
+)
+
+expect_error(
+    "dalların çıktı kolonları tutmalı",
+    lambda: render_union(union_of(branches=[
+        UnionBranch(QuerySpec(
+            base=ithalat, group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value")), "s0"),
+        UnionBranch(QuerySpec(
+            base=ihracat, group_by=[ColumnRef(ihracat.alias, "Country")],
+            aggregate=Aggregate("sum", ColumnRef(ihracat.alias, "Amount"), "value")), "s1"),
+    ])),
+    "çıktı kolonları diğerlerinden farklı", QuerySpecError,
+)
+
+expect_error(
+    "aynı parametre adı iki dalda kullanılamaz",
+    lambda: render_union(union_of(branches=[
+        UnionBranch(QuerySpec(
+            base=ithalat, group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value"),
+            where=[Predicate(ColumnRef(ithalat.alias, "Yil"), "=", ["p0"])]), "s0"),
+        UnionBranch(QuerySpec(
+            base=ihracat, group_by=[ColumnRef(ihracat.alias, "Country", label="UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ihracat.alias, "Amount"), "value"),
+            where=[Predicate(ColumnRef(ihracat.alias, "Yil"), "=", ["p0"])]), "s1"),
+    ])),
+    "birden fazla dalda kullanılmış", QuerySpecError,
+)
+
+expect_error(
+    "dalın kendi sıralaması olamaz",
+    lambda: render_union(union_of(branches=[
+        UnionBranch(QuerySpec(
+            base=ithalat, group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value"),
+            order_by=[OrderBy("value", "desc")]), "s0"),
+        UnionBranch(QuerySpec(
+            base=ihracat, group_by=[ColumnRef(ihracat.alias, "Country", label="UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ihracat.alias, "Amount"), "value")), "s1"),
+    ])),
+    "dalında sıralama ya da TOP olamaz", QuerySpecError,
+)
+
+expect_error(
+    "sırasız birleşimde TOP olmaz",
+    lambda: render_union(union_of(limit=5)),
+    "Sıralaması olmayan bir birleşimde TOP", QuerySpecError,
+)
+
+expect_error(
+    "birleşim kolon referansına göre sıralanamaz",
+    lambda: render_union(union_of(
+        order_by=[OrderBy(ColumnRef(ithalat.alias, "UlkeAdi"), "asc")])),
+    "yalnızca çıktı adına göre", QuerySpecError,
+)
+
+expect_error(
+    "tek dallı birleşim olmaz",
+    lambda: render_union(UnionSpec(branches=[
+        UnionBranch(QuerySpec(
+            base=ithalat, group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value")), "s0"),
+    ])),
+    "en az iki dal", QuerySpecError,
+)
+
+expect_error(
+    "kaynak etiketi ya hepsinde ya hiçbirinde",
+    lambda: render_union(union_of(branches=[
+        UnionBranch(QuerySpec(
+            base=ithalat, group_by=[ColumnRef(ithalat.alias, "UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ithalat.alias, "Tutar"), "value")), "s0"),
+        UnionBranch(QuerySpec(
+            base=ihracat, group_by=[ColumnRef(ihracat.alias, "Country", label="UlkeAdi")],
+            aggregate=Aggregate("sum", ColumnRef(ihracat.alias, "Amount"), "value"))),
+    ])),
+    "ya bütün dallarda olmalı ya hiçbirinde", QuerySpecError,
+)
+
+
+# ── Bolum 5: Model isteginin cozumlenmesi ─────────────────────────────────
+#
+# Model ham SQL yazmiyor, adlandirilmis kaliplar seciyor. Cozumleyici o
+# kaliplari cerceveyi ve esigi kendisi kurarak `WindowExpr`/`HavingPredicate`e
+# ceviriyor — modelin unutabilecegi bir sey kalmasin diye.
+
+measure = Aggregate("sum", ColumnRef("t0", "Tutar"), "value")
+group_ref = ColumnRef("t0", "Ay")
+
+check("koşul yoksa hiçbir şey üretilmez",
+      analyzer._build_having(None, measure), ([], {}, None))
+
+hp, hparams, hnote = analyzer._build_having({"op": ">", "value": 1000}, measure)
+check("eşik parametreye bağlanır", hparams, {"h0": 1000})
+check("koşul ölçünün kendisine uygulanır", hp[0].sql(), "SUM([t0].[Tutar]) > :h0")
+check("koşul denetim izine okunabilir yazılır", hnote, "SUM(Tutar) > 1000")
+
+# Model bazen yalnizca sayiyi yaziyor; kastettigi neredeyse her zaman "bundan
+# buyuk". Reddetmek yerine bunu okumak, sorunun cevapsiz kalmasindan iyi.
+check("çıplak sayı 'bundan büyük' okunur",
+      analyzer._build_having(1000, measure)[0][0].sql(), "SUM([t0].[Tutar]) > :h0")
+
+expect_error(
+    "koşul değeri metin olamaz",
+    lambda: analyzer._build_having({"op": ">", "value": "çok"}, measure),
+    "bir sayı olmalı", ValueError,
+)
+
+expect_error(
+    "tanınmayan karşılaştırma reddedilir",
+    lambda: analyzer._build_having({"op": "LIKE", "value": 1}, measure),
+    "tanınmayan bir karşılaştırma", ValueError,
+)
+
+windows, wnote, series = analyzer._build_window(
+    "running_total", measure, [group_ref], "desc")
+check("birikim çerçevesini kendisi kurar", windows[0].frame, "cumulative")
+check("birikim seri sayılır", series, True)
+check("birikim denetim izine yazılır", wnote.startswith("birikimli toplam"), True)
+
+# "Aylara gore, ulke bazinda birikimli ciro" sorusunda dogru cevap ulke
+# BASINA birikim; hepsini tek siraya dizmek ulkeleri birbirinin ustune toplar.
+windows, _, _ = analyzer._build_window(
+    "running_total", measure, [group_ref, ColumnRef("t0", "Ulke")], "desc")
+check("ikinci kırılım bölüm olur", windows[0].partition_by, [ColumnRef("t0", "Ulke")])
+check("eksen yine ilk kırılım", windows[0].order_by[0].target, group_ref)
+
+windows, _, series = analyzer._build_window(
+    {"function": "moving_average", "periods": 3}, measure, [group_ref], "desc")
+# 3 donem = bu satir + 2 onceki.
+check("hareketli ortalama pencereyi doğru kurar", windows[0].preceding, 2)
+check("hareketli ortalama seri sayılır", series, True)
+
+windows, _, series = analyzer._build_window(
+    {"function": "rank"}, measure, [group_ref], "desc")
+check("sıralama ölçüye göre yapılır", windows[0].order_by[0].target, measure)
+# Siralama serinin sirasini bozmuyor: sonuc yine olcuye gore okunur.
+check("sıralama seri değildir", series, False)
+
+expect_error(
+    "tek dönemlik hareketli ortalama olmaz",
+    lambda: analyzer._build_window(
+        {"function": "moving_average", "periods": 1}, measure, [group_ref], "desc"),
+    "2 ya da daha büyük olmalı", ValueError,
+)
+
+expect_error(
+    "kırılımsız birikim olmaz",
+    lambda: analyzer._build_window("running_total", measure, [], "desc"),
+    "kırılım gerekiyor", ValueError,
+)
+
+expect_error(
+    "bilinmeyen pencere kalıbı reddedilir",
+    lambda: analyzer._build_window("kumulatif", measure, [group_ref], "desc"),
+    "Bilinmeyen pencere hesabı", ValueError,
+)
+
+
 print("\n\n".join(FAILS) if FAILS else "TÜM TESTLER GEÇTİ")
 sys.exit(1 if FAILS else 0)
