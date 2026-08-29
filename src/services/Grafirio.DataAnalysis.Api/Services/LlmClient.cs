@@ -29,7 +29,17 @@ public sealed class LlmClient : ILlmClient
     // max_completion_tokens, temperature yalnizca varsayilan). Deployment adi
     // model ailesini ele vermedigi icin once modern govde denenir, sunucu
     // reddederse klasige dusulur ve karar hatirlanir.
-    private static bool? _useLegacyParams;
+    //
+    // `bool?` degil `int`: onceki hali iki alanli bir struct'ti (hasValue +
+    // value) ve okunmasi atomik degildi. Sozluk uretimi artik dorderli
+    // dalgalar halinde paralel calisiyor; iki alanin yarim okunmasi, klasik
+    // govde gereken bir deployment'ta modern govdenin secilmesine yol
+    // acabilirdi. Volatile ile okuyup yazmak bunu imkânsiz kiliyor.
+    private const int ParamModeUnknown = 0;
+    private const int ParamModeModern = 1;
+    private const int ParamModeLegacy = 2;
+
+    private static int _paramMode;
 
     public LlmClient(IHttpClientFactory httpClientFactory, IConfiguration configuration,
         ILogger<LlmClient> logger)
@@ -112,12 +122,24 @@ public sealed class LlmClient : ILlmClient
     private async Task<string> SendAzureRequestAsync(HttpClient client, string url, string apiKey,
         string prompt, double temperature, int maxTokens, CancellationToken cancellationToken)
     {
-        var attempts = _useLegacyParams is null ? new[] { false, true } : new[] { _useLegacyParams.Value };
+        // Her iki govde de listede, hatirlanan karar yalnizca SIRAYI
+        // belirliyor. Onceden hatirlanan karar tek elemanli bir listeye
+        // donuyordu; deployment degistiginde (ya da karar bir sekilde yanlis
+        // hatirlandiginda) o tek deneme reddedilince donguden sessizce
+        // cikiliyor ve HATA GOVDESI basarili yanit gibi geri donuyordu.
+        // Mutlu yolda ikinci eleman zaten hic denenmiyor.
+        var attempts = Volatile.Read(ref _paramMode) == ParamModeLegacy
+            ? new[] { true, false }
+            : new[] { false, true };
+
         HttpResponseMessage? response = null;
         string body = "";
 
-        foreach (var legacy in attempts)
+        for (var attempt = 0; attempt < attempts.Length; attempt++)
         {
+            var legacy = attempts[attempt];
+            var lastAttempt = attempt == attempts.Length - 1;
+
             // 429 (kota) gecici bir durumdur; tek denemede vazgecmek analizin
             // tamamini bosa cikariyor. Azure `Retry-After` basligiyla ne kadar
             // beklenecegini soyluyor — ona uyuluyor, yoksa ustel geri cekilme.
@@ -155,10 +177,12 @@ public sealed class LlmClient : ILlmClient
                 await Task.Delay(wait, cancellationToken);
             }
 
-            if (!legacy && response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
+            if (!lastAttempt && response.StatusCode == System.Net.HttpStatusCode.BadRequest &&
                 IsUnsupportedParameter(body))
             {
-                _logger.LogInformation("Azure OpenAI modern parametreleri reddetti, klasik gövdeye düşülüyor");
+                _logger.LogInformation(
+                    "Azure OpenAI {Mode} gövdeyi reddetti, diğerine düşülüyor",
+                    legacy ? "klasik" : "modern");
                 continue;
             }
 
@@ -181,10 +205,10 @@ public sealed class LlmClient : ILlmClient
                 }
 
                 throw new InvalidOperationException(
-                    $"Azure OpenAI HTTP {(int)response.StatusCode}: {Truncate(body, 300)}");
+                    DescribeFailure((int)response.StatusCode, body));
             }
 
-            _useLegacyParams = legacy;
+            Volatile.Write(ref _paramMode, legacy ? ParamModeLegacy : ParamModeModern);
             break;
         }
 
@@ -212,6 +236,39 @@ public sealed class LlmClient : ILlmClient
         }
 
         return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>
+    /// Basarisiz bir cagriyi kullanicinin okuyabilecegi bir cumleye cevirir.
+    ///
+    /// Bu metin yukari katmanda <c>ex.Message</c> olarak analiz kaydina
+    /// yaziliyor ve ekranda gorunuyor. "Azure OpenAI HTTP 401: {...}" satirini
+    /// okuyan kisinin yapabilecegi bir sey yok; hangi ayarin eksik oldugunu
+    /// soylemek gerekiyor. Ham govde yine sonda duruyor — teshis icin lazim,
+    /// ama artik cumlenin tamami degil.
+    /// </summary>
+    internal static string DescribeFailure(int status, string body)
+    {
+        var detail = $"(Azure: {Truncate(body, 200)})";
+
+        return status switch
+        {
+            401 or 403 =>
+                "Yapay zekâ servisi isteği reddetti: API anahtarı geçersiz ya da bu "
+                + "deployment'a yetkisi yok. Sunucuda AZURE_OPENAI_API_KEY kontrol "
+                + $"edilmeli. {detail}",
+
+            404 =>
+                "Yapay zekâ servisinde bu deployment bulunamadı. AZURE_OPENAI_DEPLOYMENT "
+                + $"ve AZURE_OPENAI_ENDPOINT değerleri kontrol edilmeli. {detail}",
+
+            >= 500 =>
+                "Yapay zekâ servisi geçici olarak yanıt veremedi. Birkaç dakika sonra "
+                + $"tekrar deneyin. {detail}",
+
+            _ =>
+                $"Yapay zekâ servisi isteği kabul etmedi (HTTP {status}). {detail}",
+        };
     }
 
     /// <summary>
