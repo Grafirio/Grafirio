@@ -257,15 +257,6 @@ public sealed class LlmClient : ILlmClient
     }
 
     /// <summary>
-    /// Basarisiz bir cagriyi kullanicinin okuyabilecegi bir cumleye cevirir.
-    ///
-    /// Bu metin yukari katmanda <c>ex.Message</c> olarak analiz kaydina
-    /// yaziliyor ve ekranda gorunuyor. "Azure OpenAI HTTP 401: {...}" satirini
-    /// okuyan kisinin yapabilecegi bir sey yok; hangi ayarin eksik oldugunu
-    /// soylemek gerekiyor. Ham govde yine sonda duruyor — teshis icin lazim,
-    /// ama artik cumlenin tamami degil.
-    /// </summary>
-    /// <summary>
     /// Ayarlarin iki kaynagi var ve oncelikleri esit degil: <see cref="Read"/>
     /// once ortam degiskenine bakiyor, yoksa yapilandirma anahtarina dusuyor.
     ///
@@ -277,6 +268,15 @@ public sealed class LlmClient : ILlmClient
     private const string SettingPrecedence =
         "Ortam değişkeni tanımlıysa yapılandırma ayarını ezer.";
 
+    /// <summary>
+    /// Basarisiz bir cagriyi kullanicinin okuyabilecegi bir cumleye cevirir.
+    ///
+    /// Bu metin yukari katmanda <c>ex.Message</c> olarak analiz kaydina
+    /// yaziliyor ve ekranda gorunuyor. "Azure OpenAI HTTP 401: {...}" satirini
+    /// okuyan kisinin yapabilecegi bir sey yok; hangi ayarin eksik oldugunu
+    /// soylemek gerekiyor. Ham govde yine sonda duruyor — teshis icin lazim,
+    /// ama artik cumlenin tamami degil.
+    /// </summary>
     private static string DescribeFailure(int status, string body)
     {
         var detail = $"(Azure: {Truncate(body, 200)})";
