@@ -14,7 +14,8 @@ import '../../styles/SqlConnectionSettings.css';
  */
 export default function AnalysisTracker() {
   const {
-    analysis, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer,
+    analysis, run, resumeTracking, submit,
+    minimize, restore, dismiss, hide, setConsent, setAnswer,
   } = useAnalysis();
 
   if (!analysis.open) return null;
@@ -27,9 +28,11 @@ export default function AnalysisTracker() {
       <div className="analysis-toast" role="status" aria-live="polite">
         <button className="analysis-toast__body" onClick={restore} title="Ayrıntıları göster">
           <span className="analysis-toast__icon">
-            {analysis.running
-              ? <span className="gf-spinner"></span>
-              : <i className="ti ti-check"></i>}
+            {analysis.running && <span className="gf-spinner"></span>}
+            {/* Takip bırakıldıysa tik göstermek yalan olurdu: iş bitmedi,
+                biz izlemeyi bıraktık. */}
+            {!analysis.running && analysis.trackingAbandoned && <i className="ti ti-clock"></i>}
+            {!analysis.running && !analysis.trackingAbandoned && <i className="ti ti-check"></i>}
           </span>
           <span className="analysis-toast__text">
             <strong>{analysis.connectionName}</strong>
@@ -39,7 +42,9 @@ export default function AnalysisTracker() {
                 // Büyük şemada iş çeyrek saat sürebiliyor; sabit bir cümle
                 // izleyen kullanıcı sistemin kilitlendiğini sanıyor.
                 ? (analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…')
-                : 'Analiz tamamlandı'}
+                : analysis.trackingAbandoned
+                  ? 'Takip bırakıldı — arka planda sürüyor olabilir'
+                  : 'Analiz tamamlandı'}
             </span>
           </span>
         </button>
@@ -94,7 +99,24 @@ export default function AnalysisTracker() {
             </div>
           )}
 
-          {!analysis.running && analysis.status !== 'ready' && !hasQuestions && (
+          {/* Takip bırakıldı: hata değil, bilgi. İşi durduramıyoruz ve
+              durdurmadık; yalnızca izlemeyi bıraktık. Bu yüzden burada
+              "yeniden başlat" değil "durumu yenile" var — yeni bir analiz
+              başlatmak, süren işin üstüne ikinci bir iş koymak olurdu. */}
+          {analysis.trackingAbandoned && (
+            <div className="gf-alert" style={{ marginBottom: 16 }}>
+              <i className="ti ti-clock"></i> Analiz uzun sürdü ve takip bırakıldı.
+              İş sunucuda devam ediyor olabilir; durdurulmadı.
+              <div style={{ marginTop: 12 }}>
+                <button className="gf-btn" onClick={resumeTracking}>
+                  <i className="ti ti-refresh"></i> Durumu yenile
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!analysis.running && !analysis.trackingAbandoned
+            && analysis.status !== 'ready' && !hasQuestions && (
             <>
               <p className="gf-hint" style={{ marginBottom: 16 }}>
                 Seçili tabloların yapısı okunacak, kolonların ne anlama geldiği çıkarılacak.

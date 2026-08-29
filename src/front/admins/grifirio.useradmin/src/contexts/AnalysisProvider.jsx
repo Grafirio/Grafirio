@@ -20,6 +20,15 @@ const EMPTY = {
   stats: null,
   consent: false,
   error: '',
+
+  /* Takip bırakıldı ama iş sunucuda sürüyor olabilir.
+
+     `running: false` tek başına yetmiyordu: `status` hâlâ 'analyzing'
+     kalıyor ve ekranda "Analizi başlat" düğmesi geri geliyordu. Kullanıcı
+     ona basınca aynı bağlantı için ikinci bir analiz kuyruğa giriyor —
+     geniş bir şemada yirmi LLM çağrısı daha. "Sürüyor" deyip aynı anda
+     "başlat" sunmak da kendi içinde çelişkili. */
+  trackingAbandoned: false,
 };
 
 const POLL_INTERVAL_MS = 4000;
@@ -50,6 +59,8 @@ export function AnalysisProvider({ children }) {
       ...p,
       running: state.status === 'analyzing',
       status: state.status,
+      // Sunucudan taze bir durum geldi: takip yeniden ayakta.
+      trackingAbandoned: false,
       questions: state.questions || [],
       summary: state.summary || '',
       stats: state.tableCount
@@ -76,11 +87,11 @@ export function AnalysisProvider({ children }) {
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
         // İşi durduramıyoruz ve durdurmuyoruz da; bırakılan tek şey takip.
         // "Başarısız oldu" demek yanlış olurdu: analiz büyük ihtimalle
-        // sürüyor ve bitince bağlantı hazır görünecek.
+        // sürüyor ve bitince bağlantı hazır görünecek. Bu yüzden `error`
+        // değil kendi durumu: hata kırmızı bir uyarı, bu ise bir bilgi.
         setAnalysis((p) => ({
-          ...p, running: false, open: true, minimized: false,
-          error: 'Analiz uzun sürdü, takip bırakıldı. İş arka planda devam '
-               + 'ediyor — bu sayfayı yenileyip durumu tekrar görebilirsiniz.',
+          ...p, running: false, trackingAbandoned: true,
+          open: true, minimized: false, error: '',
         }));
         sessionStorage.removeItem(STORAGE_KEY);
         return;
@@ -175,9 +186,40 @@ export function AnalysisProvider({ children }) {
     }
   }, [applyState, poll]);
 
+  /**
+   * Bırakılan takibi kaldığı yerden sürdürür.
+   *
+   * İş kuyrukta yürüdüğü için yapılacak tek şey durumu yeniden okumak;
+   * yeni bir analiz BAŞLATMIYOR. Kullanıcıya "sayfayı yenileyin" demenin
+   * yerini alıyor.
+   */
+  const resumeTracking = useCallback(async () => {
+    const { connectionId, connectionName } = analysis;
+    if (!connectionId) return;
+
+    setAnalysis((p) => ({ ...p, trackingAbandoned: false, error: '' }));
+
+    try {
+      const state = await getAnalysisStatus(connectionId);
+      applyState(state);
+
+      if (state.status === 'analyzing') {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ connectionId, connectionName }));
+        poll(connectionId);
+      }
+    } catch (error) {
+      setAnalysis((p) => ({
+        ...p, error: error.response?.data?.error || error.message,
+      }));
+    }
+  }, [analysis, applyState, poll]);
+
   const run = useCallback(async () => {
     const { connectionId, connectionName, consent } = analysis;
-    setAnalysis((p) => ({ ...p, running: true, error: '', questions: [], stats: null }));
+    setAnalysis((p) => ({
+      ...p, running: true, trackingAbandoned: false,
+      error: '', questions: [], stats: null,
+    }));
 
     try {
       await startAnalysis(connectionId, consent);
@@ -224,8 +266,10 @@ export function AnalysisProvider({ children }) {
   })), []);
 
   const value = useMemo(() => ({
-    analysis, openFor, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer,
-  }), [analysis, openFor, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer]);
+    analysis, openFor, run, resumeTracking, submit,
+    minimize, restore, dismiss, hide, setConsent, setAnswer,
+  }), [analysis, openFor, run, resumeTracking, submit,
+       minimize, restore, dismiss, hide, setConsent, setAnswer]);
 
   return <AnalysisContext.Provider value={value}>{children}</AnalysisContext.Provider>;
 }
