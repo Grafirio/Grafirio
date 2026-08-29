@@ -75,8 +75,29 @@ public class ConnectionAnalysisConsumer(
             var profile = await profiler.ProfileAsync(
                 session, connection.Database, selectedTables, message.SamplingConsentGiven, ct);
 
-            var profileJson = JsonSerializer.Serialize(profile, JsonOptions);
-            var result = await llm.BuildSchemaDictionaryAsync(profileJson, ct);
+            // Sozluk tek cagriyla uretilemiyor: cikti kolon sayisiyla dogru
+            // orantili buyudugu icin birkac yuz kolonda cevap token butcesine
+            // sigmiyor ve model bos donuyor. Tablolar kolon butcesine gore
+            // gruplanip ayri ayri soruluyor, sonuclar birlestiriliyor.
+            // Sema tek parcaya sigiyorsa hicbir sey degismiyor.
+            var chunks = DictionaryChunks.Split(profile);
+            // Modele giden profil, sakladigimiz profilin aynisi degil: karar
+            // verirken kullanilmayan alanlar (ornekleme gerekcesi, her satirda
+            // tekrar eden bayraklar) cikariliyor. Profil nesnesi olduğu gibi
+            // duruyor — codeValues ve profileStats onu okuyor.
+            var chunkProfiles = chunks
+                .Select(c => PromptProfile.Serialize(c, JsonOptions))
+                .ToList();
+            var allTableNames = profile.Tables.Select(t => t.Qualified).ToList();
+
+            if (chunks.Count > 1)
+            {
+                logger.LogInformation(
+                    "Şema {Tables} tablo / {Columns} kolon: sözlük {Chunks} parçada üretilecek.",
+                    profile.Tables.Count, profile.Tables.Sum(t => t.Columns.Count), chunks.Count);
+            }
+
+            var result = await llm.BuildSchemaDictionaryAsync(chunkProfiles, allTableNames, ct);
 
             if (!result.Success)
             {

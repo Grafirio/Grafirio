@@ -54,31 +54,80 @@ public class LlmAnalysisService
     /// <c>questions</c> altinda bildiriyor; bunlar kullaniciya bir kez sorulup
     /// yanitlari sozluge isleniyor.
     /// </summary>
-    public async Task<LlmResult> BuildSchemaDictionaryAsync(string profileJson, CancellationToken ct = default)
+    /// <param name="chunkProfiles">
+    /// Her biri ayri bir cagriya girecek alt profiller (bkz.
+    /// <c>DictionaryChunks.Split</c>). Tek elemanliysa davranis eskisiyle
+    /// birebir ayni.
+    /// </param>
+    /// <param name="allTableNames">
+    /// Secilen BUTUN tablolarin adlari. Her cagriya baglam olarak giriyor:
+    /// sozluk kurallarindan biri (Import/Export gibi karsit ciftleri
+    /// isaretlemek) tablo adlarini bir arada gormeyi gerektiriyor ve
+    /// parcalanmis bir cagri kendi disindaki tablolari goremezdi. Yalnizca
+    /// adlar gidiyor, profil degil — maliyeti ihmal edilebilir.
+    /// </param>
+    public async Task<LlmResult> BuildSchemaDictionaryAsync(
+        IReadOnlyList<string> chunkProfiles,
+        IReadOnlyList<string> allTableNames,
+        CancellationToken ct = default)
     {
         if (_model is null) return NotConfigured();
+        if (chunkProfiles.Count == 0)
+            return new LlmResult { Success = false, Error = "Profil boş; sözlük üretilemez." };
 
-        _logger.LogInformation("Semantik sözlük isteniyor. Profil uzunluğu: {Len}", profileJson.Length);
+        _logger.LogInformation(
+            "Semantik sözlük isteniyor. {Chunks} parça, {Tables} tablo.",
+            chunkProfiles.Count, allTableNames.Count);
+
+        var parts = new List<string>(chunkProfiles.Count);
+        var explanations = new List<string>(chunkProfiles.Count);
 
         try
         {
-            // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun sozlugu
-            // arti sorular tek cevaba sigmali, ustelik reasoning token'lari da
-            // ayni butceden dusuyor.
-            var text = await _model.GenerateAsync(
-                BuildDictionaryPrompt(profileJson), temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+            // Parcalar SIRAYLA soruluyor, paralel degil. Azure'un kota siniri
+            // (429) istek basina degil dakika basina isliyor; yedi cagriyi ayni
+            // anda gondermek, tek bir cagriyla asilamayacak bir tavani
+            // asmanin en kolay yolu olurdu. Analiz zaten arka planda kosan bir
+            // is, sure burada en ucuz takas.
+            for (var index = 0; index < chunkProfiles.Count; index++)
+            {
+                // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun
+                // sozlugu arti sorular tek cevaba sigmali, ustelik reasoning
+                // token'lari da ayni butceden dusuyor.
+                var text = await _model.GenerateAsync(
+                    BuildDictionaryPrompt(chunkProfiles[index], allTableNames, chunkProfiles.Count),
+                    temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+
+                parts.Add(ExtractJson(text));
+
+                var explanation = ExtractExplanation(text);
+                if (!string.IsNullOrWhiteSpace(explanation)) explanations.Add(explanation);
+
+                if (chunkProfiles.Count > 1)
+                {
+                    _logger.LogInformation(
+                        "Sözlük parçası tamamlandı: {Index}/{Total}",
+                        index + 1, chunkProfiles.Count);
+                }
+            }
 
             return new LlmResult
             {
                 Success = true,
-                Json = ExtractJson(text),
-                Explanation = ExtractExplanation(text),
-                RawResponse = text
+                Json = SchemaDictionaryMerge.Combine(parts),
+                Explanation = string.Join("\n\n", explanations),
+                RawResponse = string.Join("\n\n", parts)
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Semantik sözlük üretimi başarısız");
+            // Bir parca dusunce analizin tamami dusuyor. Kalanla devam etmek,
+            // o tablolarin sozlukte hic olmadigi bir analizi "hazir"
+            // isaretlemek olurdu; kullanici onlari sorunca "cozemedim" cevabi
+            // alir ve sebebini gorecegi hicbir yer olmaz.
+            _logger.LogError(ex,
+                "Semantik sözlük üretimi başarısız ({Done}/{Total} parça tamamlanmıştı)",
+                parts.Count, chunkProfiles.Count);
             return new LlmResult { Success = false, Error = ex.Message };
         }
     }
@@ -127,8 +176,40 @@ public class LlmAnalysisService
         }
     }
 
-    private static string BuildDictionaryPrompt(string profileJson)
+    /// <param name="chunkCount">
+    /// Toplam parca sayisi. Birden fazlaysa prompt'a kapsam uyarisi ve butun
+    /// tablo adlarinin listesi giriyor, soru tavani da dusuyor: her parca
+    /// sekizer soru sorarsa kullanicinin onune elli soruluk bir form cikar.
+    /// </param>
+    private static string BuildDictionaryPrompt(
+        string profileJson, IReadOnlyList<string> allTableNames, int chunkCount)
     {
+        var chunked = chunkCount > 1;
+
+        // Sema tek cagriya sigiyorsa hicbir sey degismiyor: asagidaki blok bos
+        // kaliyor ve uretilen prompt eskisiyle birebir ayni.
+        var scopeBlock = !chunked ? string.Empty : $$"""
+        ## Kapsam — dikkat
+
+        Bu şema tek seferde işlenemeyecek kadar büyük olduğu için parçalara
+        bölündü. Yukarıdaki profilde YALNIZCA bu turun tabloları var ve sen
+        yalnızca onların sözlüğünü çıkaracaksın.
+
+        Aşağıdaki liste veritabanındaki bütün tabloları gösteriyor; bağlam
+        içindir. 5. kuraldaki karşıt çiftleri (Import/Export, In/Out,
+        Order/Offer gibi) fark edebilmen için tablo adlarını bir arada görmen
+        gerekiyor. Bu listede olup profilde OLMAYAN tablolar için sözlük
+        girdisi ÜRETME — onlar başka bir turda işleniyor.
+
+        {{string.Join("\n", allTableNames.Select(n => "- " + n))}}
+
+
+        """;
+
+        // Soru tavani: tek parcada sekiz, bolunmus semada parca basina uc.
+        // Toplam tavan birlestirmede ayrica uygulaniyor.
+        var questionBudget = chunked ? 3 : 8;
+
         return $$"""
         Sen bir veri modeli uzmanısın. Aşağıda bir müşterinin veritabanından
         çıkarılmış tablo profili var: kolon adları, tipler, istatistikler ve —
@@ -144,11 +225,23 @@ public class LlmAnalysisService
         kullanıcının ondan nasıl bahsedeceğini yazmandır.
 
         ## Profil
+
+        İki şeyi baştan bil, çünkü profilde kolon kolon tekrarlanmıyor:
+
+        - `distinctCount`, `nullCount`, `minValue`, `maxValue` tam tablodan
+          değil ÖRNEK SATIRLARDAN hesaplandı. Kesin sayılar değil; büyüklük
+          fikri verirler. "distinct 12" gördüğünde kolonun tam olarak 12 değeri
+          olduğunu varsayma.
+        - Bir kolonda `sampleValues` yoksa bu kolonun BOŞ OLDUĞU anlamına
+          gelmez. Gizlilik politikası o kolondan örnek almaya izin vermiyor
+          demektir; kolon dolu olabilir. Böyle kolonlarda adına ve tipine
+          bakarak karar ver.
+
         ```json
         {{profileJson}}
         ```
 
-        ## Sözlük kuralları
+        {{scopeBlock}}## Sözlük kuralları
         1. YALNIZCA profilde geçen tablo ve kolon adlarını kullan. Ad uydurma.
         2. Adı yanıltıcı olabilir, içeriği olmaz — örnek değerlere bak.
         3. Her kolon için kullanıcının o alandan bahsederken kullanabileceği
@@ -197,8 +290,8 @@ public class LlmAnalysisService
 
         Adından ve içeriğinden anlamı zaten belli olan kolonlara soru sorma
         (CreatedDate, Quantity, CustomerName gibi); aynısı tablolar için de
-        geçerli. En fazla 8 soru sor; çözemediğin tablo ya da kolon yoksa
-        `questions` boş kalsın.
+        geçerli. En fazla {{questionBudget}} soru sor; çözemediğin tablo ya da
+        kolon yoksa `questions` boş kalsın.
 
         Tablo soruları kolon sorularından önce gelsin: yanlış tablo seçmek,
         yanlış kolon seçmekten daha büyük hata.
