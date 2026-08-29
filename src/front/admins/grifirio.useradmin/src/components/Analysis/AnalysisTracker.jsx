@@ -20,7 +20,13 @@ export default function AnalysisTracker() {
 
   if (!analysis.open) return null;
 
-  const answeredAll = Object.keys(analysis.answers).length >= analysis.questions.length;
+  /* Sayı değil eşleşme: her SORUNUN kendi cevabı var mı.
+
+     Önceden yalnızca cevap sayısı soru sayısıyla karşılaştırılıyordu. Eski
+     turdan kalan üç cevap, yeni turun iki sorusunu "yanıtlanmış" gösteriyor
+     ve kaydet düğmesini açıyordu — kimlikler tutmasa bile. Sıfırlamayı
+     unutan her yol bu deliği yeniden açardı; burada kapatmak sınıfı kapatıyor. */
+  const answeredAll = analysis.questions.every((q) => analysis.answers[q.id]);
   const hasQuestions = analysis.questions.length > 0 && analysis.status !== 'ready';
 
   if (analysis.minimized) {

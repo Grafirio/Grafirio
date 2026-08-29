@@ -227,9 +227,14 @@ export function AnalysisProvider({ children }) {
 
   const run = useCallback(async () => {
     const { connectionId, connectionName, consent } = analysis;
+    // `answers` ve `summary` de sıfırlanıyor. Önceki turun cevapları duruyorsa
+    // yeni turun soruları için gönderiliyorlardı: soru kimlikleri sunucuda her
+    // sözlük üretiminde baştan (`q1`, `q2`, …) numaralandığı için çakışma
+    // ihtimal değil, kesinlik. Eski özet de kalırsa yeni analiz sürerken
+    // ilerleme satırının yerinde bir önceki analizin özeti görünüyordu.
     setAnalysis((p) => ({
       ...p, running: true, trackingAbandoned: false,
-      error: '', questions: [], stats: null,
+      error: '', questions: [], answers: {}, summary: '', stats: null,
     }));
 
     try {
