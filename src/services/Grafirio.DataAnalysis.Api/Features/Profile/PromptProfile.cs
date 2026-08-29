@@ -40,18 +40,6 @@ public static class PromptProfile
             profile.Relationships
         }, options);
 
-    /// <summary>
-    /// Bir tablonun prompt'ta kaplayacagi karakter sayisi.
-    ///
-    /// Parcalayici bunu kullaniyor. Kolon SAYISI, bir parcanin ne kadar yer
-    /// kaplayacaginin yalnizca vekil olcusu: kolonun tipi, ornek degerleri ve
-    /// istatistikleri bes kat fark yaratabiliyor. Gercek olcuyu tahmin etmek
-    /// yerine olcmek, "istek pencereye sigar mi" sorusunu Azure'a sormadan
-    /// once cevaplamanin tek yolu.
-    /// </summary>
-    public static int EstimateChars(TableProfile table, JsonSerializerOptions options) =>
-        JsonSerializer.Serialize(Project(table), options).Length;
-
     /// <summary>Tek bir tablonun modele gonderilen bicimi.</summary>
     private static object Project(TableProfile table) =>
         new

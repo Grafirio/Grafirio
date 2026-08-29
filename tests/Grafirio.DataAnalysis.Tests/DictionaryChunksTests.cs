@@ -35,11 +35,22 @@ public class DictionaryChunksTests
         chunks.Select(c => c.Tables.Select(t => t.TableName).ToList()).ToList();
 
     /// <summary>Kolon basina sabit maliyet varsayan olcum.</summary>
-    private static Func<TableProfile, int> Cost(int perColumn) =>
-        table => table.Columns.Count * perColumn;
+    private static Func<DatabaseProfile, int> Cost(int perColumn) =>
+        chunk => chunk.Tables.Sum(t => t.Columns.Count) * perColumn;
+
+    /// <summary>
+    /// Esitsiz maliyet: adi AGIR ile baslayan kolon otekilerin yuz kati.
+    ///
+    /// Gercek semada oluyor — uzun ornek degerleri olan bir kod kolonu,
+    /// yanindaki int kolonundan cok daha fazla yer kapliyor. Ortalamaya gore
+    /// dilimlemek boyle bir tabloda butceyi asiyordu.
+    /// </summary>
+    private static readonly Func<DatabaseProfile, int> Uneven = chunk =>
+        chunk.Tables.Sum(t => t.Columns.Sum(
+            c => c.ColumnName.StartsWith("AGIR", StringComparison.Ordinal) ? 1000 : 10));
 
     /// <summary>Boyut butcesini devre disi birakan olcum.</summary>
-    private static readonly Func<TableProfile, int> Free = _ => 0;
+    private static readonly Func<DatabaseProfile, int> Free = _ => 0;
 
     [Fact]
     public void Kucuk_sema_bolunmuyor()
@@ -112,6 +123,30 @@ public class DictionaryChunksTests
 
         // Kolon basina 100 karakter, parca basina 3000 → 30'ar kolon.
         Assert.Equal([30, 30, 30, 10], chunks.Select(c => c.Tables[0].Columns.Count));
+    }
+
+    [Fact]
+    public void Kolon_maliyetleri_esitsizken_de_butce_asilmiyor()
+    {
+        // Inceleme bulgusu: dilim boyutu kolon basina ORTALAMA maliyetten
+        // hesaplaniyordu. Tek bir agir kolon ortalamayi dusuk gosterip dilimi
+        // butcenin uzerine cikariyor, "sert" sanilan sinir fiilen
+        // uygulanmiyordu — Azure yine context_length_exceeded dondururdu.
+        var table = Table("Karisik", 12);
+        table.Columns[0].ColumnName = "AGIR_OrnekDegerliKolon";
+        table.Columns[6].ColumnName = "AGIR_IkinciAgirKolon";
+
+        var chunks = DictionaryChunks.Split(
+            Profile(table), Uneven, maxColumns: 100, maxChars: 500);
+
+        // Tek kolonluk parcalar disinda hicbir parca butceyi asmamali; tek
+        // kolon daha fazla bolunemez ve bu bilincli sinir.
+        Assert.All(
+            chunks.Where(c => c.Tables.Sum(t => t.Columns.Count) > 1),
+            c => Assert.True(Uneven(c) <= 500, $"parça {Uneven(c)} karakter, bütçe 500"));
+
+        // Hicbir kolon dusmemeli.
+        Assert.Equal(12, chunks.Sum(c => c.Tables.Sum(t => t.Columns.Count)));
     }
 
     [Fact]

@@ -36,7 +36,7 @@ public static class DictionaryChunks
     public const int MaxColumnsPerChunk = 120;
 
     /// <summary>
-    /// Bir cagriya girecek en fazla karakter — ikinci ve sert bütçe.
+    /// Bir parcanin PROFIL JSON'unun en fazla kac karakter olabilecegi.
     ///
     /// Kolon sayisi ne kadar yer kaplanacaginin yalnizca VEKIL olcusu. Genis
     /// bir tablonun kolonu, dar bir tablonunkinden bes kat uzun olabiliyor:
@@ -44,10 +44,20 @@ public static class DictionaryChunks
     /// 291.577 token uretip Azure'un 272.000 sinirini asti; kolon butcesi bunu
     /// tek basina onleyemez cunku sorun kolon sayisi degil kolon AGIRLIGIYDI.
     ///
-    /// 200 bin karakter ~57 bin token eder; bugunku pencerelerin cok altinda
-    /// ve iceride kalmasi gereken bir emniyet payi. Asil bolmeyi hâlâ kolon
-    /// butcesi yapiyor (o, CIKTI tarafini sinirliyor); burasi yalnizca
-    /// pencereye carpmayi imkânsiz kiliyor.
+    /// <b>Neyi kapsiyor:</b> olcum parcanin TAMAMI uzerinden yapiliyor —
+    /// tablolar, kolonlari ve o parcaya dusen iliskiler dahil. Tek tek
+    /// tablolari toplamak yeterli degildi; iliskiler de yer kapliyor ve
+    /// hesaba girmiyordu.
+    ///
+    /// <b>Neyi kapsamiyor:</b> prompt sablonunun kendisi ve her cagriya giren
+    /// tablo adlari listesi. Bunlar parca sayisindan bagimsiz, sabit bir ek
+    /// yuk (birkac bin karakter). 200 bin karakter ~57 bin token eder; o ek
+    /// yukle birlikte bile bugunku pencerelerin cok altinda kaliyor. Sayinin
+    /// bu kadar dusuk secilmesinin sebebi de bu — sinira yaklasmak degil,
+    /// ona hic yaklasmamak.
+    ///
+    /// Asil bolmeyi hâlâ kolon butcesi yapiyor (o, CIKTI tarafini
+    /// sinirliyor); burasi girdi tarafinin emniyeti.
     /// </summary>
     public const int MaxCharsPerChunk = 200_000;
 
@@ -62,13 +72,14 @@ public static class DictionaryChunks
     /// parcalari uretsin, boylece bir hata tekrar edilebilir olsun.
     /// </summary>
     /// <param name="measure">
-    /// Bir tablonun prompt'ta kaplayacagi karakter sayisi — normalde
-    /// <c>PromptProfile.EstimateChars</c>. Disaridan veriliyor ki parcalayici
-    /// serilestirmeye baglanmasin ve test edilebilsin.
+    /// Bir parcanin kac karakter tutacagi — normalde profil JSON'unun uzunlugu.
+    /// PARCA uzerinden olculyor, tek tablo uzerinden degil: iliskiler de yer
+    /// kapliyor ve tablo tablo toplamak onlari hesaba katmiyordu. Disaridan
+    /// veriliyor ki parcalayici serilestirmeye baglanmasin ve test edilebilsin.
     /// </param>
     public static IReadOnlyList<DatabaseProfile> Split(
         DatabaseProfile profile,
-        Func<TableProfile, int> measure,
+        Func<DatabaseProfile, int> measure,
         int maxColumns = MaxColumnsPerChunk,
         int maxChars = MaxCharsPerChunk)
     {
@@ -78,29 +89,27 @@ public static class DictionaryChunks
         var chunks = new List<DatabaseProfile>();
         var current = new List<TableProfile>();
         var currentColumns = 0;
-        var currentChars = 0;
 
         foreach (var table in profile.Tables)
         {
-            foreach (var piece in SplitTable(table, measure, maxColumns, maxChars))
+            foreach (var piece in SplitTable(profile, table, measure, maxColumns, maxChars))
             {
-                var columns = piece.Columns.Count;
-                var chars = measure(piece);
-
-                var full = currentColumns + columns > maxColumns
-                           || currentChars + chars > maxChars;
+                // Aday parca olculuyor: kolon maliyetleri esitsizken tek tek
+                // tablolarin toplamini almak yaniltiyordu, ustelik iliskiler
+                // o toplama hic girmiyordu.
+                var full = currentColumns + piece.Columns.Count > maxColumns
+                           || (current.Count > 0
+                               && measure(Build(profile, [.. current, piece])) > maxChars);
 
                 if (current.Count > 0 && full)
                 {
                     chunks.Add(Build(profile, current));
                     current = [];
                     currentColumns = 0;
-                    currentChars = 0;
                 }
 
                 current.Add(piece);
-                currentColumns += columns;
-                currentChars += chars;
+                currentColumns += piece.Columns.Count;
             }
         }
 
@@ -123,11 +132,13 @@ public static class DictionaryChunks
     /// Modele de kolonlarin bir kismini gordugu soyleniyor.
     /// </summary>
     private static IEnumerable<TableProfile> SplitTable(
-        TableProfile table, Func<TableProfile, int> measure, int maxColumns, int maxChars)
+        DatabaseProfile profile, TableProfile table,
+        Func<DatabaseProfile, int> measure, int maxColumns, int maxChars)
     {
         var columnCount = table.Columns.Count;
+        var whole = measure(Build(profile, [table]));
 
-        if (columnCount <= maxColumns && measure(table) <= maxChars)
+        if (columnCount <= maxColumns && whole <= maxChars)
         {
             yield return table;
             yield break;
@@ -136,20 +147,38 @@ public static class DictionaryChunks
         if (columnCount <= 1)
         {
             // Bolunecek bir sey kalmadi: tek kolonu olan (ya da hic olmayan)
-            // bir tabloyu daha fazla kucultemeyiz.
+            // bir tabloyu daha fazla kucultemeyiz. Tek basina butceyi asan bir
+            // kolon kalirsa cagri yine buyuk olur; onun karsiligi
+            // LlmClient'taki butce merdiveni.
             yield return table;
             yield break;
         }
 
-        // Kolon basina maliyet olculen toplamdan cikariliyor; her alt kumeyi
-        // ayri ayri olcmek O(n^2) olurdu ve buradaki hassasiyet ona degmez.
-        var perColumn = Math.Max(1, measure(table) / columnCount);
-        var byChars = Math.Max(1, maxChars / perColumn);
-        var groupSize = Math.Min(maxColumns, byChars);
+        // Ilk tahmin kolon basina ORTALAMA maliyetten cikiyor. Ortalama tek
+        // basina yeterli degil: bir tablonun tek bir kolonu (uzun ornek
+        // degerleri olan bir kod kolonu gibi) digerlerinin yuz kati
+        // olabiliyor ve ortalama o dilimi butcenin uzerine cikariyor. Bu
+        // yuzden her dilim ayrica OLCULUYOR ve sigana kadar yariya
+        // indiriliyor — tahmin yalnizca kac olcum yapacagimizi belirliyor,
+        // butceyi degil.
+        var perColumn = Math.Max(1, whole / columnCount);
+        var guess = Math.Min(maxColumns, Math.Max(1, maxChars / perColumn));
 
-        for (var start = 0; start < columnCount; start += groupSize)
+        var start = 0;
+        while (start < columnCount)
         {
-            yield return Slice(table, table.Columns.Skip(start).Take(groupSize).ToList());
+            var take = Math.Min(guess, columnCount - start);
+            TableProfile piece;
+
+            while (true)
+            {
+                piece = Slice(table, table.Columns.Skip(start).Take(take).ToList());
+                if (take <= 1 || measure(Build(profile, [piece])) <= maxChars) break;
+                take = Math.Max(1, take / 2);
+            }
+
+            yield return piece;
+            start += take;
         }
     }
 

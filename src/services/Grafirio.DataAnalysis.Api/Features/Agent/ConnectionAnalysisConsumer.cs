@@ -81,7 +81,7 @@ public class ConnectionAnalysisConsumer(
             // gruplanip ayri ayri soruluyor, sonuclar birlestiriliyor.
             // Sema tek parcaya sigiyorsa hicbir sey degismiyor.
             var chunks = DictionaryChunks.Split(
-                profile, table => PromptProfile.EstimateChars(table, JsonOptions));
+                profile, chunk => PromptProfile.Serialize(chunk, JsonOptions).Length);
             // Modele giden profil, sakladigimiz profilin aynisi degil: karar
             // verirken kullanilmayan alanlar (ornekleme gerekcesi, her satirda
             // tekrar eden bayraklar) cikariliyor. Profil nesnesi olduğu gibi
