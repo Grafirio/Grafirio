@@ -11,8 +11,17 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// buyutmek bir iki tablo kazandiriyor, sonra ayni duvara toslaniyor —
 /// 28 tablo finans semasinda uc bir sayi degil.
 ///
-/// Bolme KOLON butcesine gore yapiliyor, tablo sayisina gore degil: iki yuz
-/// kolonluk tek bir tablo, bes kolonluk on tablodan daha agir.
+/// Bolme tablo SAYISINA gore degil, iki butceye gore yapiliyor:
+///
+///   * Kolon sayisi — CIKTI tarafini sinirlar. Model kolon basina bir sozluk
+///     girdisi uretiyor.
+///   * Karakter sayisi — GIRDI penceresini sinirlar. Kolon sayisi bunun
+///     yalnizca vekil olcusu: sahada 28 tablo 291.577 token uretip Azure'un
+///     272.000 sinirini asti, cunku sorun kolon sayisi degil kolon
+///     agirligiydi.
+///
+/// Tek basina butceye sigmayan tablo kolonlarindan bolunuyor. Boylece "istek
+/// pencereye sigar mi" sorusu Azure'a sorulmadan once, burada cevaplaniyor.
 /// </summary>
 public static class DictionaryChunks
 {
@@ -27,22 +36,62 @@ public static class DictionaryChunks
     public const int MaxColumnsPerChunk = 120;
 
     /// <summary>
+    /// Bir parcanin PROFIL JSON'unun en fazla kac karakter olabilecegi.
+    ///
+    /// Kolon sayisi ne kadar yer kaplanacaginin yalnizca VEKIL olcusu. Genis
+    /// bir tablonun kolonu, dar bir tablonunkinden bes kat uzun olabiliyor:
+    /// uzun kolon adlari, ornek degerler, min/max metinleri. Sahada 28 tablo
+    /// 291.577 token uretip Azure'un 272.000 sinirini asti; kolon butcesi bunu
+    /// tek basina onleyemez cunku sorun kolon sayisi degil kolon AGIRLIGIYDI.
+    ///
+    /// <b>Neyi kapsiyor:</b> olcum parcanin TAMAMI uzerinden yapiliyor —
+    /// tablolar, kolonlari ve o parcaya dusen iliskiler dahil. Tek tek
+    /// tablolari toplamak yeterli degildi; iliskiler de yer kapliyor ve
+    /// hesaba girmiyordu.
+    ///
+    /// <b>Neyi kapsamiyor:</b> prompt sablonunun kendisi ve her cagriya giren
+    /// tablo adlari listesi. Bunlar parca sayisindan bagimsiz, sabit bir ek
+    /// yuk (birkac bin karakter). 200 bin karakter ~57 bin token eder; o ek
+    /// yukle birlikte bile bugunku pencerelerin cok altinda kaliyor. Sayinin
+    /// bu kadar dusuk secilmesinin sebebi de bu — sinira yaklasmak degil,
+    /// ona hic yaklasmamak.
+    ///
+    /// Asil bolmeyi hâlâ kolon butcesi yapiyor (o, CIKTI tarafini
+    /// sinirliyor); burasi girdi tarafinin emniyeti.
+    /// </summary>
+    public const int MaxCharsPerChunk = 200_000;
+
+    /// <summary>
     /// Profili, her biri ayri bir LLM cagrisina girecek alt profillere boler.
     ///
-    /// Tablo sirasi korunuyor: ayni secim her calistirmada ayni parcalari
-    /// uretsin, boylece bir hata tekrar edilebilir olsun.
+    /// Iki butce birden uygulaniyor: kolon sayisi (cikti tarafini sinirlar) ve
+    /// karakter sayisi (girdi penceresini). Hangisi once dolarsa parca orada
+    /// kapaniyor.
     ///
-    /// Tek bir tablo tek basina butceyi asiyorsa yine de kendi parcasinda
-    /// gonderiliyor — kolonlari cagrilar arasinda bolmek, tablonun sozluk
-    /// girdisini birden fazla kez urettirmek ve hangisinin gecerli oldugunu
-    /// belirsiz birakmak olurdu. O durumda <c>LlmClient</c>'in butce
-    /// buyutme merdiveni son savunma olarak kaliyor.
+    /// Tablo ve kolon sirasi korunuyor: ayni secim her calistirmada ayni
+    /// parcalari uretsin, boylece bir hata tekrar edilebilir olsun.
     /// </summary>
+    /// <param name="measure">
+    /// Bir parcanin kac karakter tutacagi — normalde profil JSON'unun uzunlugu.
+    /// PARCA uzerinden olculyor, tek tablo uzerinden degil: iliskiler de yer
+    /// kapliyor ve tablo tablo toplamak onlari hesaba katmiyordu. Disaridan
+    /// veriliyor ki parcalayici serilestirmeye baglanmasin ve test edilebilsin.
+    /// </param>
     public static IReadOnlyList<DatabaseProfile> Split(
-        DatabaseProfile profile, int maxColumns = MaxColumnsPerChunk)
+        DatabaseProfile profile,
+        Func<DatabaseProfile, int> measure,
+        int maxColumns = MaxColumnsPerChunk,
+        int maxChars = MaxCharsPerChunk)
     {
-        if (maxColumns < 1)
-            throw new ArgumentOutOfRangeException(nameof(maxColumns));
+        // Nullable acik oldugu icin derleyici bunlari zaten yakaliyor, ama
+        // yalnizca nullable'i bilen cagiranlarda. Null gelirse ilk kullanimda
+        // NullReferenceException patlar ve hangi parametrenin eksik oldugunu
+        // soylemez; burada patlamak teshisi cok kolaylastiriyor.
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(measure);
+
+        if (maxColumns < 1) throw new ArgumentOutOfRangeException(nameof(maxColumns));
+        if (maxChars < 1) throw new ArgumentOutOfRangeException(nameof(maxChars));
 
         var chunks = new List<DatabaseProfile>();
         var current = new List<TableProfile>();
@@ -50,23 +99,106 @@ public static class DictionaryChunks
 
         foreach (var table in profile.Tables)
         {
-            var columns = table.Columns.Count;
-
-            if (current.Count > 0 && currentColumns + columns > maxColumns)
+            foreach (var piece in SplitTable(profile, table, measure, maxColumns, maxChars))
             {
-                chunks.Add(Build(profile, current));
-                current = [];
-                currentColumns = 0;
-            }
+                // Aday parca olculuyor: kolon maliyetleri esitsizken tek tek
+                // tablolarin toplamini almak yaniltiyordu, ustelik iliskiler
+                // o toplama hic girmiyordu.
+                var full = currentColumns + piece.Columns.Count > maxColumns
+                           || (current.Count > 0
+                               && measure(Build(profile, [.. current, piece])) > maxChars);
 
-            current.Add(table);
-            currentColumns += columns;
+                if (current.Count > 0 && full)
+                {
+                    chunks.Add(Build(profile, current));
+                    current = [];
+                    currentColumns = 0;
+                }
+
+                current.Add(piece);
+                currentColumns += piece.Columns.Count;
+            }
         }
 
         if (current.Count > 0) chunks.Add(Build(profile, current));
 
         return chunks;
     }
+
+    /// <summary>
+    /// Tek basina butceye sigmayan tabloyu kolonlarindan boler.
+    ///
+    /// Onceden bolunmuyordu: tablo kendi parcasina konup geciliyor, sigmazsa
+    /// <c>LlmClient</c>'in butce merdivenine birakiliyordu. Tablo basina yetmis
+    /// kolonun normal oldugu bir semada bu yeterli degil — uc yuz kolonluk
+    /// tek bir tablo butun analizi dusurur.
+    ///
+    /// Bolunen tablonun sozluk girdisi birden fazla parcada uretilir; bu bir
+    /// sorun degil, <c>SchemaDictionaryMerge</c> tablolari ada gore
+    /// tekillestiriyor ve kolonlari (tablo, kolon) ciftine gore birlestiriyor.
+    /// Modele de kolonlarin bir kismini gordugu soyleniyor.
+    /// </summary>
+    private static IEnumerable<TableProfile> SplitTable(
+        DatabaseProfile profile, TableProfile table,
+        Func<DatabaseProfile, int> measure, int maxColumns, int maxChars)
+    {
+        var columnCount = table.Columns.Count;
+        var whole = measure(Build(profile, [table]));
+
+        if (columnCount <= maxColumns && whole <= maxChars)
+        {
+            yield return table;
+            yield break;
+        }
+
+        if (columnCount <= 1)
+        {
+            // Bolunecek bir sey kalmadi: tek kolonu olan (ya da hic olmayan)
+            // bir tabloyu daha fazla kucultemeyiz. Tek basina butceyi asan bir
+            // kolon kalirsa cagri yine buyuk olur; onun karsiligi
+            // LlmClient'taki butce merdiveni.
+            yield return table;
+            yield break;
+        }
+
+        // Ilk tahmin kolon basina ORTALAMA maliyetten cikiyor. Ortalama tek
+        // basina yeterli degil: bir tablonun tek bir kolonu (uzun ornek
+        // degerleri olan bir kod kolonu gibi) digerlerinin yuz kati
+        // olabiliyor ve ortalama o dilimi butcenin uzerine cikariyor. Bu
+        // yuzden her dilim ayrica OLCULUYOR ve sigana kadar yariya
+        // indiriliyor — tahmin yalnizca kac olcum yapacagimizi belirliyor,
+        // butceyi degil.
+        var perColumn = Math.Max(1, whole / columnCount);
+        var guess = Math.Min(maxColumns, Math.Max(1, maxChars / perColumn));
+
+        var start = 0;
+        while (start < columnCount)
+        {
+            var take = Math.Min(guess, columnCount - start);
+            TableProfile piece;
+
+            while (true)
+            {
+                piece = Slice(table, table.Columns.Skip(start).Take(take).ToList());
+                if (take <= 1 || measure(Build(profile, [piece])) <= maxChars) break;
+                take = Math.Max(1, take / 2);
+            }
+
+            yield return piece;
+            start += take;
+        }
+    }
+
+    /// <summary>Ayni tablonun, kolonlarinin bir kismini tasiyan kopyasi.</summary>
+    private static TableProfile Slice(TableProfile table, List<ColumnProfile> columns) => new()
+    {
+        Schema = table.Schema,
+        TableName = table.TableName,
+        ApproximateRowCount = table.ApproximateRowCount,
+        SampledRowCount = table.SampledRowCount,
+        Error = table.Error,
+        Columns = columns
+    };
 
     /// <summary>
     /// Alt profil. Iliskilerden yalnizca bu parcanin tablolarina DEGEN olanlar

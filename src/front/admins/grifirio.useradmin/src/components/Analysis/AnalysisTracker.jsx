@@ -14,12 +14,19 @@ import '../../styles/SqlConnectionSettings.css';
  */
 export default function AnalysisTracker() {
   const {
-    analysis, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer,
+    analysis, run, resumeTracking, submit,
+    minimize, restore, dismiss, hide, setConsent, setAnswer,
   } = useAnalysis();
 
   if (!analysis.open) return null;
 
-  const answeredAll = Object.keys(analysis.answers).length >= analysis.questions.length;
+  /* Sayı değil eşleşme: her SORUNUN kendi cevabı var mı.
+
+     Önceden yalnızca cevap sayısı soru sayısıyla karşılaştırılıyordu. Eski
+     turdan kalan üç cevap, yeni turun iki sorusunu "yanıtlanmış" gösteriyor
+     ve kaydet düğmesini açıyordu — kimlikler tutmasa bile. Sıfırlamayı
+     unutan her yol bu deliği yeniden açardı; burada kapatmak sınıfı kapatıyor. */
+  const answeredAll = analysis.questions.every((q) => analysis.answers[q.id]);
   const hasQuestions = analysis.questions.length > 0 && analysis.status !== 'ready';
 
   if (analysis.minimized) {
@@ -27,16 +34,23 @@ export default function AnalysisTracker() {
       <div className="analysis-toast" role="status" aria-live="polite">
         <button className="analysis-toast__body" onClick={restore} title="Ayrıntıları göster">
           <span className="analysis-toast__icon">
-            {analysis.running
-              ? <span className="gf-spinner"></span>
-              : <i className="ti ti-check"></i>}
+            {analysis.running && <span className="gf-spinner"></span>}
+            {/* Takip bırakıldıysa tik göstermek yalan olurdu: iş bitmedi,
+                biz izlemeyi bıraktık. */}
+            {!analysis.running && analysis.trackingAbandoned && <i className="ti ti-clock"></i>}
+            {!analysis.running && !analysis.trackingAbandoned && <i className="ti ti-check"></i>}
           </span>
           <span className="analysis-toast__text">
             <strong>{analysis.connectionName}</strong>
             <span>
               {analysis.running
-                ? 'Tablolar okunuyor ve anlamlandırılıyor…'
-                : 'Analiz tamamlandı'}
+                // Sunucu ilerlemeyi özete yazıyor ("3/17 parça tamamlandı").
+                // Büyük şemada iş çeyrek saat sürebiliyor; sabit bir cümle
+                // izleyen kullanıcı sistemin kilitlendiğini sanıyor.
+                ? (analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…')
+                : analysis.trackingAbandoned
+                  ? 'Takip bırakıldı — arka planda sürüyor olabilir'
+                  : 'Analiz tamamlandı'}
             </span>
           </span>
         </button>
@@ -91,7 +105,24 @@ export default function AnalysisTracker() {
             </div>
           )}
 
-          {!analysis.running && analysis.status !== 'ready' && !hasQuestions && (
+          {/* Takip bırakıldı: hata değil, bilgi. İşi durduramıyoruz ve
+              durdurmadık; yalnızca izlemeyi bıraktık. Bu yüzden burada
+              "yeniden başlat" değil "durumu yenile" var — yeni bir analiz
+              başlatmak, süren işin üstüne ikinci bir iş koymak olurdu. */}
+          {analysis.trackingAbandoned && (
+            <div className="gf-alert" style={{ marginBottom: 16 }}>
+              <i className="ti ti-clock"></i> Analiz uzun sürdü ve takip bırakıldı.
+              İş sunucuda devam ediyor olabilir; durdurulmadı.
+              <div style={{ marginTop: 12 }}>
+                <button className="gf-btn" onClick={resumeTracking}>
+                  <i className="ti ti-refresh"></i> Durumu yenile
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!analysis.running && !analysis.trackingAbandoned
+            && analysis.status !== 'ready' && !hasQuestions && (
             <>
               <p className="gf-hint" style={{ marginBottom: 16 }}>
                 Seçili tabloların yapısı okunacak, kolonların ne anlama geldiği çıkarılacak.
@@ -121,9 +152,14 @@ export default function AnalysisTracker() {
           {analysis.running && (
             <div className="analysis-loading">
               <div className="spinner-large"></div>
-              <p>Tablolar okunuyor ve anlamlandırılıyor… Bu işlem birkaç dakika sürebilir.</p>
+              {/* Büyük şemada sözlük parçalara bölünüp ayrı ayrı üretiliyor
+                  ve iş çeyrek saati bulabiliyor. Sunucu kaçıncı parçada
+                  olduğunu özete yazıyor; sabit bir cümle göstermek, süreyi
+                  olduğundan uzun hissettiriyor. */}
+              <p>{analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…'}</p>
               <p className="gf-hint">
-                Bu pencereyi küçültüp başka sayfalara geçebilirsiniz; analiz arka planda sürer.
+                Geniş şemalarda bu işlem on beş dakikayı bulabilir. Bu pencereyi
+                küçültüp başka sayfalara geçebilirsiniz; analiz arka planda sürer.
               </p>
             </div>
           )}
@@ -135,7 +171,9 @@ export default function AnalysisTracker() {
             </div>
           )}
 
-          {analysis.summary && (
+          {/* Sürerken özet ilerlemeyi taşıyor ve yukarıda gösteriliyor;
+              burada ikinci kez yazmak aynı satırı iki yerde tekrar ederdi. */}
+          {analysis.summary && !analysis.running && (
             <p className="gf-hint" style={{ marginBottom: 16 }}>{analysis.summary}</p>
           )}
 

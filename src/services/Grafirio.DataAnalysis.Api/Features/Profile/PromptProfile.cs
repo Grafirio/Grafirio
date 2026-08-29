@@ -36,8 +36,14 @@ public static class PromptProfile
         {
             profile.DatabaseName,
             profile.SamplingConsentGiven,
-            Tables = profile.Tables.Select(table => new
-            {
+            Tables = profile.Tables.Select(Project),
+            profile.Relationships
+        }, options);
+
+    /// <summary>Tek bir tablonun modele gonderilen bicimi.</summary>
+    private static object Project(TableProfile table) =>
+        new
+        {
                 table.Schema,
                 table.TableName,
                 // Modelin sozlukteki `tables[].name` alanina yazdigi ad bu.
@@ -65,7 +71,5 @@ public static class PromptProfile
                         ? null
                         : column.SampleValues.Take(MaxSampleValues).ToList()
                 })
-            }),
-            profile.Relationships
-        }, options);
+        };
 }

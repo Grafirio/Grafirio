@@ -20,10 +20,30 @@ const EMPTY = {
   stats: null,
   consent: false,
   error: '',
+
+  /* Takip bırakıldı ama iş sunucuda sürüyor olabilir.
+
+     `running: false` tek başına yetmiyordu: `status` hâlâ 'analyzing'
+     kalıyor ve ekranda "Analizi başlat" düğmesi geri geliyordu. Kullanıcı
+     ona basınca aynı bağlantı için ikinci bir analiz kuyruğa giriyor —
+     geniş bir şemada yirmi LLM çağrısı daha. "Sürüyor" deyip aynı anda
+     "başlat" sunmak da kendi içinde çelişkili. */
+  trackingAbandoned: false,
 };
 
 const POLL_INTERVAL_MS = 4000;
-const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+/* Takibin bırakıldığı süre.
+
+   On dakikaydı ve artık yetmiyor: sözlük, şema büyükse parçalara bölünüp
+   ayrı ayrı üretiliyor ve yirmi parçalık bir şemada iş rahatlıkla çeyrek
+   saati buluyor. Bir de sunucu tarafındaki yeniden deneme varsa süre
+   katlanıyor. Eski sınırda kullanıcı, arka planda BAŞARIYLA süren bir işe
+   "tamamlanmadı" yazısı görüyordu.
+
+   Bu bir zaman aşımı değil, yalnızca takibin bırakıldığı an: iş kuyrukta
+   yürüyor ve biz izlemeyi bıraksak da bitiyor. Mesaj da bunu söylüyor. */
+const POLL_TIMEOUT_MS = 45 * 60 * 1000;
 
 export function AnalysisProvider({ children }) {
   const [analysis, setAnalysis] = useState(EMPTY);
@@ -39,6 +59,8 @@ export function AnalysisProvider({ children }) {
       ...p,
       running: state.status === 'analyzing',
       status: state.status,
+      // Sunucudan taze bir durum geldi: takip yeniden ayakta.
+      trackingAbandoned: false,
       questions: state.questions || [],
       summary: state.summary || '',
       stats: state.tableCount
@@ -63,9 +85,13 @@ export function AnalysisProvider({ children }) {
 
     const tick = async () => {
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        // İşi durduramıyoruz ve durdurmuyoruz da; bırakılan tek şey takip.
+        // "Başarısız oldu" demek yanlış olurdu: analiz büyük ihtimalle
+        // sürüyor ve bitince bağlantı hazır görünecek. Bu yüzden `error`
+        // değil kendi durumu: hata kırmızı bir uyarı, bu ise bir bilgi.
         setAnalysis((p) => ({
-          ...p, running: false, open: true, minimized: false,
-          error: 'Analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.',
+          ...p, running: false, trackingAbandoned: true,
+          open: true, minimized: false, error: '',
         }));
         sessionStorage.removeItem(STORAGE_KEY);
         return;
@@ -74,6 +100,12 @@ export function AnalysisProvider({ children }) {
       try {
         const state = await getAnalysisStatus(connectionId);
         if (state.status === 'analyzing') {
+          // Sürerken de özet güncelleniyor: sunucu oraya "3/17 parça
+          // tamamlandı" yazıyor. Önceden bu dal erken dönüyordu, yani
+          // ilerleme üretilse bile ekrana hiç ulaşmıyordu.
+          setAnalysis((p) => (
+            p.summary === (state.summary || '') ? p : { ...p, summary: state.summary || '' }
+          ));
           timerRef.current = setTimeout(tick, POLL_INTERVAL_MS);
           return;
         }
@@ -154,9 +186,56 @@ export function AnalysisProvider({ children }) {
     }
   }, [applyState, poll]);
 
+  /**
+   * Bırakılan takibi kaldığı yerden sürdürür.
+   *
+   * İş kuyrukta yürüdüğü için yapılacak tek şey durumu yeniden okumak;
+   * yeni bir analiz BAŞLATMIYOR. Kullanıcıya "sayfayı yenileyin" demenin
+   * yerini alıyor.
+   */
+  const resumeTracking = useCallback(async () => {
+    const { connectionId, connectionName } = analysis;
+    if (!connectionId) return;
+
+    // `running: true` burada görsel bir ayrıntı değil, kilit. Yalnızca
+    // `trackingAbandoned`'ı false yapsaydık, ağ turu boyunca hem o false hem
+    // `running` false hem `status` 'analyzing' kalırdı — yani "Analizi başlat"
+    // düğmesi birkaç yüz milisaniyeliğine geri gelirdi. Az önce kapattığımız
+    // kapının aynısı: kullanıcı o aralıkta basarsa süren işin üstüne ikinci
+    // bir analiz kuyruğa girer.
+    setAnalysis((p) => ({ ...p, running: true, trackingAbandoned: false, error: '' }));
+
+    try {
+      const state = await getAnalysisStatus(connectionId);
+      applyState(state);
+
+      if (state.status === 'analyzing') {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ connectionId, connectionName }));
+        poll(connectionId);
+      }
+    } catch (error) {
+      // Yenileme tutmadı: geldiğimiz duruma dönülüyor. Takip hâlâ bırakılmış
+      // durumda ve "Durumu yenile" düğmesi geri geliyor ki tekrar denenebilsin.
+      setAnalysis((p) => ({
+        ...p,
+        running: false,
+        trackingAbandoned: true,
+        error: error.response?.data?.error || error.message,
+      }));
+    }
+  }, [analysis, applyState, poll]);
+
   const run = useCallback(async () => {
     const { connectionId, connectionName, consent } = analysis;
-    setAnalysis((p) => ({ ...p, running: true, error: '', questions: [], stats: null }));
+    // `answers` ve `summary` de sıfırlanıyor. Önceki turun cevapları duruyorsa
+    // yeni turun soruları için gönderiliyorlardı: soru kimlikleri sunucuda her
+    // sözlük üretiminde baştan (`q1`, `q2`, …) numaralandığı için çakışma
+    // ihtimal değil, kesinlik. Eski özet de kalırsa yeni analiz sürerken
+    // ilerleme satırının yerinde bir önceki analizin özeti görünüyordu.
+    setAnalysis((p) => ({
+      ...p, running: true, trackingAbandoned: false,
+      error: '', questions: [], answers: {}, summary: '', stats: null,
+    }));
 
     try {
       await startAnalysis(connectionId, consent);
@@ -203,8 +282,10 @@ export function AnalysisProvider({ children }) {
   })), []);
 
   const value = useMemo(() => ({
-    analysis, openFor, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer,
-  }), [analysis, openFor, run, submit, minimize, restore, dismiss, hide, setConsent, setAnswer]);
+    analysis, openFor, run, resumeTracking, submit,
+    minimize, restore, dismiss, hide, setConsent, setAnswer,
+  }), [analysis, openFor, run, resumeTracking, submit,
+       minimize, restore, dismiss, hide, setConsent, setAnswer]);
 
   return <AnalysisContext.Provider value={value}>{children}</AnalysisContext.Provider>;
 }
