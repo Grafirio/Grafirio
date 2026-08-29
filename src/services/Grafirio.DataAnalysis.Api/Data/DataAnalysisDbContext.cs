@@ -89,8 +89,12 @@ public class DataAnalysisDbContext : DbContext
             entity.Property(e => e.Question).HasMaxLength(2000);
             entity.Property(e => e.PyCaretParamsJson).HasColumnType("text");
             entity.Property(e => e.ResultJson).HasColumnType("text");
+            entity.Property(e => e.ClarificationQuestion).HasMaxLength(2000);
             entity.HasIndex(e => e.ConfigId);
             entity.HasIndex(e => e.UserId);
+            // Zincir geriye dogru yurunuyor (cocuktan ebeveyne) ve her adim
+            // ayri bir sorgu: indekssiz her turda tablo taramasi olurdu.
+            entity.HasIndex(e => e.ParentQueryId);
         });
     }
 }

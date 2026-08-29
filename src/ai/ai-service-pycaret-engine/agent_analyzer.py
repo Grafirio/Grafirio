@@ -10,9 +10,10 @@ from typing import Dict, Any, List, Optional
 
 from data_port import DataPort
 from query_spec import (
-    AliasFactory, Aggregate, ColumnRef, DerivedTable, Join, JoinCondition,
-    MANY_TO_ONE, OrderBy, Predicate, QuerySpec, QuerySpecError, TableRef,
-    render, render_group_count,
+    AliasFactory, Aggregate, ColumnRef, DerivedTable, FRAME_CUMULATIVE,
+    FRAME_MOVING, HavingPredicate, Join, JoinCondition, MANY_TO_ONE, OrderBy,
+    Predicate, QuerySpec, QuerySpecError, TableRef, UnionBranch, UnionSpec,
+    WindowExpr, render, render_group_count, render_union,
 )
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,9 @@ class AgentAnalyzer:
         chart_title = params.get("chart_title", "Analiz Sonucu")
         description = params.get("description", "")
         filters = params.get("filters") or {}
+        having = params.get("having")
+        window = params.get("window")
+        union = params.get("union")
 
         if not target_table:
             # Tek tablo varsa bu bir secim degil, zorunluluk. Birden fazlaysa
@@ -194,6 +198,36 @@ class AgentAnalyzer:
             "sortOrder": sort_order,
             "limit": limit,
         }
+
+        # Birlesim kendi hattini kuruyor: dallar ayri tablolar ve join
+        # kurmuyorlar, dolayisiyla asagidaki tek tabloli zincirden gecmeleri
+        # gerekmiyor.
+        if union:
+            if analysis_type != "aggregation":
+                return self._with_audit(self._error_result(
+                    "Birleşim yalnızca gruplama sorularında kullanılabilir."))
+            # Sessizce dusurmek yerine acikca reddediliyor: birlesim bunlari
+            # uygulayamiyor ve uygulanmamis bir esik ya da eksik bir seri,
+            # grafige bakarak fark edilmez.
+            unsupported = [name for name, value in
+                           (("having", having), ("window", window),
+                            ("joins", params.get("joins")))
+                           if value]
+            if unsupported:
+                return self._with_audit(self._error_result(
+                    f"Birleşimle birlikte {', '.join(unsupported)} "
+                    "kullanılamıyor. Soruyu ya tek kaynak üzerinden sorun ya "
+                    "da bu hesabı bırakın."))
+            try:
+                return self._with_audit(self._sql_union(
+                    union, target_table, group_by, target_column, aggregation,
+                    filters, sort_order, limit, chart_type, chart_title,
+                    description))
+            except ValueError as e:
+                return self._with_audit(self._error_result(str(e)))
+            except Exception as e:
+                logger.error(f"Birleşim hatası: {e}")
+                return self._with_audit(self._error_result(str(e)))
 
         try:
             schema, table = self._split_table(target_table)
@@ -243,7 +277,7 @@ class AgentAnalyzer:
                 return self._with_audit(self._sql_aggregation(
                     base, joins, scope, target_column, group_by, aggregation,
                     sort_order, limit, predicates, where_params, chart_type,
-                    chart_title, description))
+                    chart_title, description, having, window))
 
             # Kalan tipler (PyCaret modelleri, korelasyon, ozet istatistik)
             # satir bazli veri istiyor; bunlar icin okuma tavani kacinilmaz.
@@ -695,7 +729,8 @@ class AgentAnalyzer:
 
     _RANGE_OPS = {"gte": ">=", "gt": ">", "lte": "<=", "lt": "<", "eq": "=", "ne": "<>"}
 
-    def _build_where(self, filters: Dict, scope: ColumnScope) -> tuple:
+    def _build_where(self, filters: Dict, scope: ColumnScope,
+                     prefix: str = "p") -> tuple:
         """
         Filtreleri `Predicate` listesine cevirir.
 
@@ -733,7 +768,7 @@ class AgentAnalyzer:
                     if sql_op is None:
                         raise ValueError(
                             f"'{real}' filtresinde tanınmayan karşılaştırma: '{op}'.")
-                    key = f"p{idx}"; idx += 1
+                    key = f"{prefix}{idx}"; idx += 1
                     predicates.append(Predicate(column, sql_op, [key]))
                     params[key] = operand
                     notes.append(f"{real} {sql_op} {operand}")
@@ -744,7 +779,7 @@ class AgentAnalyzer:
                     raise ValueError(f"'{real}' için boş filtre listesi verildi.")
                 keys = []
                 for operand in items:
-                    key = f"p{idx}"; idx += 1
+                    key = f"{prefix}{idx}"; idx += 1
                     keys.append(key)
                     params[key] = operand
                 predicates.append(Predicate(column, "IN", keys))
@@ -755,12 +790,149 @@ class AgentAnalyzer:
                 notes.append(f"{real} boş")
 
             else:
-                key = f"p{idx}"; idx += 1
+                key = f"{prefix}{idx}"; idx += 1
                 predicates.append(Predicate(column, "=", [key]))
                 params[key] = value
                 notes.append(f"{real} = {value}")
 
         return predicates, params, notes
+
+    # ------------------------------------------------------------------
+    # Toplulastirma sonrasi kosul ve pencere
+    # ------------------------------------------------------------------
+
+    #: Modelin yazabilecegi karsilastirmalar. Metin dogrudan SQL'e girmiyor;
+    #: bu sozlukten gecmeyen hicbir sey koşula donusmuyor.
+    _HAVING_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=",
+                   "=": "=", "==": "=", "!=": "<>", "<>": "<>"}
+
+    #: Birikimli seri dondururken uygulanan tavan. Seride TOP, "en yuksek N"
+    #: degil "ilk N donem" demek; yuksek tutulmasinin sebebi bu.
+    SERIES_LIMIT = 500
+
+    def _build_having(self, having: Any, aggregate: Aggregate,
+                      prefix: str = "h") -> tuple:
+        """
+        Toplulastirma sonrasi kosulu `HavingPredicate`e cevirir.
+
+        Kosul her zaman sorgunun KENDI olcusune uygulanir: "toplami 1 milyonu
+        gecen musteriler" gibi. Modele ayri bir toplulastirma yazdirmiyoruz —
+        WHERE ile HAVING'i karistirmak zaten en kolay hata ve iki ayri olcu
+        tanimlatmak bunu kolaylastirmaktan baska ise yaramaz.
+
+        Doner: (kosullar, parametreler, denetim notu)
+        """
+        if not having:
+            return [], {}, None
+
+        if isinstance(having, (int, float)) and not isinstance(having, bool):
+            # "having": 1000000 — kastedilen neredeyse her zaman "bundan buyuk".
+            having = {"op": ">", "value": having}
+
+        if not isinstance(having, dict):
+            raise ValueError(
+                "Toplulaştırma sonrası koşul anlaşılamadı; "
+                "{\"op\": \">\", \"value\": 1000} biçiminde olmalı.")
+
+        op = self._HAVING_OPS.get(str(having.get("op") or "").strip())
+        if op is None:
+            raise ValueError(
+                f"'{having.get('op')}' tanınmayan bir karşılaştırma. "
+                f"Kullanılabilir: {', '.join(sorted(set(self._HAVING_OPS)))}.")
+
+        value = having.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                "Toplulaştırma sonrası koşulun değeri bir sayı olmalı; "
+                "koşul hesaplanmış ölçüye uygulanıyor.")
+
+        key = f"{prefix}0"
+        label = aggregate.label if aggregate.column is None else (
+            f"{aggregate.func.upper()}({aggregate.column.name})")
+        return ([HavingPredicate(aggregate, op, [key])],
+                {key: value},
+                f"{label} {op} {value}")
+
+    def _build_window(self, window: Any, aggregate: Aggregate,
+                      group_refs: List[ColumnRef], direction: str) -> tuple:
+        """
+        Pencere istegini `WindowExpr`e cevirir.
+
+        Model ham pencere sozdizimi yazmiyor, adlandirilmis birkac kalip
+        seciyor. Sebebi cerceve: sirali bir birikimde cerceve yazilmazsa SQL
+        varsayilani esit siralama degerlerini tek satirda toplar ve bu
+        grafikte hic gorunmez. Kalibi kuran taraf cerceveyi de kuruyor;
+        boylece modelin unutabilecegi bir sey kalmiyor.
+
+        Doner: (pencereler, denetim notu, seri_mi)
+
+        `seri_mi` — birikim ve hareketli ortalama, satirlarin KENDI
+        siralamasinda okunur. Sonucu olcuye gore siralamak dogru hesaplanmis
+        bir birikimi okunamaz hale getirir.
+        """
+        if not window:
+            return [], None, False
+
+        if isinstance(window, str):
+            window = {"function": window}
+        if not isinstance(window, dict):
+            raise ValueError("Pencere hesabı bir nesne olmalı.")
+
+        kind = str(window.get("function") or "").strip().lower()
+        label = str(window.get("label") or "").strip()
+
+        if kind in ("rank", "row_number", "dense_rank"):
+            return ([WindowExpr(func=kind, label=label or "Sıra",
+                                order_by=[OrderBy(aggregate, direction)])],
+                    f"{kind} — ölçüye göre", False)
+
+        if kind == "total":
+            return ([WindowExpr(func="sum", label=label or "Genel toplam",
+                                over=aggregate)],
+                    "genel toplam", False)
+
+        if kind in ("running_total", "moving_average"):
+            if not group_refs:
+                raise ValueError(
+                    "Birikim hesabı için bir kırılım gerekiyor: neyin üzerinde "
+                    "biriktiğini söylemeden birikim tanımlanamaz.")
+            order = [OrderBy(group_refs[0], "asc")]
+
+            # Ilk kirilim serinin ekseni (genellikle zaman); geri kalanlar
+            # BOLUM oluyor. "Aylara gore, ulke bazinda birikimli ciro"
+            # sorusunda dogru cevap ulke basina birikimdir — hepsini tek
+            # siraya dizmek, ulkeleri birbirinin uzerine toplar. Ayrica bolum
+            # olmadan esit eksen degerlerinde satir sirasi belirsiz kalir ve
+            # ayni soru iki farkli birikim dondurebilir.
+            partition = list(group_refs[1:])
+            scoped = (f" · {', '.join(c.name for c in partition)} bazında"
+                      if partition else "")
+
+            if kind == "running_total":
+                return ([WindowExpr(func="sum", label=label or "Birikimli",
+                                    over=aggregate, partition_by=partition,
+                                    order_by=order, frame=FRAME_CUMULATIVE)],
+                        f"birikimli toplam — {group_refs[0].name} sırasıyla{scoped}",
+                        True)
+
+            periods = window.get("periods")
+            if isinstance(periods, bool) or not isinstance(periods, int) or periods < 2:
+                raise ValueError(
+                    "Hareketli ortalama kaç dönemi kapsayacağını bilmiyor; "
+                    "'periods' 2 ya da daha büyük olmalı. Tek dönemlik "
+                    "ortalama değerin kendisidir.")
+            return ([WindowExpr(func="avg",
+                                label=label or f"{periods} dönem ortalaması",
+                                over=aggregate, partition_by=partition,
+                                order_by=order, frame=FRAME_MOVING,
+                                preceding=periods - 1)],
+                    f"{periods} dönemlik hareketli ortalama — "
+                    f"{group_refs[0].name} sırasıyla{scoped}",
+                    True)
+
+        raise ValueError(
+            f"Bilinmeyen pencere hesabı: '{kind}'. Şunlardan biri olmalı: "
+            "running_total, moving_average, total, rank, row_number, dense_rank.")
 
     # ------------------------------------------------------------------
     # SQL gruplama
@@ -771,7 +943,8 @@ class AgentAnalyzer:
                          target_col: Optional[str], group_by: List[str],
                          aggregation: str, sort_order: str, limit: int,
                          predicates: List[Predicate], where_params: Dict,
-                         chart_type: str, title: str, desc: str) -> Dict:
+                         chart_type: str, title: str, desc: str,
+                         having: Any = None, window: Any = None) -> Dict:
         """
         Gruplama ve toplama — veritabaninda.
 
@@ -827,22 +1000,56 @@ class AgentAnalyzer:
             alias = "_" + alias
 
         direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+        measure = Aggregate(agg_key, target_ref, alias)
 
-        # Siralama benzersiz olmali. "En cok gidilen 5 ulke" sorusunda iki ulke
-        # esit sayidaysa hangisinin listeye girecegi yalnizca toplulastirmaya
-        # gore siralandiginda belirsizdir — ayni soru iki farkli cevap verir.
-        # Kirilim kolonlari ikincil siralama olarak ekleniyor.
-        order: List[OrderBy] = [OrderBy(alias, direction)]
-        order.extend(OrderBy(ref, "asc") for ref in group_refs)
+        try:
+            having_predicates, having_params, having_note = self._build_having(
+                having, measure)
+            windows, window_note, is_series = self._build_window(
+                window, measure, group_refs, direction)
+        except ValueError as e:
+            return self._error_result(str(e))
+
+        # Kosulun degeri de bagli parametre; cagiranin sozlugunu bozmadan
+        # ustune ekleniyor.
+        where_params = {**where_params, **having_params}
+
+        if is_series:
+            # Birikim ve hareketli ortalama satirlarin KENDI sirasinda okunur.
+            # Sonucu olcuye gore siralamak, dogru hesaplanmis bir birikimi
+            # okunamaz hale getirir: kolon dogru cikar, grafik anlamsiz.
+            #
+            # Ayni sebeple "ilk 10" tavani da kalkiyor: bir zaman serisinde
+            # TOP 10, "en yuksek 10" degil "ilk 10 donem" demek ve seriyi
+            # sessizce kesmek, bu kod tabaninin kacinmaya calistigi seyin ta
+            # kendisi. Yerine cok daha yuksek bir emniyet tavani konuyor.
+            #
+            # Siralamada eksen SONA aliniyor: pencere ikinci ve sonraki
+            # kirilimlara gore bolunuyor, dolayisiyla her bolumun satirlari
+            # ard arda ve kendi zaman sirasinda okunmali.
+            order: List[OrderBy] = [OrderBy(ref, "asc") for ref in group_refs[1:]]
+            order.append(OrderBy(group_refs[0], "asc"))
+            effective_limit = self.SERIES_LIMIT
+        else:
+            # Siralama benzersiz olmali. "En cok gidilen 5 ulke" sorusunda iki
+            # ulke esit sayidaysa hangisinin listeye girecegi yalnizca
+            # toplulastirmaya gore siralandiginda belirsizdir — ayni soru iki
+            # farkli cevap verir. Kirilim kolonlari ikincil siralama olarak
+            # ekleniyor.
+            order = [OrderBy(alias, direction)]
+            order.extend(OrderBy(ref, "asc") for ref in group_refs)
+            effective_limit = limit
 
         spec = QuerySpec(
             base=base,
             joins=joins,
             group_by=group_refs,
-            aggregate=Aggregate(agg_key, target_ref, alias),
+            aggregate=measure,
             where=predicates,
+            having=having_predicates,
+            windows=windows,
             order_by=order,
-            limit=limit,
+            limit=effective_limit,
         )
 
         try:
@@ -862,29 +1069,65 @@ class AgentAnalyzer:
         self.audit["groupCount"] = int(total_groups or 0)
         self.audit["resolvedGroupBy"] = [r.name for r in group_refs]
         self.audit["resolvedTargetColumn"] = real_target
+        if having_note:
+            self.audit["having"] = having_note
+        if window_note:
+            self.audit["window"] = window_note
 
         if grouped.empty:
+            # Kosul yuzunden bosaldiysa bunu soylemek sart: "kayit bulunamadi"
+            # kullaniciyi filtrelere bakmaya gonderir, oysa eleyen sey esik.
             return self._error_result(
+                f"Hiçbir grup '{having_note}' koşulunu karşılamadı; eşiği "
+                "düşürmeyi deneyin."
+                if having_note else
                 "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
 
-        labels = [self._label(v) for v in grouped[group_refs[0].name].tolist()]
+        labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
         values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
+
+        # Pencere kolonlari ayri seri olarak giriyor: "aylik ciro" ile
+        # "birikimli ciro" ayni grafikte yan yana okunmali, ikisi ayri
+        # grafikte durursa karsilastirilamaz.
+        datasets = [{"label": value_label, "data": values}]
+        for expr in windows:
+            datasets.append({
+                "label": expr.label,
+                "data": [round(float(v), 2) for v in grouped[expr.label].fillna(0).tolist()],
+            })
 
         charts = [{
             "type": chart_type,
             "title": title or f"{group_refs[0].name} bazında {value_label}",
-            "data": {
-                "labels": labels,
-                "datasets": [{"label": value_label, "data": values}]
-            }
+            "data": {"labels": labels, "datasets": datasets}
         }]
+
+        # Ilk satirin ne oldugu siralamaya bagli. Seride ne en yuksek ne en
+        # dusuk — sadece ilk donem. Onceden burada `direction == "DESC"`
+        # karsilastirmasi vardi; `direction` kucuk harfli uretildigi icin
+        # hicbir zaman tutmuyor ve en yuksek deger "En Düşük" diye
+        # etiketleniyordu.
+        if is_series:
+            headline = ("İlk Dönem", f"{labels[0]}: {values[0]}")
+        else:
+            headline = ("En Yüksek" if direction == "desc" else "En Düşük",
+                        f"{labels[0]}: {values[0]}")
 
         insights = [
             {"type": "info", "title": "Grup Sayısı",
              "description": f"{len(grouped)} grup gösteriliyor (toplam {total_groups})"},
-            {"type": "success", "title": "En Yüksek" if direction == "DESC" else "En Düşük",
-             "description": f"{labels[0]}: {values[0]}"},
+            {"type": "success", "title": headline[0], "description": headline[1]},
         ]
+
+        if is_series and (total_groups or 0) > self.SERIES_LIMIT:
+            # Seri kesildiyse bunu soylemek zorunlu: kesilmis bir birikim
+            # dogru gorunur, cunku eksik olan kisim grafikte hic yok.
+            insights.insert(0, {
+                "type": "warning", "title": "Seri kesildi",
+                "description": f"Seri {self.SERIES_LIMIT} dönemle sınırlandı "
+                               f"(toplam {total_groups}). Tarih aralığını "
+                               "daraltarak tamamını görebilirsiniz.",
+            })
 
         return {
             "success": True,
@@ -892,6 +1135,256 @@ class AgentAnalyzer:
             "insights": insights,
             "summary": desc or f"{group_refs[0].name} bazında {value_label} hesaplandı.",
         }
+
+    # ------------------------------------------------------------------
+    # Birlesim
+    # ------------------------------------------------------------------
+
+    def _sql_union(self, union: Any, base_table: Optional[str],
+                   group_by: List[str], target_col: Optional[str],
+                   aggregation: str, filters: Dict, sort_order: str,
+                   limit: int, chart_type: str, title: str, desc: str) -> Dict:
+        """
+        Ayni sorunun birden fazla tabloda sorulmasi ve sonuclarin alt alta
+        eklenmesi.
+
+        Ne zaman gerekiyor: ayni sey iki tabloda tutuluyor — ithalat ve
+        ihracat, gelen ve giden, gecen yilin arsivi ve bu yilin canlisi — ve
+        kullanici ikisini bir arada gormek istiyor. Join bunu yapamaz: join
+        tablolari YANYANA koyar, birlesim ALT ALTA. Ikisini karistirmak, iki
+        farkli soruya ayni cevabi vermek olur.
+
+        Dallar join kurmuyor. Bilincli bir sinir: bir dalin zinciri otekinden
+        farkliysa cikti kolonlari da farklilasir ve birlesim sessizce yanlis
+        seriler uretir. Ihtiyac cikarsa once zincirin dallar arasinda ayni
+        oldugunu dogrulamak gerekir.
+        """
+        if isinstance(union, list):
+            # Modelin sik yaptigi kisayol: taban dalin etiketi verilmemis.
+            union = {"with": union}
+        if not isinstance(union, dict):
+            raise ValueError("Birleşim isteği bir nesne olmalı.")
+
+        others = union.get("with") or []
+        if not isinstance(others, list) or not others:
+            raise ValueError(
+                "Birleşim en az bir ek tablo ister; tek tabloluk soru "
+                "birleşim değildir.")
+        if not base_table:
+            raise ValueError("Birleşimin ilk dalı için tablo belirlenemedi.")
+        if not group_by:
+            raise ValueError(
+                "Birleşimde kırılım zorunlu: iki kaynağın hangi eksende "
+                "karşılaştırıldığı söylenmeden seriler yan yana konamaz.")
+
+        descriptors = [{
+            "table": base_table,
+            "label": str(union.get("label") or self._short_table(base_table)),
+            "group_by": group_by,
+            "target_column": target_col,
+            "filters": filters,
+        }]
+        for index, other in enumerate(others):
+            if not isinstance(other, dict) or not other.get("table"):
+                raise ValueError(
+                    f"Birleşimin {index + 2}. dalında tablo belirtilmemiş.")
+            if other.get("joins"):
+                raise ValueError(
+                    "Birleşimin dalında tablo birleştirme desteklenmiyor; "
+                    "dalların çıktı kolonları birebir aynı olmak zorunda.")
+            descriptors.append({
+                "table": str(other["table"]),
+                "label": str(other.get("label") or self._short_table(other["table"])),
+                "group_by": other.get("group_by") or group_by,
+                "target_column": other.get("target_column", target_col),
+                "filters": other.get("filters") or {},
+            })
+
+        # Etiket sonuclari ayirmanin TEK yolu: iki dal ayni etiketi tasirsa
+        # satirlari tek seride birlesir ve karsilastirma anlamini yitirir.
+        seen_labels = set()
+        for branch in descriptors:
+            if branch["label"] in seen_labels:
+                raise ValueError(
+                    f"'{branch['label']}' etiketi birden fazla dalda "
+                    "kullanılmış; kaynaklar ancak farklı etiketlerle ayrılabilir.")
+            seen_labels.add(branch["label"])
+
+        agg_key = str(aggregation or "count").strip().lower()
+        if agg_key not in self._NUMERIC_AGGS:
+            agg_key = "count"
+
+        aliases = AliasFactory()
+        params: Dict[str, Any] = {}
+        branches: List[UnionBranch] = []
+        notes: List[str] = []
+        #: Cikti adlari ILK dalin kirilim adlarindan geliyor; sonraki dallar
+        #: kendi kolonlarini bu adla etiketliyor.
+        output_names: List[str] = []
+        value_label = "Adet"
+
+        for index, branch in enumerate(descriptors):
+            schema, table = self._split_table(branch["table"])
+            columns = self._table_columns(schema, table)
+
+            ref = TableRef(schema, table, aliases.take())
+            scope = ColumnScope()
+            scope.add(ref.alias, columns,
+                      [branch["table"], f"{schema}.{table}", table], is_base=True)
+
+            group_refs: List[ColumnRef] = []
+            for position, raw in enumerate(branch["group_by"]):
+                resolved = scope.resolve(raw)
+                if resolved is None:
+                    raise ValueError(
+                        f"'{branch['table']}' tablosunda kırılım yapılamadı — "
+                        f"{self._column_missing(str(raw), scope)}")
+                if index == 0:
+                    output_names.append(resolved.name)
+                elif position >= len(output_names):
+                    raise ValueError(
+                        f"'{branch['table']}' dalında ilk daldan fazla kırılım "
+                        "var; dalların çıktı kolonları birebir aynı olmalı.")
+                else:
+                    # Iki tablo ayni seyi farkli adla tutabiliyor
+                    # ("UlkeAdi" / "Country"); cikti adi ilk dalinki oluyor.
+                    resolved = ColumnRef(resolved.alias, resolved.name,
+                                         label=output_names[position])
+                group_refs.append(resolved)
+
+            if index > 0 and len(group_refs) != len(output_names):
+                raise ValueError(
+                    f"'{branch['table']}' dalının kırılım sayısı ilk daldan "
+                    "farklı; dallar birebir aynı kolonları üretmeli.")
+
+            measure_ref = scope.resolve(branch["target_column"])
+            if branch["target_column"] and measure_ref is None:
+                raise ValueError(
+                    f"'{branch['table']}' tablosunda hesaplanacak alan "
+                    f"bulunamadı — {self._column_missing(str(branch['target_column']), scope)}")
+            if agg_key in self._NUMERIC_AGGS and measure_ref is None:
+                raise ValueError(
+                    f"'{agg_key}' işlemi için '{branch['table']}' tablosunda "
+                    "hangi alanın hesaplanacağı belirtilmemiş.")
+            if index == 0 and measure_ref is not None:
+                value_label = f"{agg_key.upper()}({measure_ref.name})"
+
+            predicates, branch_params, filter_notes = self._build_where(
+                branch["filters"], scope, prefix=f"u{index}_")
+            params.update(branch_params)
+
+            label_param = f"src{index}"
+            params[label_param] = branch["label"]
+
+            branches.append(UnionBranch(
+                spec=QuerySpec(
+                    base=ref,
+                    group_by=group_refs,
+                    aggregate=Aggregate(agg_key, measure_ref, "value"),
+                    where=predicates,
+                ),
+                label_param=label_param))
+
+            notes.append(f"{branch['label']} ← {branch['table']}"
+                         + (f" ({' · '.join(filter_notes)})" if filter_notes else ""))
+
+        direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+        spec = UnionSpec(
+            branches=branches,
+            order_by=[OrderBy("value", direction),
+                      # Siralama benzersiz olmali: esit degerlerde hangi
+                      # satirin listeye girecegi yoksa belirsiz kalir.
+                      OrderBy(output_names[0], "asc"),
+                      OrderBy("Kaynak", "asc")],
+            # Tavan dal sayisiyla carpiliyor: kullanici "ilk 10" derken 10
+            # KIRILIM kastediyor, 10 satir degil. Iki kaynakli bir soruda
+            # duz 10, her kaynaktan besini gostermek olurdu.
+            limit=limit * len(branches),
+        )
+
+        try:
+            sql = render_union(spec)
+        except QuerySpecError as e:
+            return self._error_result(str(e))
+
+        logger.info(f"UNION SQL: {sql}")
+
+        rows = self.data.read_sql(sql, params)
+
+        self.audit["executedSql"] = sql
+        self.audit["aggregationPerformedIn"] = "sql"
+        self.audit["rowsRead"] = None
+        self.audit["union"] = notes
+        self.audit["resolvedGroupBy"] = output_names
+
+        if rows.empty:
+            return self._error_result(
+                "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
+
+        key_column = output_names[0]
+
+        # Etiketler ilk gorulme sirasina gore: sorgu zaten olcuye gore sirali,
+        # yani en buyuk kirilim basta.
+        labels: List[str] = []
+        for value in rows[key_column].tolist():
+            text = self._label(value)
+            if text not in labels:
+                labels.append(text)
+
+        datasets = []
+        for branch in descriptors:
+            source = branch["label"]
+            by_label = {
+                self._label(row[key_column]): row["value"]
+                for _, row in rows[rows["Kaynak"] == source].iterrows()
+            }
+            # Eksik kirilim None kaliyor, sifir degil: sifir "bu kaynakta hic
+            # yok" demektir, oysa gercek "ilk N'e giremedi" olabilir. Grafikte
+            # bosluk gostermek, olmayan bir sifir cizmekten dogru.
+            datasets.append({
+                "label": source,
+                "data": [self._number_or_none(by_label.get(name)) for name in labels],
+            })
+
+        return {
+            "success": True,
+            "charts": [{
+                "type": chart_type,
+                "title": title or f"{key_column} bazında {value_label}",
+                "data": {"labels": labels, "datasets": datasets},
+            }],
+            "insights": [
+                {"type": "info", "title": "Kaynaklar",
+                 "description": " · ".join(d["label"] for d in descriptors)},
+                {"type": "info", "title": "Kırılım Sayısı",
+                 "description": f"{len(labels)} {key_column} değeri gösteriliyor"},
+            ],
+            "summary": desc or (
+                f"{key_column} bazında {value_label}, "
+                f"{len(descriptors)} kaynak karşılaştırıldı."),
+        }
+
+    @staticmethod
+    def _short_table(name: str) -> str:
+        """Sema onekini atip tablo adini birakir — etiket verilmediginde."""
+        return str(name).split(".")[-1]
+
+    @staticmethod
+    def _number_or_none(value: Any) -> Optional[float]:
+        """
+        Grafige girecek sayi; okunamayan her sey None.
+
+        NaN'i sifira cevirmek olmayan bir olcumu var gostermek olurdu; JSON'a
+        oldugu gibi yazmak ise gecersiz JSON uretir.
+        """
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _label(value: Any) -> str:

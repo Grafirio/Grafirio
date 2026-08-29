@@ -27,9 +27,33 @@ public class QueryHistory
     public string ResultJson { get; set; } = "{}";
 
     /// <summary>
-    /// İşlem durumu: pending, processing, completed, failed
+    /// İşlem durumu: pending, processing, completed, failed, clarification
     /// </summary>
     public string Status { get; set; } = "pending";
+
+    /// <summary>
+    /// Bu sorunun altına yazıldığı önceki sorunun kimliği — konuşmanın zinciri.
+    ///
+    /// Tuvalde düğümler görsel olarak birbirine bağlıydı ama sunucuya giden
+    /// istek yalnızca bağlantı ve soru metninden ibaretti: hangi düğümün
+    /// altına yazıldığı yola bile çıkmıyordu. Zincir bu alanla kuruluyor;
+    /// çeviri prompt'una konacak "önceki konuşma" geriye doğru buradan
+    /// yürünerek toplanıyor.
+    ///
+    /// Boş olması normaldir: sol panelden sorulan soru yeni bir konuşma başlatır.
+    /// </summary>
+    public Guid? ParentQueryId { get; set; }
+
+    /// <summary>
+    /// Sistem soruyu çözemeyip kullanıcıya geri sorduğunda sorduğu cümle.
+    ///
+    /// <see cref="Status"/> <c>clarification</c> olan kayıtlarda dolu. Bu tur
+    /// eskiden hiçbir yere yazılmıyordu — uç nokta soruyu sorup dönüyor,
+    /// kayıt oluşturulmuyordu. Sonuç: sistem bir soru soruyor ve sorduğunu
+    /// unutuyordu; kullanıcı cevap verdiğinde ortada cevaplanacak bir soru
+    /// olduğuna dair iz yoktu.
+    /// </summary>
+    public string? ClarificationQuestion { get; set; }
 
     public DateTime CreatedAt { get; set; }
 

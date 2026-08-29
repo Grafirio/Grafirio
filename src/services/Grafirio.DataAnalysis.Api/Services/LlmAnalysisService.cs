@@ -87,8 +87,18 @@ public class LlmAnalysisService
     /// Kullanicinin dogal dil sorusunu, semantik sozluge bakarak analiz
     /// parametrelerine cevirir.
     /// </summary>
+    /// <param name="conversation">
+    /// Onceki turlarin prompt'a hazir metni (bkz.
+    /// <c>ConversationContext.Render</c>). Bos gecilirse prompt'ta konusma
+    /// basligi hic acilmaz ve model tek cumleyi gorur — eski davranis.
+    ///
+    /// Bu parametre olmadan model, kendi sordugu soruya gelen cevabi anlamsiz
+    /// bir yeni soru saniyordu: kullanici "import tablosundan bakman
+    /// yeterliydi" yazdiginda ortada bakilacak bir onceki tur yoktu.
+    /// </param>
     public async Task<LlmResult> TranslateQuestionAsync(
-        string question, string dictionaryJson, string schemaSummary, CancellationToken ct = default)
+        string question, string dictionaryJson, string schemaSummary,
+        string conversation = "", CancellationToken ct = default)
     {
         if (_model is null) return NotConfigured();
 
@@ -99,7 +109,7 @@ public class LlmAnalysisService
             // Bugunun tarihi prompt'a giriyor: "bu yil", "gecen ay", "son 3
             // ay" gibi ifadeler bu olmadan tarih araligina cevrilemez.
             var text = await _model.GenerateAsync(
-                BuildTranslationPrompt(question, dictionaryJson, schemaSummary, DateTime.UtcNow),
+                BuildTranslationPrompt(question, dictionaryJson, schemaSummary, DateTime.UtcNow, conversation),
                 temperature: 0.1, maxTokens: 4000, cancellationToken: ct);
 
             return new LlmResult
@@ -265,8 +275,16 @@ public class LlmAnalysisService
     /// tahmin ediyordu.
     /// </summary>
     private static string BuildTranslationPrompt(
-        string question, string dictionaryJson, string schemaSummary, DateTime today)
+        string question, string dictionaryJson, string schemaSummary, DateTime today,
+        string conversation = "")
     {
+        // Konusma bloğu bos gecilebiliyor. Bos dize verildiginde araya iki bos
+        // satir bile girmiyor: "## Onceki konusma" basligi altinda hicbir sey
+        // olmayan bir prompt, modele olmayan bir gecmisi arattirir.
+        var conversationBlock = string.IsNullOrWhiteSpace(conversation)
+            ? string.Empty
+            : conversation.TrimEnd() + "\n\n";
+
         return $$"""
         Sen bir veri analizi asistanısın. Kullanıcının sorusunu, aşağıdaki
         sözlüğe bakarak analiz parametrelerine çevir.
@@ -311,7 +329,7 @@ public class LlmAnalysisService
         {{dictionaryJson}}
         ```
 
-        ## Kullanıcının sorusu
+        {{conversationBlock}}## Kullanıcının sorusu
         "{{question}}"
 
         ## analysis_type nasıl seçilir
@@ -366,6 +384,20 @@ public class LlmAnalysisService
            tablo adı ve kolon adı kullanma.
         10. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe
             yaz.
+        11. Yukarıda "## Önceki konuşma" bölümü varsa ONU ÖNCE OKU. Kullanıcının
+            şu anki mesajı, senin bir önceki turda sorduğun soruya verilmiş
+            cevap olabilir; öyleyse asıl soru önceki turda yazılıdır ve bu mesaj
+            yalnızca eksik parçayı tamamlar. İkisini birleştirip TAM soruyu
+            cevapla — mesajı tek başına yeni bir soru sayma.
+        12. Aynı soruyu ikinci kez sorma. Önceki turda bir şey sorduysan ve
+            kullanıcı cevap verdiyse o cevabı KULLAN. Cevap hâlâ yetmiyorsa
+            BAŞKA bir şey sor; aynı cümleyi tekrarlamak konuşmayı kilitler ve
+            kullanıcının çıkışı kalmaz.
+        13. Devam sorularında önceki turun parametrelerini temel al. "Peki
+            geçen yıl?", "bunu müşteri bazında göster", "grafiği pasta yap"
+            gibi mesajlar sıfırdan yeni bir analiz değil, en son turun ÜZERİNE
+            yapılan değişikliktir: değişmeyen alanları (tablo, join'ler,
+            kırılım, ölçüm) olduğu gibi taşı, yalnızca istenen alanı değiştir.
 
         ## Birden fazla tablo — `joins`
 
@@ -435,6 +467,84 @@ public class LlmAnalysisService
         Emin değilsen ön toplama iste — çoğaltılmış satırlardan çıkan sayı
         sessizce yanlış olur, ön toplama ise hiçbir şeyi bozmaz.
 
+        ## Toplulaştırma sonrası koşul — `having`
+
+        "Toplamı 1 milyonu geçen müşteriler", "5'ten fazla siparişi olanlar"
+        gibi sorularda koşul tek tek satırlara değil, HESAPLANAN ÖLÇÜYE
+        uygulanır:
+
+        ```json
+        "having": { "op": ">", "value": 1000000 }
+        ```
+
+        Koşul her zaman bu sorgunun kendi `aggregation`'ına uygulanır; ayrıca
+        bir alan yazman gerekmiyor. `op` şunlardan biri: `>`, `>=`, `<`, `<=`,
+        `=`, `<>`. Değer sayı olmalı.
+
+        `filters` ile karıştırma — ikisi farklı soruları cevaplar:
+
+        - `filters` satırları toplamadan ÖNCE eler: "tutarı 1 milyondan büyük
+          FATURALARI topla".
+        - `having` grupları toplandıktan SONRA eler: "toplamı 1 milyonu geçen
+          MÜŞTERİLERİ getir".
+
+        Bir müşterinin tek tek faturaları küçük ama toplamı büyük olabilir;
+        iki soru aynı veride neredeyse hiçbir zaman aynı sonucu vermez.
+
+        ## Kırılımın üzerinde hesap — `window`
+
+        Grupların ÜZERİNDE hesaplanan ek bir kolon. Toplulaştırmanın
+        yapamadığı şeyler için:
+
+        ```json
+        "window": { "function": "running_total" }
+        ```
+
+        - `running_total`  : birikimli toplam ("kümülatif ciro", "yıl başından
+                             beri toplam").
+        - `moving_average` : hareketli ortalama. Kaç dönem olduğunu `periods`
+                             ile yaz: `{"function": "moving_average", "periods": 3}`.
+                             En az 2 olmalı.
+        - `total`          : genel toplam; her satırda aynı çıkar, pay
+                             hesaplamak için.
+        - `rank` / `dense_rank` / `row_number` : sıra numarası, ölçüye göre.
+
+        `running_total` ve `moving_average` KIRILIM SIRASINA göre hesaplanır:
+        `group_by`'ın ilk kolonu zaman kolonu olmalı, yoksa birikim anlamsız
+        olur. Bu ikisinde sonuç ölçüye göre değil zamana göre sıralanır ve
+        `limit` uygulanmaz — kesilmiş bir birikim doğru görünür ama yanlıştır.
+        Zaman aralığını daraltmak istiyorsan `filters` kullan.
+
+        ## Aynı soru birden fazla tabloda — `union`
+
+        Aynı şey iki ayrı tabloda tutuluyorsa (ithalat/ihracat, gelen/giden,
+        arşiv/canlı) ve kullanıcı ikisini BİR ARADA görmek istiyorsa:
+
+        ```json
+        "union": {
+          "label": "İthalat",
+          "with": [
+            { "table": "dbo.Ihracat", "label": "İhracat",
+              "group_by": ["Country"], "target_column": "Amount" }
+          ]
+        }
+        ```
+
+        `label` taban tablonun (yani `target_table`'ın) etiketidir; her dal
+        grafikte ayrı bir seri olur. Dalın `group_by` ve `target_column`'unu
+        YALNIZCA kolon adları taban tablodakinden farklıysa yaz; aynıysa hiç
+        yazma. Dalın kendi `filters`'ı olabilir.
+
+        `joins` ile karıştırma. Join tabloları YAN YANA koyar — bir faturanın
+        müşterisi, müşterinin ülkesi. Birleşim ALT ALTA koyar — ithalat
+        satırları, altına ihracat satırları. Soru "ikisini karşılaştır" ise
+        birleşim, "şunun şusu" ise join.
+
+        Kurallar: birleşimde `group_by` zorunlu, her dalın etiketi farklı
+        olmalı ve `union` ile birlikte `joins`, `having`, `window`
+        kullanılamaz — bunlardan birine ihtiyaç varsa soruyu tek kaynak
+        üzerinden sor.
+
         ## Zaman ifadeleri
 
         `filters` üç biçim kabul eder:
@@ -470,6 +580,9 @@ public class LlmAnalysisService
           "target_column": "kolon_adı veya null",
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
+          "having": { "op": ">", "value": 1000 },
+          "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
+          "union": { "label": "İthalat", "with": [ { "table": "dbo.Ihracat", "label": "İhracat" } ] },
           "aggregation": "sum|avg|count|min|max|none",
           "group_by": ["kolon_adı"],
           "sort_by": "kolon_adı",
@@ -480,6 +593,11 @@ public class LlmAnalysisService
           "description": "Bu analizin ne yapacağının kısa açıklaması"
         }
         ```
+
+        `joins`, `having`, `window` ve `union` isteğe bağlıdır: soru
+        gerektirmiyorsa hiç yazma. Gereksiz yere eklemek sonucu bozmaz ama
+        sorguyu yavaşlatır, `union` söz konusu olduğunda ise grafiğe olmayan
+        bir seri ekler.
 
         JSON'dan sonra ### Açıklama başlığıyla, hangi kolonu neden seçtiğini
         tek cümleyle yaz.

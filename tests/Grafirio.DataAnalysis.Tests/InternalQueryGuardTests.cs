@@ -19,6 +19,13 @@ public class InternalQueryGuardTests
     [InlineData("SELECT COUNT(*) FROM t;")]                      // sondaki ; zararsiz
     [InlineData("-- açıklama\nSELECT 1")]
     [InlineData("/* açıklama */ SELECT 1")]
+    // Motorun urettigi yeni bicimler: birlesim, pencere fonksiyonu ve
+    // toplulastirma sonrasi kosul. Ucu de okuma; kisit bunlari kesmemeli.
+    // Kesmesi hâlinde sorgu calisir gibi gorunmez, dogrudan reddedilir ve
+    // sebebi kisitin kendisi oldugu icin en son bakilacak yer orasi olur.
+    [InlineData("SELECT * FROM (SELECT a FROM t UNION ALL SELECT b FROM u) AS x ORDER BY a")]
+    [InlineData("SELECT a, SUM(SUM(b)) OVER (ORDER BY a ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t GROUP BY a")]
+    [InlineData("SELECT a, SUM(b) AS v FROM t GROUP BY a HAVING SUM(b) > 1")]
     public void Okuma_sorgulari_gecer(string sql) =>
         Assert.True(ReadOnlySqlPolicy.IsReadOnly(sql));
 

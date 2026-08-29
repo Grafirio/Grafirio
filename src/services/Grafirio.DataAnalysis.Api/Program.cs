@@ -239,6 +239,11 @@ using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
         db.Database.EnsureCreated(); // Creates database and tables if not exist
+
+        // EnsureCreated var olan tabloya dokunmuyor: yeni kolon yalnizca bos
+        // veritabaninda olusur. Eksik kolonlar burada elle ekleniyor.
+        SchemaPatches.Apply(db, app.Logger);
+
         app.Logger.LogInformation("✅ Database initialized successfully");
     }
     catch (Exception ex)
