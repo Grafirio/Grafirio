@@ -80,6 +80,13 @@ public class ConnectionAnalysisConsumer(
             // sigmiyor ve model bos donuyor. Tablolar kolon butcesine gore
             // gruplanip ayri ayri soruluyor, sonuclar birlestiriliyor.
             // Sema tek parcaya sigiyorsa hicbir sey degismiyor.
+            // Olcum, parcanin GERCEKTEN gonderilecek JSON'unu uretip
+            // uzunluguna bakiyor. Uzunlugu string uretmeden hesaplayan bir yol
+            // yazilabilirdi; olculdu ve degmiyor: 2020 kolonluk bir semada
+            // bolme boyunca 42 olcum yapiliyor, toplam ~660 bin karakter
+            // (~1,3 MB gecici, gen-0). Hemen ardindan gelen 21 HTTP cagrisinin
+            // istek govdeleri bunun uc kati. Tahmin eden bir yardimciysa
+            // gercek boyuttan sapabilir ve butun mesele zaten dogru olcmekti.
             var chunks = DictionaryChunks.Split(
                 profile, chunk => PromptProfile.Serialize(chunk, JsonOptions).Length);
             // Modele giden profil, sakladigimiz profilin aynisi degil: karar
