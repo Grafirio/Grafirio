@@ -205,4 +205,16 @@ public class DictionaryChunksTests
     public void Gecersiz_butce_reddediliyor(int maxColumns, int maxChars) =>
         Assert.Throws<ArgumentOutOfRangeException>(
             () => DictionaryChunks.Split(Profile(Table("A", 1)), Free, maxColumns, maxChars));
+
+    [Fact]
+    public void Eksik_bagimlilik_hangisi_oldugunu_soyluyor()
+    {
+        // Null gelirse ilk kullanimda NullReferenceException patlardi ve
+        // hangi parametrenin eksik oldugunu soylemezdi.
+        Assert.Equal("measure", Assert.Throws<ArgumentNullException>(
+            () => DictionaryChunks.Split(Profile(Table("A", 1)), null!)).ParamName);
+
+        Assert.Equal("profile", Assert.Throws<ArgumentNullException>(
+            () => DictionaryChunks.Split(null!, Free)).ParamName);
+    }
 }

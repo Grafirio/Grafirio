@@ -83,6 +83,13 @@ public static class DictionaryChunks
         int maxColumns = MaxColumnsPerChunk,
         int maxChars = MaxCharsPerChunk)
     {
+        // Nullable acik oldugu icin derleyici bunlari zaten yakaliyor, ama
+        // yalnizca nullable'i bilen cagiranlarda. Null gelirse ilk kullanimda
+        // NullReferenceException patlar ve hangi parametrenin eksik oldugunu
+        // soylemez; burada patlamak teshisi cok kolaylastiriyor.
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(measure);
+
         if (maxColumns < 1) throw new ArgumentOutOfRangeException(nameof(maxColumns));
         if (maxChars < 1) throw new ArgumentOutOfRangeException(nameof(maxChars));
 
