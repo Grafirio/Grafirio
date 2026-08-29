@@ -167,7 +167,7 @@ public class LlmAnalysisService
     /// dakikalik kotasini (429) tek hamlede tuketiyor. Kota yine de dolarsa
     /// <c>LlmClient</c> Retry-After'a uyup bekliyor; sonuc yavaslar, patlamaz.
     /// </summary>
-    public const int MaxParallelChunks = 4;
+    private const int MaxParallelChunks = 4;
 
     /// <summary>
     /// Kullanicinin dogal dil sorusunu, semantik sozluge bakarak analiz
