@@ -621,7 +621,7 @@ check("ön toplanmış tablonun ham kolonu görünmez",
 expect_error(
     "olmayan bağlantı uydurulmaz",
     lambda: resolve([{"as": "u", "from": "base", "table": "dbo.Ulkeler"}]),
-    "bilinen bir bağlantı yok", ValueError,
+    "ölçülmüş bir bağlantı yok", ValueError,
 )
 
 expect_error(

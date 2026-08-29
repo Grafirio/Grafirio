@@ -575,10 +575,21 @@ class AgentAnalyzer:
 
         total = len(forward) + len(backward)
         if total == 0:
+            # Cikmaz sokak birakmiyoruz. Onceki mesaj yalnizca "birlestiremem,
+            # tek tablodan sorun" diyordu; kullanicinin iki tablonun gercekten
+            # ilgili oldugunu BILDIGI durumda bu, yapacak bir sey birakmiyor.
+            # Sebebini ve neyin duzeltecegini soylemek gerekiyor: baglanti
+            # cikarimi kolon ve tablo ADLARINA bakiyor, adlar tutmuyorsa
+            # (farkli yazim, kisaltma) kenar hic uretilmiyor.
             raise ValueError(
-                f"'{source_table}' ile '{target_table}' arasında bilinen bir "
-                "bağlantı yok. Bu iki tabloyu birleştiremem — sorunuzu tek "
-                "tablo üzerinden sorabilir misiniz?")
+                f"'{source_table}' ile '{target_table}' arasında ölçülmüş bir "
+                "bağlantı yok, bu yüzden bu iki tabloyu birleştiremiyorum. "
+                "Bağlantılar veritabanındaki yabancı anahtarlardan ve kolon "
+                "adlarından çıkarılıyor; adlar birbirini tutmuyorsa bağlantı "
+                "görünmez oluyor. Veritabanında bu iki tabloyu bağlayan bir "
+                "yabancı anahtar varsa 'Analiz Et'i yeniden çalıştırmak "
+                "yeterli. Yoksa şimdilik soruyu tek tablo üzerinden sormanız "
+                "gerekiyor.")
         if total > 1:
             candidates = ", ".join(
                 ", ".join(e.get("fromColumns") or []) for e in forward + backward)

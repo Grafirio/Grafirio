@@ -548,9 +548,24 @@ public class LlmAnalysisService
         Kurallar:
 
         J1. YALNIZCA `relationships` listesinde GERÇEKTEN bulunan bir bağlantı
-            istenebilir. Bağlantı yoksa join kurma — iki tablo arasında yol
-            olmadığını `description` ile söyle. Eşleşen kolonları sen yazmazsın,
-            ölçülmüş kayıttan okunur.
+            istenebilir. Eşleşen kolonları sen yazmazsın, ölçülmüş kayıttan
+            okunur.
+
+            Bağlantı listede yoksa o join KURULAMAZ ve bu senin kararın
+            değil — sunucu onu reddeder. Bu durumda:
+
+            - Kullanıcıdan ONAY İSTEME. "Onaylarsanız birleştiririm",
+              "izin verirseniz bağlarım" gibi bir cümle kurma. Kullanıcı
+              onay verse bile sorgu yine çalışmaz; ona cevaplaması boşa
+              gidecek bir soru sormuş olursun.
+            - Kolon adlarına bakıp bağlantıyı sen ÇIKARMA. `ReferansId` ile
+              `ReferenceId` birbirine benziyor olabilir ama benzerlik kanıt
+              değildir; bağlantılar veritabanından ölçülerek çıkarılıyor ve
+              listede yoksa ölçülememiş demektir.
+            - `target_table`'ı boş bırak ve `description` içinde durumu
+              olduğu gibi yaz: hangi iki tabloyu birleştirmen gerektiğini,
+              aralarında ölçülmüş bir bağlantı bulunmadığını, ve sorunun
+              tek tablo üzerinden nasıl sorulabileceğini söyle.
         J2. İki tablo arasında birden fazla bağlantı varsa `via` ile hangisini
             kastettiğini söyle: `"via": "MusteriId"`. Söylemezsen sorgu
             çalışmaz; tahmin edilmez.
