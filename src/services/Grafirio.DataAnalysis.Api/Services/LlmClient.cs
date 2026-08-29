@@ -247,7 +247,7 @@ public sealed class LlmClient : ILlmClient
     /// soylemek gerekiyor. Ham govde yine sonda duruyor — teshis icin lazim,
     /// ama artik cumlenin tamami degil.
     /// </summary>
-    internal static string DescribeFailure(int status, string body)
+    private static string DescribeFailure(int status, string body)
     {
         var detail = $"(Azure: {Truncate(body, 200)})";
 
@@ -278,15 +278,42 @@ public sealed class LlmClient : ILlmClient
     /// dusecek. Cagiran tarafin yapabilecegi tek sey istegi kucultmek, o
     /// yuzden mesaj da bunu soyluyor.
     /// </summary>
-    internal static bool IsContextLengthExceeded(string body)
+    private static bool IsContextLengthExceeded(string body) =>
+        ErrorCode(body) == "context_length_exceeded";
+
+    private static bool IsUnsupportedParameter(string body) =>
+        ErrorCode(body) is "unsupported_parameter" or "unsupported_value";
+
+    /// <summary>
+    /// Azure hata govdesindeki <c>error.code</c> — okunamazsa null.
+    ///
+    /// Her adimda <c>ValueKind</c> kontrol ediliyor, cunku
+    /// <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/> nesne
+    /// olmayan bir elemanda ve <see cref="JsonElement.GetString"/> string
+    /// olmayan bir degerde <see cref="InvalidOperationException"/> firlatir —
+    /// <see cref="JsonException"/> degil, yani asagidaki catch onu tutmaz.
+    ///
+    /// Bu, hata yolunun ta kendisinde patlamak demek olurdu: bu koda ancak
+    /// ortada zaten bir sorun varken geliniyor ve tek isi o sorunu anlasilir
+    /// kilmak. Beklenmedik bir govde yuzunden okunabilir mesajin yerini
+    /// alakasiz bir istisnanin almasi, hicbir sey yapmamaktan kotu.
+    ///
+    /// Iki cagiran da ayni ayristirmayi yapiyordu; tek yerde durmasinin sebebi
+    /// de bu — ayni kusur iki kez yazilmisti.
+    /// </summary>
+    private static string? ErrorCode(string body)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var error) &&
-                error.TryGetProperty("code", out var code))
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("error", out var error) &&
+                error.ValueKind == JsonValueKind.Object &&
+                error.TryGetProperty("code", out var code) &&
+                code.ValueKind == JsonValueKind.String)
             {
-                return code.GetString() == "context_length_exceeded";
+                return code.GetString();
             }
         }
         catch (JsonException)
@@ -294,26 +321,7 @@ public sealed class LlmClient : ILlmClient
             // Govde JSON degilse teshis edilecek bir sey yok.
         }
 
-        return false;
-    }
-
-    private static bool IsUnsupportedParameter(string body)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("error", out var error) &&
-                error.TryGetProperty("code", out var code))
-            {
-                var value = code.GetString();
-                return value is "unsupported_parameter" or "unsupported_value";
-            }
-        }
-        catch (JsonException)
-        {
-            // Gövde JSON değilse zaten yeniden denemeye değmez.
-        }
-        return false;
+        return null;
     }
 
     private static string ExtractContent(string body)
