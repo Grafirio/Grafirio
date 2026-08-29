@@ -45,9 +45,9 @@ def expect_error(name, fn, fragment, error_type):
 # ── Bolum 1: SQL ureteci (yalnizca stdlib) ────────────────────────────────
 
 from query_spec import (  # noqa: E402
-    Aggregate, AliasFactory, ColumnRef, Join, JoinCondition, OrderBy,
-    Predicate, QuerySpec, QuerySpecError, TableRef, render, render_group_count,
-    MANY_TO_ONE, ONE_TO_MANY,
+    Aggregate, AliasFactory, ColumnRef, DerivedTable, Join, JoinCondition,
+    OrderBy, Predicate, QuerySpec, QuerySpecError, TableRef, render,
+    render_group_count, MANY_TO_ONE, ONE_TO_MANY,
 )
 
 aliases = AliasFactory()
@@ -190,6 +190,197 @@ if "[Bad]]Name]" not in render(QuerySpec(
     FAILS.append("köşeli parantez kaçışı yapılmamış")
 
 
+# ── Bolum 1b: Zincir, tekrarli join ve on toplama ─────────────────────────
+#
+# Bu bolumdeki her sey tek tabloda hic ortaya cikmayan, yalnizca coklu tablo
+# geldiginde yanlis cevap ureten durumlar.
+
+chain_aliases = AliasFactory()
+inv = TableRef("dbo", "Faturalar", chain_aliases.take())          # t0
+cust = TableRef("dbo", "Musteriler", chain_aliases.take())        # t1
+land = TableRef("dbo", "Ulkeler", chain_aliases.take())           # t2
+
+# Zincir: Faturalar → Musteriler → Ulkeler. Ikinci join birinciye baglaniyor.
+chain = QuerySpec(
+    base=inv,
+    joins=[
+        Join(cust, [JoinCondition(ColumnRef(inv.alias, "MusteriId"),
+                                  ColumnRef(cust.alias, "Id"))]),
+        Join(land, [JoinCondition(ColumnRef(cust.alias, "UlkeKodu"),
+                                  ColumnRef(land.alias, "Kod"))]),
+    ],
+    group_by=[ColumnRef(land.alias, "Ad")],
+    aggregate=Aggregate("count", None, "value"),
+    order_by=[OrderBy("value", "desc"), OrderBy(ColumnRef(land.alias, "Ad"), "asc")],
+    limit=5,
+)
+
+check(
+    "zincirleme join sırayla üretilir",
+    render(chain),
+    "SELECT TOP (5) [t2].[Ad], COUNT(*) AS [value] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "LEFT JOIN [dbo].[Musteriler] AS [t1] ON [t0].[MusteriId] = [t1].[Id] "
+    "LEFT JOIN [dbo].[Ulkeler] AS [t2] ON [t1].[UlkeKodu] = [t2].[Kod] "
+    "GROUP BY [t2].[Ad] "
+    "ORDER BY [value] DESC, [t2].[Ad] ASC",
+)
+
+# Ileri referans: ilk join, henuz acilmamis t2'ye atif yapiyor. Eskiden
+# takma adlar tek kume olarak toplandigi icin bu dogrulamadan geciyordu.
+expect_error(
+    "ileri referans reddedilir",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[
+            Join(cust, [JoinCondition(ColumnRef(land.alias, "Kod"),
+                                      ColumnRef(cust.alias, "UlkeKodu"))]),
+            Join(land, [JoinCondition(ColumnRef(cust.alias, "UlkeKodu"),
+                                      ColumnRef(land.alias, "Kod"))]),
+        ],
+        select_all=True)),
+    "bu noktada tanımlı değil", QuerySpecError,
+)
+
+expect_error(
+    "aynı takma ad iki kez kullanılamaz",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[
+            Join(cust, [JoinCondition(ColumnRef(inv.alias, "MusteriId"),
+                                      ColumnRef(cust.alias, "Id"))]),
+            Join(TableRef("dbo", "Baska", cust.alias),
+                 [JoinCondition(ColumnRef(inv.alias, "X"),
+                                ColumnRef(cust.alias, "Y"))]),
+        ],
+        select_all=True)),
+    "iki kez kullanılmış", QuerySpecError,
+)
+
+# Ayni parametre tablosuna iki kez: ON'daki sabit kosul ikisini ayiriyor.
+par1 = TableRef("dbo", "Parametreler", "t5")
+par2 = TableRef("dbo", "Parametreler", "t6")
+double_lookup = QuerySpec(
+    base=inv,
+    joins=[
+        Join(par1, [
+            JoinCondition(ColumnRef(inv.alias, "ParaBirimiKodu"),
+                          ColumnRef(par1.alias, "Kod")),
+            Predicate(ColumnRef(par1.alias, "Tip"), "=", ["p_cur"]),
+        ]),
+        Join(par2, [
+            JoinCondition(ColumnRef(inv.alias, "OdemeTipiKodu"),
+                          ColumnRef(par2.alias, "Kod")),
+            Predicate(ColumnRef(par2.alias, "Tip"), "=", ["p_pay"]),
+        ]),
+    ],
+    select_all=True,
+)
+
+check(
+    "aynı tabloya iki join, sabit koşulla ayrışır",
+    render(double_lookup),
+    "SELECT [t0].* FROM [dbo].[Faturalar] AS [t0] "
+    "LEFT JOIN [dbo].[Parametreler] AS [t5] "
+    "ON [t0].[ParaBirimiKodu] = [t5].[Kod] AND [t5].[Tip] = :p_cur "
+    "LEFT JOIN [dbo].[Parametreler] AS [t6] "
+    "ON [t0].[OdemeTipiKodu] = [t6].[Kod] AND [t6].[Tip] = :p_pay",
+)
+
+if ":p_cur" not in render(double_lookup) or "'" in render(double_lookup):
+    FAILS.append("ON koşulundaki değer metne gömülmüş")
+
+# On toplama: kalemler fatura basina toplanip N:1 baglaniyor.
+lines = DerivedTable(
+    source=TableRef("dbo", "FaturaKalemleri", "k0"),
+    key_columns=[ColumnRef("k0", "FaturaId")],
+    aggregate=Aggregate("sum", ColumnRef("k0", "Tutar"), "kalem_toplam"),
+    alias="d0",
+)
+pre_agg = QuerySpec(
+    base=inv,
+    joins=[Join(lines, [JoinCondition(ColumnRef(inv.alias, "Id"),
+                                      ColumnRef("d0", "FaturaId"))])],
+    group_by=[ColumnRef(inv.alias, "Ulke")],
+    aggregate=Aggregate("sum", ColumnRef("d0", "kalem_toplam"), "value"),
+    order_by=[OrderBy("value", "desc"), OrderBy(ColumnRef(inv.alias, "Ulke"), "asc")],
+    limit=5,
+)
+
+check(
+    "ön toplanmış alt sorgu N:1 bağlanır",
+    render(pre_agg),
+    "SELECT TOP (5) [t0].[Ulke], SUM([d0].[kalem_toplam]) AS [value] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "LEFT JOIN (SELECT [k0].[FaturaId], SUM([k0].[Tutar]) AS [kalem_toplam] "
+    "FROM [dbo].[FaturaKalemleri] AS [k0] "
+    "GROUP BY [k0].[FaturaId]) AS [d0] ON [t0].[Id] = [d0].[FaturaId] "
+    "GROUP BY [t0].[Ulke] "
+    "ORDER BY [value] DESC, [t0].[Ulke] ASC",
+)
+
+# Ham 1:N hâlâ reddediliyor — ve mesaj cozumu soyluyor.
+expect_error(
+    "ham 1:N join toplulaştırmada reddedilir",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[Join(TableRef("dbo", "FaturaKalemleri", "t9"),
+                    [JoinCondition(ColumnRef(inv.alias, "Id"),
+                                   ColumnRef("t9", "FaturaId"))],
+                    cardinality=ONE_TO_MANY)],
+        group_by=[ColumnRef(inv.alias, "Ulke")],
+        aggregate=Aggregate("count", None, "value"),
+        order_by=[OrderBy("value"), OrderBy(ColumnRef(inv.alias, "Ulke"))],
+        limit=5)),
+    "ön toplanmış hâliyle", QuerySpecError,
+)
+
+# Anahtarin tamami uzerinden baglanmazsa teklik garantisi coker.
+two_key = DerivedTable(
+    source=TableRef("dbo", "Kalemler", "k1"),
+    key_columns=[ColumnRef("k1", "FaturaId"), ColumnRef("k1", "Donem")],
+    aggregate=Aggregate("sum", ColumnRef("k1", "Tutar"), "toplam"),
+    alias="d1",
+)
+expect_error(
+    "eksik anahtarla bağlanan ön toplama reddedilir",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[Join(two_key, [JoinCondition(ColumnRef(inv.alias, "Id"),
+                                            ColumnRef("d1", "FaturaId"))])],
+        select_all=True)),
+    "Donem", QuerySpecError,
+)
+
+expect_error(
+    "alt sorguda olmayan kolona atıf reddedilir",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[Join(lines, [JoinCondition(ColumnRef(inv.alias, "Id"),
+                                          ColumnRef("d0", "FaturaId"))])],
+        group_by=[ColumnRef("d0", "Aciklama")],
+        aggregate=Aggregate("count", None, "value"),
+        order_by=[OrderBy("value"), OrderBy(ColumnRef("d0", "Aciklama"))],
+        limit=5)),
+    "ön toplanmış", QuerySpecError,
+)
+
+expect_error(
+    "alt sorgu dışarıdaki takma adı göremez",
+    lambda: render(QuerySpec(
+        base=inv,
+        joins=[Join(DerivedTable(
+            source=TableRef("dbo", "Kalemler", "k2"),
+            key_columns=[ColumnRef("k2", "FaturaId")],
+            aggregate=Aggregate("sum", ColumnRef(inv.alias, "Tutar"), "toplam"),
+            alias="d2",
+        ), [JoinCondition(ColumnRef(inv.alias, "Id"),
+                          ColumnRef("d2", "FaturaId"))])],
+        select_all=True)),
+    "yalnızca kendi tablosunu görür", QuerySpecError,
+)
+
+
 # ── Bolum 2: AgentAnalyzer'in DB gerektirmeyen mantigi ────────────────────
 #
 # pandas sahteleniyor: burada test edilen sey veri okumak degil, LLM
@@ -205,7 +396,7 @@ _pandas.isna = lambda v: v is None
 _pandas.read_sql = lambda *a, **k: None
 sys.modules["pandas"] = _pandas
 
-from agent_analyzer import AgentAnalyzer  # noqa: E402
+from agent_analyzer import AgentAnalyzer, ColumnScope  # noqa: E402
 
 
 class _StubDataPort:
@@ -234,10 +425,33 @@ check("kolon adı büyük/küçük harf duyarsız", analyzer._resolve_column("UL
 check("köşeli parantezli kolon adı", analyzer._resolve_column("[Tutar]", columns), "Tutar")
 check("olmayan kolon None döner", analyzer._resolve_column("Yok", columns), None)
 
+base_scope = ColumnScope()
+base_scope.add("t0", columns, ["dbo.Shipments", "Shipments"], is_base=True)
+
+# Cok tablolu kapsam: ayni kolon adi iki tabloda.
+multi = ColumnScope()
+multi.add("t0", {"ad": "Ad", "musteriid": "MusteriId"}, ["dbo.Faturalar", "Faturalar"], is_base=True)
+multi.add("t1", {"ad": "Ad", "id": "Id"}, ["musteri", "dbo.Musteriler", "Musteriler"])
+
+check("çıplak ad önce tabana çözülür", multi.resolve("Ad"), ColumnRef("t0", "Ad"))
+check("nitelenmiş ad ilgili tabloya gider", multi.resolve("musteri.Ad"), ColumnRef("t1", "Ad"))
+check("şemalı nitelenmiş ad", multi.resolve("dbo.Musteriler.Ad"), ColumnRef("t1", "Ad"))
+check("yalnız bağlı tabloda olan ad bulunur", multi.resolve("Id"), ColumnRef("t1", "Id"))
+check("olmayan kolon None", multi.resolve("Yok"), None)
+
+ambiguous = ColumnScope()
+ambiguous.add("t1", {"kod": "Kod"}, ["a"])
+ambiguous.add("t2", {"kod": "Kod"}, ["b"])
+expect_error(
+    "belirsiz kolon adı tahmin edilmez",
+    lambda: ambiguous.resolve("Kod"),
+    "birden fazla tabloda", ValueError,
+)
+
 predicates, params, _ = analyzer._build_where(
     {"SevkTarihi": {"gte": "2026-01-01", "lt": "2027-01-01"},
      "Ulke": ["Almanya", "Hollanda"]},
-    columns, "t0")
+    base_scope)
 
 check(
     "aralık ve liste filtreleri",
@@ -251,20 +465,281 @@ check(
     {"p0": "2026-01-01", "p1": "2027-01-01", "p2": "Almanya", "p3": "Hollanda"},
 )
 
-null_predicates, null_params, _ = analyzer._build_where({"Ulke": None}, columns, "t0")
+null_predicates, null_params, _ = analyzer._build_where({"Ulke": None}, base_scope)
 check("boş değer filtresi", null_predicates[0].sql(), "[t0].[Ulke] IS NULL")
 check("IS NULL parametre üretmez", null_params, {})
 
 expect_error(
     "olmayan filtre kolonu sessizce düşmez",
-    lambda: analyzer._build_where({"Olmayan": 1}, columns, "t0"),
+    lambda: analyzer._build_where({"Olmayan": 1}, base_scope),
     "Mevcut kolonlar", ValueError,
 )
 expect_error(
     "tanınmayan karşılaştırma sessizce düşmez",
-    lambda: analyzer._build_where({"Tutar": {"yaklasik": 5}}, columns, "t0"),
+    lambda: analyzer._build_where({"Tutar": {"yaklasik": 5}}, base_scope),
     "tanınmayan karşılaştırma", ValueError,
 )
+
+# ── Bolum 3: Join cozumleyici ─────────────────────────────────────────────
+#
+# Buradaki degismez su: kardinalite, eslesen kolonlar ve join tipi MODELDEN
+# gelmez, olculmus iliski kaydindan okunur. Model yalnizca hangi tabloyu
+# nereye baglamak istedigini soyler. Bu ayrim bozulursa 1:N emniyeti anlamini
+# yitirir — model kontrolden gecmek icin "many-to-one" yazar ve sayilar
+# sessizce siser.
+
+# pandas yukarida sahtelendigi icin gercek DataFrame yok; `_table_columns`in
+# kullandigi kadarini (empty, iloc[:, 0].tolist()) tasiyan bir sahte yeterli.
+class _FakeFrame:
+    def __init__(self, values):
+        self._values = list(values)
+        self.empty = not self._values
+        self.iloc = self
+
+    def __getitem__(self, key):
+        return self
+
+    def tolist(self):
+        return list(self._values)
+
+
+class _SchemaPort:
+    """INFORMATION_SCHEMA sorgusuna tablo basina kolon listesi doner."""
+
+    TABLES = {
+        "Faturalar": ["Id", "MusteriId", "Ulke", "Tutar", "ParaBirimiKodu"],
+        "Musteriler": ["Id", "Ad", "UlkeKodu"],
+        "Ulkeler": ["Kod", "Ad"],
+        "FaturaKalemleri": ["Id", "FaturaId", "Tutar", "Adet"],
+    }
+
+    def read_sql(self, sql, params=None, max_rows=None):
+        return _FakeFrame(self.TABLES[(params or {})["table"]])
+
+    def scalar(self, sql, params=None):
+        raise AssertionError("beklenmeyen sorgu")
+
+
+def edge(frm, frm_cols, to, to_cols, **extra):
+    e = {"fromTable": frm, "fromColumns": frm_cols,
+         "toTable": to, "toColumns": to_cols,
+         "cardinality": "many-to-one", "source": "fk",
+         "isTrusted": False, "isOptional": True}
+    e.update(extra)
+    return e
+
+
+EDGES = [
+    edge("dbo.Faturalar", ["MusteriId"], "dbo.Musteriler", ["Id"]),
+    edge("dbo.Musteriler", ["UlkeKodu"], "dbo.Ulkeler", ["Kod"]),
+    edge("dbo.FaturaKalemleri", ["FaturaId"], "dbo.Faturalar", ["Id"]),
+]
+
+joiner = AgentAnalyzer(_SchemaPort())
+
+
+def resolve(requested, edges=EDGES):
+    """Cozumleyiciyi calistirir; (joins, notlar, kapsam) doner."""
+    als = AliasFactory()
+    root = TableRef("dbo", "Faturalar", als.take())
+    sc = ColumnScope()
+    sc.add(root.alias, {c.lower(): c for c in _SchemaPort.TABLES["Faturalar"]},
+           ["dbo.Faturalar", "Faturalar"], is_base=True)
+    js, _p, notes = joiner._resolve_joins(
+        {"relationships": edges}, root, "dbo.Faturalar", requested, als, sc)
+    return js, notes, sc, root
+
+
+# N:1: dogrudan baglanir, kolonlar olculmus kayittan gelir.
+js, _n, _s, root = resolve([{"as": "musteri", "from": "base", "table": "dbo.Musteriler"}])
+check("N:1 join tek adım üretir", len(js), 1)
+check(
+    "eşleşme kolonları ölçülmüş kayıttan okunur",
+    js[0].sql(),
+    "LEFT JOIN [dbo].[Musteriler] AS [t1] ON [t0].[MusteriId] = [t1].[Id]",
+)
+
+# Guvenilir ve zorunlu FK: INNER guvenli.
+trusted_edges = [edge("dbo.Faturalar", ["MusteriId"], "dbo.Musteriler", ["Id"],
+                      isTrusted=True, isOptional=False)]
+js, _n, _s, _r = resolve([{"as": "m", "from": "base", "table": "dbo.Musteriler"}],
+                         trusted_edges)
+check("doğrulanmış zorunlu FK INNER olur", js[0].kind, "inner")
+
+# Cikarsanmis kenar: LEFT kalmali, aksi halde eslesmeyen satirlar sessizce duser.
+inferred = [edge("dbo.Faturalar", ["MusteriId"], "dbo.Musteriler", ["Id"],
+                 source="inferred", isTrusted=True, isOptional=False,
+                 valueOverlap=0.87)]
+js, notes, _s, _r = resolve([{"as": "m", "from": "base", "table": "dbo.Musteriler"}],
+                            inferred)
+check("çıkarsanmış kenar INNER olmaz", js[0].kind, "left")
+if "örtüşme %87" not in " ".join(notes):
+    FAILS.append("çıkarsanmış kenarın örtüşme oranı denetim izine yazılmamış")
+
+# Zincir: ikinci adim birinciye baglaniyor.
+js, _n, sc, _r = resolve([
+    {"as": "musteri", "from": "base", "table": "dbo.Musteriler"},
+    {"as": "ulke", "from": "musteri", "table": "dbo.Ulkeler"},
+])
+check("zincir iki join üretir", len(js), 2)
+check(
+    "ikinci adım birinciye bağlanır",
+    js[1].sql(),
+    "LEFT JOIN [dbo].[Ulkeler] AS [t2] ON [t1].[UlkeKodu] = [t2].[Kod]",
+)
+check("bağlanan tablonun kolonu adıyla çözülür",
+      sc.resolve("ulke.Ad"), ColumnRef("t2", "Ad"))
+
+# Bire-cok: olcu belirtilmemis -> anahtar basina sayim.
+js, notes, sc, _r = resolve([{"as": "kalem", "from": "base",
+                              "table": "dbo.FaturaKalemleri"}])
+check("bire-çok tablo ön toplanır", isinstance(js[0].table, DerivedTable), True)
+check(
+    "ölçü verilmeyince kayıt sayısı toplanır",
+    js[0].sql(),
+    "LEFT JOIN (SELECT [t1].[FaturaId], COUNT(*) AS [kalem_count] "
+    "FROM [dbo].[FaturaKalemleri] AS [t1] "
+    "GROUP BY [t1].[FaturaId]) AS [t2] ON [t0].[Id] = [t2].[FaturaId]",
+)
+
+# Bire-cok: olcu belirtilmis -> o olcu on toplanir.
+js, _n, sc, _r = resolve([{"as": "kalem", "from": "base",
+                           "table": "dbo.FaturaKalemleri",
+                           "preAggregate": {"aggregation": "sum", "column": "Tutar"}}])
+check(
+    "istenen ölçü ön toplanır",
+    js[0].sql(),
+    "LEFT JOIN (SELECT [t1].[FaturaId], SUM([t1].[Tutar]) AS [kalem_sum] "
+    "FROM [dbo].[FaturaKalemleri] AS [t1] "
+    "GROUP BY [t1].[FaturaId]) AS [t2] ON [t0].[Id] = [t2].[FaturaId]",
+)
+check("ön toplanmış sonuç adıyla çözülür",
+      sc.resolve("kalem.kalem_sum"), ColumnRef("t2", "kalem_sum"))
+check("ön toplanmış tablonun ham kolonu görünmez",
+      sc.resolve("kalem.Adet"), None)
+
+expect_error(
+    "olmayan bağlantı uydurulmaz",
+    lambda: resolve([{"as": "u", "from": "base", "table": "dbo.Ulkeler"}]),
+    "bilinen bir bağlantı yok", ValueError,
+)
+
+expect_error(
+    "olmayan adıma bağlanılamaz",
+    lambda: resolve([{"as": "u", "from": "yok", "table": "dbo.Musteriler"}]),
+    "böyle bir adım yok", ValueError,
+)
+
+# Iki tablo arasinda birden fazla kenar: tahmin yok, `via` sart.
+two_edges = [
+    edge("dbo.Faturalar", ["MusteriId"], "dbo.Musteriler", ["Id"]),
+    edge("dbo.Faturalar", ["ParaBirimiKodu"], "dbo.Musteriler", ["Id"]),
+]
+expect_error(
+    "birden fazla bağlantı varsa tahmin edilmez",
+    lambda: resolve([{"as": "m", "from": "base", "table": "dbo.Musteriler"}], two_edges),
+    "birden fazla bağlantı var", ValueError,
+)
+js, _n, _s, _r = resolve(
+    [{"as": "m", "from": "base", "table": "dbo.Musteriler", "via": "ParaBirimiKodu"}],
+    two_edges)
+check("via ile belirsizlik çözülür",
+      js[0].sql(),
+      "LEFT JOIN [dbo].[Musteriler] AS [t1] ON [t0].[ParaBirimiKodu] = [t1].[Id]")
+
+expect_error(
+    "zincir üst sınırı aşılamaz",
+    lambda: resolve([{"as": f"a{i}", "from": "base", "table": "dbo.Musteriler"}
+                     for i in range(AgentAnalyzer.MAX_JOINS + 1)]),
+    "en fazla", ValueError,
+)
+
+expect_error(
+    "aynı ad zincirde iki kez kullanılamaz",
+    lambda: resolve([
+        {"as": "m", "from": "base", "table": "dbo.Musteriler"},
+        {"as": "m", "from": "m", "table": "dbo.Ulkeler"},
+    ]),
+    "iki kez kullanılmış", ValueError,
+)
+
+expect_error(
+    "bağlantılar çıkarılmamışsa açıkça söylenir",
+    lambda: resolve([{"as": "m", "from": "base", "table": "dbo.Musteriler"}], []),
+    "Analiz Et", ValueError,
+)
+
+# Ayni parametre tablosuna iki kez: `filter` ikisini ayiriyor. Bu desende
+# ayirt edici kosul ON'a girmeli — WHERE'e konsa LEFT join sessizce INNER'a
+# doner ve eslesmeyen faturalar sonuctan duserdi.
+_SchemaPort.TABLES["Parametreler"] = ["Kod", "Tip", "Ad"]
+param_edges = [
+    edge("dbo.Faturalar", ["ParaBirimiKodu"], "dbo.Parametreler", ["Kod"]),
+    edge("dbo.Faturalar", ["Ulke"], "dbo.Parametreler", ["Kod"]),
+]
+
+als = AliasFactory()
+root = TableRef("dbo", "Faturalar", als.take())
+sc = ColumnScope()
+sc.add(root.alias, {c.lower(): c for c in _SchemaPort.TABLES["Faturalar"]},
+       ["dbo.Faturalar", "Faturalar"], is_base=True)
+js, jp, _n = joiner._resolve_joins(
+    {"relationships": param_edges}, root, "dbo.Faturalar",
+    [{"as": "parabirimi", "from": "base", "table": "dbo.Parametreler",
+      "via": "ParaBirimiKodu", "filter": {"Tip": "CUR"}},
+     {"as": "ulkeadi", "from": "base", "table": "dbo.Parametreler",
+      "via": "Ulke", "filter": {"Tip": "CNT"}}],
+    als, sc)
+
+check(
+    "aynı tabloya iki join ayrı takma ad alır",
+    [j.table.alias for j in js],
+    ["t1", "t2"],
+)
+check(
+    "ayırt edici koşul ON'a girer",
+    js[0].sql(),
+    "LEFT JOIN [dbo].[Parametreler] AS [t1] "
+    "ON [t0].[ParaBirimiKodu] = [t1].[Kod] AND [t1].[Tip] = :j0_0",
+)
+check("koşul değeri parametreye bağlanır", jp, {"j0_0": "CUR", "j1_0": "CNT"})
+check("iki bağlantı ayrı adlarla çözülür",
+      (sc.resolve("parabirimi.Ad"), sc.resolve("ulkeadi.Ad")),
+      (ColumnRef("t1", "Ad"), ColumnRef("t2", "Ad")))
+
+# Uretilen sorgu bir butun olarak da gecerli olmali.
+check(
+    "iki kez bağlanan tablo geçerli SQL üretir",
+    render(QuerySpec(
+        base=root, joins=js,
+        group_by=[ColumnRef("t1", "Ad")],
+        aggregate=Aggregate("count", None, "value"),
+        order_by=[OrderBy("value", "desc"), OrderBy(ColumnRef("t1", "Ad"), "asc")],
+        limit=5)),
+    "SELECT TOP (5) [t1].[Ad], COUNT(*) AS [value] "
+    "FROM [dbo].[Faturalar] AS [t0] "
+    "LEFT JOIN [dbo].[Parametreler] AS [t1] "
+    "ON [t0].[ParaBirimiKodu] = [t1].[Kod] AND [t1].[Tip] = :j0_0 "
+    "LEFT JOIN [dbo].[Parametreler] AS [t2] "
+    "ON [t0].[Ulke] = [t2].[Kod] AND [t2].[Tip] = :j1_0 "
+    "GROUP BY [t1].[Ad] "
+    "ORDER BY [value] DESC, [t1].[Ad] ASC",
+)
+
+expect_error(
+    "ön toplanan tabloya ayırt edici koşul verilemez",
+    lambda: resolve([{"as": "kalem", "from": "base",
+                      "table": "dbo.FaturaKalemleri",
+                      "filter": {"Adet": 1}}]),
+    "ayırt edici koşul veremiyorum", ValueError,
+)
+
+expect_error(
+    "olmayan kolona birleştirme koşulu verilemez",
+    lambda: joiner._build_join_filter({"Yok": 1}, {"tip": "Tip"}, "t1", 0),
+    "bağlanan tabloda yok", ValueError,
+)
+
 
 # main.py hata sebebini `error` alanindan okuyor; bu alan kaybolursa butun
 # hatalar kullaniciya yeniden "Analysis failed" diye gorunur.

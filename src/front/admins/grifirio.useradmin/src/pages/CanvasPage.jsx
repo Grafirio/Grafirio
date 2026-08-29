@@ -887,6 +887,22 @@ export default function CanvasPage() {
                             {msg.audit.targetTable && (
                               <div><dt>Tablo</dt><dd>{msg.audit.targetTable}</dd></div>
                             )}
+                            {/* Birlestirme, sonucun dogrulugunu en cok
+                                etkileyen ama en az gorunen karar: hangi
+                                tablonun hangi yoldan baglandigi, baglantinin
+                                olculmus mu cikarsanmis mi oldugu. Sekiz
+                                tablolu bir sorguda "bu sayi dogru mu"
+                                sorusunu baska turlu cevaplamak mumkun degil. */}
+                            {msg.audit.joins?.length > 0 && (
+                              <div>
+                                <dt>Birleştirme</dt>
+                                <dd>
+                                  {msg.audit.joins.map((note, i) => (
+                                    <div key={i}>{note}</div>
+                                  ))}
+                                </dd>
+                              </div>
+                            )}
                             {msg.audit.groupBy?.length > 0 && (
                               <div><dt>Gruplama</dt><dd>{msg.audit.groupBy.join(', ')}</dd></div>
                             )}
