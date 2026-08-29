@@ -197,7 +197,13 @@ export function AnalysisProvider({ children }) {
     const { connectionId, connectionName } = analysis;
     if (!connectionId) return;
 
-    setAnalysis((p) => ({ ...p, trackingAbandoned: false, error: '' }));
+    // `running: true` burada görsel bir ayrıntı değil, kilit. Yalnızca
+    // `trackingAbandoned`'ı false yapsaydık, ağ turu boyunca hem o false hem
+    // `running` false hem `status` 'analyzing' kalırdı — yani "Analizi başlat"
+    // düğmesi birkaç yüz milisaniyeliğine geri gelirdi. Az önce kapattığımız
+    // kapının aynısı: kullanıcı o aralıkta basarsa süren işin üstüne ikinci
+    // bir analiz kuyruğa girer.
+    setAnalysis((p) => ({ ...p, running: true, trackingAbandoned: false, error: '' }));
 
     try {
       const state = await getAnalysisStatus(connectionId);
@@ -208,8 +214,13 @@ export function AnalysisProvider({ children }) {
         poll(connectionId);
       }
     } catch (error) {
+      // Yenileme tutmadı: geldiğimiz duruma dönülüyor. Takip hâlâ bırakılmış
+      // durumda ve "Durumu yenile" düğmesi geri geliyor ki tekrar denenebilsin.
       setAnalysis((p) => ({
-        ...p, error: error.response?.data?.error || error.message,
+        ...p,
+        running: false,
+        trackingAbandoned: true,
+        error: error.response?.data?.error || error.message,
       }));
     }
   }, [analysis, applyState, poll]);
