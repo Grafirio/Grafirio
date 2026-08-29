@@ -78,6 +78,21 @@ sc.exe create "Grafirio Bridge" binPath= "C:\Program Files\Grafirio\Bridge\Grafi
 Kodun süresi dolarsa bir şey yapmanız gerekmez: bridge kayıt tamamlanana kadar
 aralığı artırarak yeni kod almayı sürdürür.
 
+## Hangi sorgular bridge'den geçer
+
+**Şirketin çevrimiçi bir bridge'i varsa, o şirketin bütün bağlantıları oradan
+okunur.** Panelde seçilecek bir şey yok.
+
+Önceden bağlantı başına elle yapılan bir eşleştirme vardı; kaldırıldı. Kullanıcıya
+"bu bağlantı hangi makineden okunsun" diye sormanın karşılığı yoktu — bridge'i
+kuran biri zaten veritabanına buluttan ulaşılamadığı için kuruyor. Eşleştirme
+yapılmadığında ise kurulum sessizce işe yaramıyor, sorgular buluttan denenip
+zaman aşımına uğruyordu.
+
+Bridge kayıtlı ama o an çevrimdışıysa sorgu yine buluttan denenir: veritabanı
+buluttan erişilebilir olabilir ve o senaryoyu, uygulama kapalı diye durdurmanın
+anlamı yok. Erişilemiyorsa hata mesajı bridge'in çevrimdışı olduğunu söyler.
+
 ## Veritabanı bağlantılarının tanımlanması
 
 Bağlantı bilgileri **yerel** durum dosyasında tutulur

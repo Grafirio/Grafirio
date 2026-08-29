@@ -1,33 +1,67 @@
+using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Models;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
+using Grafirio.Shared.Identity.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Grafirio.DataAnalysis.Api.Features.Schema;
 
+/// <summary>
+/// Tablo ve kolon listesi — tablo secimi ekranini besleyen uclar.
+///
+/// Uclar kayitli baglanti kimligi aliyor, ham kimlik bilgisi degil. Iki sey
+/// birden duzeliyor:
+///
+///   * Bridge yolu. <c>DataSourceTarget</c> alan overload her zaman buluttan
+///     dogrudan TCP aciyor; yani bridge'e bagli bir baglantida tablo listesi
+///     hic gelmiyordu. Tablo secilemeyince "Analiz Et" de "Önce analiz
+///     edilecek tabloları seçin" ile duruyor ve sorgu hicbir zaman
+///     calistirilamiyordu.
+///   * Sifre. Onceden arayuz bu uclari cagirabilmek icin <c>/decrypt</c> ile
+///     veritabani parolasini tarayiciya indiriyordu. Kimlik yeterli olunca
+///     parolanin bulutun disina cikmasi gereken bir sebep kalmiyor.
+///
+/// Uclar ayrica kimlik dogrulamasi ISTIYOR. Onceden acikti: gecerli bir
+/// hesabi olan herkes istekte yazdigi adrese sunucu adina baglanti
+/// kurdurabiliyordu.
+/// </summary>
 public static class SchemaEndpoints
 {
     public static void MapSchemaEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/schema")
+        // Politika adli: paylasilan kurulumda varsayilan sema yok, ciplak
+        // RequireAuthorization() 400 doner.
+        var group = app.MapGroup("/api/schema/{connectionId:guid}")
+            .RequireAuthorization("CompanyAccess")
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithTags("Schema Discovery")
             .WithOpenApi();
 
-        group.MapPost("/tables", GetTables)
+        group.MapGet("/tables", GetTables)
             .WithName("GetTables")
-            .WithDescription("List all tables in the connected database");
+            .WithDescription("Bağlantıdaki tabloları listeler");
 
-        group.MapPost("/table/{tableName}", GetTableSchema)
+        group.MapGet("/table/{tableName}", GetTableSchema)
             .WithName("GetTableSchema")
-            .WithDescription("Get detailed schema information for a specific table");
+            .WithDescription("Bir tablonun kolonlarını ve satır sayısını getirir");
     }
 
     private static async Task<IResult> GetTables(
-        SqlConnectionRequest request,
-        IDataSourceFactory dataSources,
+        Guid connectionId,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(DataSourceTarget.From(request), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             // Satir sayisi bilerek cekilmiyor: tablo listesi ekrani icin her
             // tabloya COUNT(*) atmak buyuk veritabanlarinda dakikalar suruyor.
@@ -63,20 +97,25 @@ public static class SchemaEndpoints
             return Results.Ok(new
             {
                 success = false,
-                message = $"Failed to retrieve tables: {ex.Message}"
+                message = $"Tablolar getirilemedi: {ex.Message}"
             });
         }
     }
 
     private static async Task<IResult> GetTableSchema(
+        Guid connectionId,
         string tableName,
-        SqlConnectionRequest request,
-        IDataSourceFactory dataSources,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(DataSourceTarget.From(request), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             // Tablo ve şema adını ayır
             var parts = tableName.Split('.');
@@ -109,7 +148,7 @@ public static class SchemaEndpoints
             return Results.BadRequest(new
             {
                 Success = false,
-                Message = $"Failed to retrieve table schema: {ex.Message}"
+                Message = $"Tablo şeması getirilemedi: {ex.Message}"
             });
         }
     }

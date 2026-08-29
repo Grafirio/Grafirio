@@ -1,5 +1,4 @@
 using Grafirio.DataAnalysis.Api.Data.Entities;
-using Grafirio.DataAnalysis.Api.Models;
 using Microsoft.Data.SqlClient;
 
 namespace Grafirio.DataAnalysis.Api.Data.Access;
@@ -13,9 +12,9 @@ namespace Grafirio.DataAnalysis.Api.Data.Access;
 /// ile <c>AgentAnalyzeEndpoints</c> ise dizeyi elle birlestirip 30 saniye
 /// veriyordu. Aradaki fark kimsenin bilerek sectigi bir sey degildi.
 ///
-/// Kayit (<see cref="SavedConnection"/>) ile form istegi
-/// (<see cref="SqlConnectionRequest"/>) burada tek bicime indiriliyor; hattin
-/// geri kalani ikisini birbirinden ayirt etmek zorunda kalmiyor.
+/// Kayitli baglanti (<see cref="SavedConnection"/>) burada tasiyicidan
+/// bagimsiz tek bicime indiriliyor; hattin geri kalani dogrudan yol ile
+/// bridge yolunu birbirinden ayirt etmek zorunda kalmiyor.
 /// </summary>
 public sealed record DataSourceTarget(
     string Host,
@@ -33,10 +32,6 @@ public sealed record DataSourceTarget(
     /// yazilmis bir host icin yarim dakika beklemesinin anlami yok.
     /// </summary>
     public const int ProbeConnectTimeoutSeconds = 10;
-
-    public static DataSourceTarget From(SqlConnectionRequest request) =>
-        new(request.Host, request.Port, request.Database,
-            request.Username, request.Password, request.TrustServerCertificate);
 
     /// <summary>
     /// Kayitli baglanti. Sifre burada cozuluyor ki cagiran taraflarin

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  testConnection, saveConnection, getSavedConnections, getConnectionById,
+  testConnection, saveConnection, updateConnection, deleteConnection,
+  getSavedConnections, getConnectionById,
   getDataQuality, getStatistics, getMissingData, getRelationships,
-  saveSelectedTables,
-  getBridges, getBridgeBindings, bindConnectionToBridge,
+  saveSelectedTables, getSelectedTables,
+  getBridges,
   revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
@@ -45,10 +46,11 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   /* ── Bridge ────────────────────────────────────────────────────────
      Kurumsal veritabanlarının çoğu firewall arkasında ve buluttan
      erişilemiyor. Bridge yönü çeviriyor: bağlantıyı müşterinin kendi
-     sunucusu dışarı doğru kurar. Panelin buradaki işi, hangi bağlantının
-     hangi bridge üzerinden okunacağını seçtirmek.                        */
+     sunucusu dışarı doğru kurar. Panelin buradaki işi yalnızca kurulumu
+     başlatmak ve durumu göstermek: hangi bağlantının hangi makineden
+     okunacağı SORULMUYOR — çevrimiçi bir bridge varsa hepsi oradan
+     okunuyor.                                                           */
   const [bridges, setBridges] = useState([]);
-  const [bridgeBindings, setBridgeBindings] = useState({});
   const [bridgeError, setBridgeError] = useState('');
   const [installer, setInstaller] = useState(null);
   const [enrollment, setEnrollment] = useState(null);
@@ -60,9 +62,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     database: '',
     username: '',
     password: '',
-    trustServerCertificate: true,
-    // Boş string = doğrudan bağlantı (bugünkü davranış).
-    bridgeId: ''
+    trustServerCertificate: true
   });
 
   const [testStatus, setTestStatus] = useState({ type: '', message: '' });
@@ -95,12 +95,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const loadBridges = async () => {
     setBridgeError('');
     try {
-      const [list, bindings] = await Promise.all([getBridges(), getBridgeBindings()]);
-
+      const list = await getBridges();
       setBridges(Array.isArray(list) ? list : []);
-      setBridgeBindings(
-        Object.fromEntries((bindings ?? []).map((b) => [b.connectionId, b.bridgeId]))
-      );
     } catch (error) {
       console.error('Bridge bilgileri alınamadı:', error);
       setBridges([]);
@@ -114,96 +110,81 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     loadBridges();
   }, []);
 
-  /** Bir bağlantının hangi bridge üzerinden okunduğu; yoksa null (doğrudan). */
-  const bridgeOf = (connectionId) => {
-    const bridgeId = bridgeBindings[connectionId];
-    return bridgeId ? bridges.find((b) => b.id === bridgeId) ?? { id: bridgeId } : null;
-  };
+  /**
+   * Şirketin çevrimiçi masaüstü uygulaması; yoksa null.
+   *
+   * Yol artık bağlantı başına SEÇİLMİYOR, türetiliyor: çevrimiçi bir bridge
+   * varsa şirketin bütün bağlantıları oradan okunuyor. Kullanıcıya "bu
+   * bağlantı hangi makineden okunsun" diye sormanın karşılığı yoktu —
+   * masaüstü uygulamasını kuran biri zaten veritabanına buluttan
+   * ulaşılamadığı için kuruyor.
+   */
+  const onlineBridge = () => bridges.find((b) => b.online) ?? null;
 
   /**
-   * Bağlantının okunma yolunu kaydeder.
-   *
-   * Başarısızlık kaydı geri almıyor ama sessizce de geçilmiyor: bağlantı
-   * kaydedilmiş ama bridge'e bağlanmamışsa, sorgular buluttan doğrudan
-   * gitmeye çalışır ve firewall arkasındaki bir veritabanında bu, sebebi
-   * anlaşılmayan bir zaman aşımı olarak görünür.
+   * Bir yükleme hatasını, kullanıcının ne yapacağını bilebileceği bir cümleye
+   * çevirir. Durum kodu da yazılıyor: destek istendiğinde sorulacak ilk şey o.
    */
-  const applyBridgeBinding = async (connectionId, bridgeId) => {
-    if (!connectionId) return;
+  const describeLoadFailure = (error) => {
+    const status = error?.response?.status;
+    const serverSaid = error?.response?.data?.error;
 
-    try {
-      await bindConnectionToBridge(connectionId, bridgeId || null);
-      setBridgeBindings((current) => {
-        const next = { ...current };
-        if (bridgeId) next[connectionId] = bridgeId;
-        else delete next[connectionId];
-        return next;
-      });
-    } catch (error) {
-      console.error('Bridge eşlemesi kaydedilemedi:', error);
-      setNotification({
-        show: true,
-        type: 'warning',
-        title: 'Bağlantı kaydedildi, bridge seçimi kaydedilemedi',
-        message:
-          'Bağlantı şimdilik doğrudan mod ile çalışacak. Veritabanınız ' +
-          'firewall arkasındaysa sorgular zaman aşımına uğrayabilir.',
-        details: error?.response?.data?.error ?? error.message,
-      });
+    if (serverSaid) return `${serverSaid} (HTTP ${status})`;
+
+    switch (status) {
+      case 401:
+        return 'Oturumunuz düşmüş görünüyor. Çıkış yapıp tekrar giriş yapın. (HTTP 401)';
+      case 403:
+        return 'Veri kaynaklarını görme yetkiniz yok. Şirket yöneticinizle görüşün. (HTTP 403)';
+      case undefined:
+        return `Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin. (${error?.message ?? 'ağ hatası'})`;
+      default:
+        return `Bağlantılar yüklenemedi — sunucu ${status} döndü. Lütfen tekrar deneyin.`;
     }
   };
 
-  // Load connections from database
+  /**
+   * Bağlantılar sunucudan okunuyor — ve yalnızca sunucudan.
+   *
+   * localStorage kopyası KALDIRILDI. İki kaynak olması gerçek bir arızaya yol
+   * açıyordu: "Kaydet" düğmesi kaydı yalnızca yerele yazdığı için listede
+   * sunucuda karşılığı olmayan, kimliği bir zaman damgası olan satırlar
+   * çıkıyordu. Böyle bir satırdan kanvas açıldığında sorgu ucu `Guid`
+   * bekliyor, gövde çözülemiyor ve istek gövdesiz bir 400 ile dönüyordu —
+   * ekranda sebebi yazmayan "400 hatası" tam olarak buydu. Aynı şekilde
+   * "Sil" de yalnızca yerelden siliyor, kayıt yenilemede geri geliyordu.
+   */
   const loadConnections = async () => {
     setIsLoadingConnections(true);
     setLoadError('');
     try {
       const result = await getSavedConnections();
 
-      if (result.success && result.connections) {
-        // API'den gelen bağlantıları localStorage formatına çevir
-        const formattedConnections = result.connections.map(conn => {
-          return {
-            id: conn.id,
-            savedConnectionId: conn.id, // Database'deki ID'yi sakla
-            name: conn.name,
-            host: conn.host,
-            port: conn.port,
-            database: conn.database,
-            username: conn.username,
-            password: '', // Şifre frontend'de saklanmaz
-            trustServerCertificate: conn.trustServerCertificate,
-            createdAt: conn.createdAt,
-            updatedAt: conn.updatedAt,
-            lastConnectedAt: conn.lastConnectedAt,
-            selectedTables: [] // Tables localStorage'da kalabilir veya ayrı bir API
-          };
-        });
-        
-        setConnections(formattedConnections);
-
-        // Backward compatibility için localStorage'a da kaydet
-        localStorage.setItem('sqlConnections', JSON.stringify(formattedConnections));
-      } else {
-        setConnections([]);
-      }
+      setConnections((result.connections ?? []).map(conn => ({
+        id: conn.id,
+        savedConnectionId: conn.id,
+        name: conn.name,
+        host: conn.host,
+        port: conn.port,
+        database: conn.database,
+        username: conn.username,
+        // Şifre tarayıcıda saklanmıyor ve artık hiçbir uç için gerekmiyor;
+        // düzenleme formu onu açıldığında ayrıca çözüyor.
+        password: '',
+        trustServerCertificate: conn.trustServerCertificate,
+        createdAt: conn.createdAt,
+        updatedAt: conn.updatedAt,
+        lastConnectedAt: conn.lastConnectedAt,
+        // Seçim sunucuda; tablo/analiz ekranı açılırken oradan okunuyor.
+        selectedTables: []
+      })));
     } catch (error) {
       console.error('Failed to load connections from database:', error);
-
-      // Database hatası varsa fallback olarak localStorage'dan yükle
-      const saved = localStorage.getItem('sqlConnections');
-      let recovered = false;
-      if (saved) {
-        try {
-          setConnections(JSON.parse(saved));
-          recovered = true;
-        } catch (e) {
-          console.error('Failed to load connections from localStorage', e);
-        }
-      }
-      if (!recovered) {
-        setLoadError('Bağlantılar yüklenemedi. Lütfen tekrar deneyin.');
-      }
+      setConnections([]);
+      // Sebep ekranda yazıyor. "Tekrar deneyin" tek başına, oturumun mu
+      // düştüğünü (401) yetkinin mi yetmediğini (403) sunucunun mu hata
+      // verdiğini (5xx) ayırt ettirmiyordu — üçünün de yapılacak şeyi farklı.
+      setLoadError(describeLoadFailure(error));
     } finally {
       setIsLoadingConnections(false);
     }
@@ -214,12 +195,6 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     loadConnections();
   }, []);
 
-  // Save connections to localStorage
-  const saveConnections = (newConnections) => {
-    localStorage.setItem('sqlConnections', JSON.stringify(newConnections));
-    setConnections(newConnections);
-  };
-
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -228,110 +203,84 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     }));
   };
 
+  const isFormIncomplete = () =>
+    !formData.name || !formData.host || !formData.database || !formData.username;
+
+  const describeError = (error) =>
+    error?.response?.data?.error ?? error?.message ?? 'Bilinmeyen hata';
+
+  /**
+   * Formu sunucuya yazar ve bağlantı kimliğini döndürür. Artık TEK kayıt yolu.
+   *
+   * Önceden iki tane vardı ve ikisi de eksikti: "Kaydet" düğmesi kaydı
+   * yalnızca localStorage'a yazıyordu — sunucuda böyle bir bağlantı hiç
+   * oluşmuyor, kimliği de bir zaman damgası oluyordu; sunucuya yazan tek yol
+   * ise "Test Et"in içine gömülüydü, yani test geçmeden bağlantı
+   * kaydedilemiyordu. Bridge'e bağlanacak bir veritabanında test her zaman
+   * başarısız olduğu için o bağlantılar hiç kaydedilemiyordu.
+   *
+   * Sıra artık şu ve tek yönlü: kaydet → bridge'e bağla → test et. Testin
+   * bridge'i kullanabilmesi buna bağlı: yol seçimi bağlantının eşleşmesinden,
+   * eşleşme de kimliğinden okunuyor.
+   */
+  const persistConnection = async () => {
+    const name = formData.name?.trim() || `${formData.host}-${formData.database}`;
+    let connectionId = savedConnectionId;
+
+    if (connectionId) {
+      await updateConnection(connectionId, { ...formData, name });
+    } else {
+      const saved = await saveConnection(name, formData);
+      if (!saved?.success || !saved.connectionId) {
+        throw new Error(saved?.message ?? 'Bağlantı kaydedilemedi.');
+      }
+      connectionId = saved.connectionId;
+      setSavedConnectionId(connectionId);
+    }
+
+    await loadConnections();
+
+    return connectionId;
+  };
+
   const handleTest = async () => {
+    if (isFormIncomplete()) {
+      setTestStatus({ type: 'error', message: '❌ Lütfen tüm zorunlu alanları doldurun' });
+      return;
+    }
+
     setIsTesting(true);
     setTestStatus({ type: '', message: '' });
 
     try {
-      const result = await testConnection({
-        host: formData.host,
-        port: parseInt(formData.port),
-        database: formData.database,
-        username: formData.username,
-        password: formData.password,
-        trustServerCertificate: formData.trustServerCertificate
-      });
+      const connectionId = await persistConnection();
+      const result = await testConnection(connectionId);
 
-      if (result.success) {
-        setTestStatus({ 
-          type: 'success', 
-          message: '✅ Bağlantı başarılı!' 
-        });
-        
-        // Test başarılıysa bağlantıyı database'e kaydet
-        try {
-          // TODO: Gerçek userId ve companyId - şimdilik mock
-          const userId = 'user-123';
-          const companyId = 'company-456';
-          
-          const saveResult = await saveConnection(
-            userId,
-            companyId,
-            formData.name || `${formData.host}-${formData.database}`,
-            {
-              host: formData.host,
-              port: parseInt(formData.port),
-              database: formData.database,
-              username: formData.username,
-              password: formData.password,
-              trustServerCertificate: formData.trustServerCertificate
-            }
-          );
-          
-          if (saveResult.success) {
-            setSavedConnectionId(saveResult.connectionId);
-            const message = saveResult.message || 'Bağlantı kaydedildi!';
-            setTestStatus({
-              type: 'success',
-              message: `✅ Bağlantı başarılı ve güvenli şekilde ${message.toLowerCase()}`
-            });
-
-            // Hangi yoldan okunacağı ayrı bir kayıt: bağlantının kendisi
-            // Postgres'te, eşleme Mongo'da duruyor.
-            await applyBridgeBinding(saveResult.connectionId, formData.bridgeId);
-
-            // Bağlantılar listesini yeniden yükle
-            await loadConnections();
-          }
-        } catch (saveError) {
-          console.error('Connection save error:', saveError);
-          // Test başarılı ama kayıt başarısız - kullanıcıya bilgi ver ama devam et
-          setTestStatus({ 
-            type: 'warning', 
-            message: '✅ Bağlantı başarılı! (Ancak kaydedilemedi: ' + saveError.message + ')' 
-          });
-        }
-      } else {
-        setTestStatus({ 
-          type: 'error', 
-          message: `❌ ${result.message}` 
-        });
-      }
+      setTestStatus(result.success
+        ? { type: 'success', message: `✅ ${result.message}` }
+        : { type: 'error', message: `❌ ${result.message}` });
     } catch (error) {
-      setTestStatus({ 
-        type: 'error', 
-        message: `❌ Bağlantı hatası: ${error.message}` 
-      });
+      console.error('Connection test failed:', error);
+      setTestStatus({ type: 'error', message: `❌ ${describeError(error)}` });
     } finally {
       setIsTesting(false);
     }
   };
 
-  const handleSave = () => {
-    if (!formData.name || !formData.host || !formData.database || !formData.username) {
+  const handleSave = async () => {
+    if (isFormIncomplete()) {
       setTestStatus({ type: 'error', message: '❌ Lütfen tüm zorunlu alanları doldurun' });
       return;
     }
 
-    const newConnection = {
-      id: editingConnection?.id || Date.now(),
-      ...formData,
-      createdAt: editingConnection?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    let newConnections;
-    if (editingConnection) {
-      newConnections = connections.map(c => 
-        c.id === editingConnection.id ? newConnection : c
-      );
-    } else {
-      newConnections = [...connections, newConnection];
+    try {
+      await persistConnection();
+      handleCancel();
+      setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
+    } catch (error) {
+      console.error('Connection save failed:', error);
+      setTestStatus({ type: 'error', message: `❌ Bağlantı kaydedilemedi: ${describeError(error)}` });
     }
-
-    saveConnections(newConnections);
-    handleCancel();
-    setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
   };
 
   const handleEdit = async (connection) => {
@@ -357,20 +306,33 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: connection.database,
       username: connection.username,
       password: decryptedPassword, // Decrypt edilmiş şifre
-      trustServerCertificate: connection.trustServerCertificate,
-      // Mevcut yol seçili gelmeli: düzenlerken sessizce doğrudan moda
-      // düşmek, firewall arkasındaki bir bağlantıyı bozar.
-      bridgeId: bridgeBindings[connection.savedConnectionId || connection.id] ?? ''
+      trustServerCertificate: connection.trustServerCertificate
     });
     setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
     setIsFormOpen(true);
     setTestStatus({ type: '', message: '' });
   };
 
-  const handleDelete = (id) => {
-    if (window.confirm('Bu bağlantıyı silmek istediğinizden emin misiniz?')) {
-      const newConnections = connections.filter(c => c.id !== id);
-      saveConnections(newConnections);
+  /**
+   * Bağlantıyı siler. Silme SUNUCUYA gidiyor: önceden kayıt yalnızca
+   * listeden ve localStorage'dan çıkarılıyordu, sunucudaki kayıt duruyordu.
+   * Sayfa yenilenince bağlantı geri geliyor, silindiği sanılan veri kaynağı
+   * okunmaya devam ediyordu.
+   */
+  const handleDelete = async (id) => {
+    if (!window.confirm('Bu bağlantıyı silmek istediğinizden emin misiniz?')) return;
+
+    try {
+      await deleteConnection(id);
+      await loadConnections();
+    } catch (error) {
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'Bağlantı silinemedi',
+        message: describeError(error),
+        details: ''
+      });
     }
   };
 
@@ -385,60 +347,40 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true,
-      bridgeId: ''
+      trustServerCertificate: true
     });
     setTestStatus({ type: '', message: '' });
   };
 
-  // Listeleme uçları şifreyi taşımaz (loadConnections onu boş bırakır), ama tablo
-  // listesi ve ön analiz doğrudan SQL'e bağlandığı için gerçek şifreye ihtiyaç
-  // duyar. Boş şifreyle gidildiğinde sunucu "Login failed" döndürüyordu.
-  const resolveCredentials = async (connection) => {
-    if (connection.password) return connection;
+  /**
+   * Tablo seçimi kutusunu açar.
+   *
+   * Şifre ÇÖZÜLMÜYOR. Önceden burada `/decrypt` çağrılıp veritabanı parolası
+   * tarayıcıya indiriliyordu, çünkü tablo listesi ucu ham kimlik bilgisi
+   * istiyordu. Uç artık bağlantı kimliğiyle çalışıyor: parolanın bulutun
+   * dışına çıkması için bir sebep kalmadı ve bridge'e bağlı bağlantılarda
+   * liste ilk kez geliyor.
+   *
+   * Seçim sunucudan okunuyor: liste ucu onu taşımıyor, ve varsayılan olarak
+   * boş bırakmak "hiç tablo seçilmemiş" gibi görünmesine yol açıyordu.
+   */
+  const handleOpenModal = async (connection) => {
+    const connectionId = connection.savedConnectionId || connection.id;
 
-    const id = connection.savedConnectionId || connection.id;
-    if (!id) return connection;
+    setCurrentConnectionId(connectionId);
+    setSelectedConnectionForModal({ id: connectionId, name: connection.name });
 
+    let selected = connection.selectedTables ?? [];
     try {
-      const result = await getConnectionById(id);
-      if (result?.success && result.connection?.password) {
-        return { ...connection, password: result.connection.password };
+      const stored = await getSelectedTables(connectionId);
+      if (Array.isArray(stored?.tables)) {
+        selected = stored.tables.map((fullName) => ({ fullName, tableName: fullName }));
       }
     } catch (error) {
-      console.error('Failed to resolve connection password:', error);
-    }
-    return connection;
-  };
-
-  const warnMissingPassword = () => {
-    setNotification({
-      show: true,
-      type: 'error',
-      title: 'Bağlantı şifresi alınamadı',
-      message: 'Kayıtlı şifre çözülemedi. Bağlantıyı düzenleyip şifreyi yeniden kaydedin.',
-      details: ''
-    });
-  };
-
-  // Modal handlers
-  const handleOpenModal = async (connection) => {
-    const resolved = await resolveCredentials(connection);
-    if (!resolved.password) {
-      warnMissingPassword();
-      return;
+      console.error('Kayıtlı tablo seçimi okunamadı:', error);
     }
 
-    setCurrentConnectionId(connection.id);
-    setSelectedConnectionForModal({
-      host: resolved.host,
-      port: resolved.port,
-      database: resolved.database,
-      username: resolved.username,
-      password: resolved.password,
-      trustServerCertificate: resolved.trustServerCertificate
-    });
-    setSelectedTablesForSave(connection.selectedTables || []);
+    setSelectedTablesForSave(selected);
     setIsModalOpen(true);
   };
 
@@ -453,20 +395,14 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setSelectedTablesForSave(tables);
   };
 
-  // Secim artik sunucuya kaydediliyor. Onceden yalnizca localStorage'daydi;
-  // sunucu hangi tablolarin secildigini bilmedigi icin "yalnizca secili
-  // tablolar islenir" kurali uygulanamiyordu. localStorage kopyasi arayuzun
-  // anlik gosterimi icin korunuyor, ama artik dogru kaynak sunucu.
+  // Seçimin doğru kaynağı sunucu. Buradaki liste kopyası yalnızca açık olan
+  // ekranın anlık gösterimi; bir sonraki açılışta seçim yine sunucudan okunuyor.
   const handleSaveSelectedTables = async () => {
     if (!currentConnectionId) return;
 
-    const connectionId = selectedConnectionForModal?.savedConnectionId
-      || connections.find(c => c.id === currentConnectionId)?.savedConnectionId
-      || currentConnectionId;
-
     try {
       await saveSelectedTables(
-        connectionId,
+        currentConnectionId,
         selectedTablesForSave.map(t => t.fullName || t.name).filter(Boolean)
       );
     } catch (error) {
@@ -474,19 +410,18 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         show: true,
         type: 'error',
         title: 'Tablo seçimi kaydedilemedi',
-        message: error.response?.data?.error || error.message,
+        message: describeError(error),
         details: ''
       });
       return;
     }
 
-    const updatedConnections = connections.map(conn =>
-      conn.id === currentConnectionId
+    setConnections(current => current.map(conn =>
+      (conn.savedConnectionId || conn.id) === currentConnectionId
         ? { ...conn, selectedTables: selectedTablesForSave, analysisStatus: 'none', updatedAt: new Date().toISOString() }
         : conn
-    );
+    ));
 
-    saveConnections(updatedConnections);
     handleCloseModal();
 
     setNotification({
@@ -501,17 +436,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   };
 
   const handleShowAnalysisPanel = async (connection) => {
-    // Ön analiz uçları da doğrudan SQL'e bağlanır — şifreyi önce çöz.
-    const resolved = await resolveCredentials(connection);
-    if (!resolved.password) {
-      warnMissingPassword();
-      return;
+    // Ön analiz uçları da bağlantı kimliğiyle çalışıyor; şifre çözmeye
+    // gerek yok. Seçili tablolar sunucudan okunuyor — panel bunları
+    // listelediği için boş bırakmak "hiç tablo seçilmemiş" gibi görünüyordu.
+    const connectionId = connection.savedConnectionId || connection.id;
+
+    let selectedTables = connection.selectedTables ?? [];
+    try {
+      const stored = await getSelectedTables(connectionId);
+      if (Array.isArray(stored?.tables)) {
+        selectedTables = stored.tables.map((fullName) => ({ fullName, tableName: fullName }));
+      }
+    } catch (error) {
+      console.error('Kayıtlı tablo seçimi okunamadı:', error);
     }
 
-    setSelectedConnectionForAnalysis({
-      ...resolved,
-      savedConnectionId: connection.savedConnectionId || connection.id || savedConnectionId // Try multiple sources
-    });
+    setSelectedConnectionForAnalysis({ ...connection, savedConnectionId: connectionId, selectedTables });
     setShowAnalysisPanel(true);
   };
 
@@ -529,30 +469,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setActiveAnalysisTab(type);
 
     try {
-      const connectionInfo = {
-        host: selectedConnectionForAnalysis.host,
-        port: selectedConnectionForAnalysis.port,
-        database: selectedConnectionForAnalysis.database,
-        username: selectedConnectionForAnalysis.username,
-        password: selectedConnectionForAnalysis.password,
-        trustServerCertificate: selectedConnectionForAnalysis.trustServerCertificate
-      };
-
+      const connectionId = selectedConnectionForAnalysis.savedConnectionId;
       const tables = selectedConnectionForAnalysis.selectedTables?.map(t => t.fullName) || [];
 
       let result;
       switch (type) {
         case 'quality':
-          result = await getDataQuality(connectionInfo, tables);
+          result = await getDataQuality(connectionId, tables);
           break;
         case 'statistics':
-          result = await getStatistics(connectionInfo, tables);
+          result = await getStatistics(connectionId, tables);
           break;
         case 'missing':
-          result = await getMissingData(connectionInfo, tables);
+          result = await getMissingData(connectionId, tables);
           break;
         case 'relationships':
-          result = await getRelationships(connectionInfo, tables);
+          result = await getRelationships(connectionId, tables);
           break;
         default:
           return;
@@ -562,7 +494,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     } catch (error) {
       setAnalysisResults({
         success: false,
-        message: `Analiz başarısız: ${error.message}`
+        message: `Analiz başarısız: ${describeError(error)}`
       });
     } finally {
       setAnalysisLoading(false);
@@ -580,8 +512,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true,
-      bridgeId: ''
+      trustServerCertificate: true
     });
     setTestStatus({ type: '', message: '' });
   };
@@ -907,36 +838,18 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
               </label>
             </div>
 
-            {/* Bağlantı yolu. Varsayılan doğrudan: bugünkü davranış değişmiyor. */}
+            {/* Sorguların hangi yoldan gideceği SORULMUYOR: şirketin çevrimiçi
+                bir masaüstü uygulaması varsa hepsi oradan okunuyor. Kullanıcı
+                seçim yapmıyor, yalnızca durumu görüyor. */}
             <div className="form-group">
-              <label htmlFor="bridgeId">Bağlantı yolu</label>
-              <select
-                id="bridgeId"
-                name="bridgeId"
-                value={formData.bridgeId}
-                onChange={handleChange}
-              >
-                <option value="">Doğrudan — Grafirio sunucudan bağlanır</option>
-                {bridges.map((bridge) => (
-                  <option key={bridge.id} value={bridge.id}>
-                    {bridge.name || bridge.machineName}
-                    {bridge.online ? ' — çevrimiçi' : ' — çevrimdışı'}
-                  </option>
-                ))}
-              </select>
               <small className="form-hint">
-                {formData.bridgeId
-                  ? 'Sorgular sizin sunucunuzdaki bridge üzerinden çalışır; ' +
-                    'veritabanı şifreniz orada kalır.'
-                  : 'Veritabanınız firewall arkasındaysa doğrudan bağlantı kurulamaz. ' +
-                    'Bu durumda bir bridge kurun.'}
+                {onlineBridge()
+                  ? `Sorgular masaüstü uygulamanız (${onlineBridge().name || onlineBridge().machineName}) ` +
+                    "üzerinden çalışacak; veritabanı şifreniz sizin makinenizde kalır."
+                  : "Sorgular Grafirio sunucudan doğrudan çalışacak. Veritabanınız firewall " +
+                    "arkasındaysa masaüstü uygulamasını kurun; kurulduğunda bu bağlantı da " +
+                    "otomatik olarak oradan okunur."}
               </small>
-              {bridges.length === 0 && !bridgeError && (
-                <small className="form-hint">
-                  Tanımlı bridge yok. Aşağıdaki “Bridge Ekle” ile kurulum
-                  başlatabilirsiniz.
-                </small>
-              )}
             </div>
           </div>
 
@@ -1049,34 +962,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     </div>
                   )}
 
-                  {/* Bağlantının hangi yoldan okunduğu. Bridge çevrimdışıyken
-                      analiz başlamıyor; kullanıcının sebebi görebileceği tek
-                      yer burası. */}
+                  {/* Sorgunun hangi yoldan gittiği. Bağlantı başına bir seçim
+                      değil, şirket geneli bir durum: çevrimiçi masaüstü
+                      uygulaması varsa hepsi oradan okunuyor. */}
                   {(() => {
-                    const bridge = bridgeOf(connection.savedConnectionId || connection.id);
-                    if (!bridge) {
-                      return (
-                        <div className="detail-item">
-                          <i className="ti ti-cloud"></i>
-                          <span>Doğrudan bağlantı</span>
-                        </div>
-                      );
-                    }
+                    const bridge = onlineBridge();
 
-                    return (
+                    return bridge ? (
                       <div className="detail-item">
                         <i className="ti ti-transfer"></i>
-                        <span>{bridge.name || bridge.machineName || 'Bridge'}</span>
-                        <span
-                          className={`badge ${bridge.online ? 'badge-success' : 'badge-danger'}`}
-                          title={
-                            bridge.lastSeenAt
-                              ? `Son görülme: ${new Date(bridge.lastSeenAt).toLocaleString('tr-TR')}`
-                              : 'Henüz hiç bağlanmadı'
-                          }
-                        >
-                          {bridge.online ? 'Çevrimiçi' : 'Çevrimdışı'}
-                        </span>
+                        <span>{bridge.name || bridge.machineName || "Masaüstü uygulaması"}</span>
+                        <span className="badge badge-success">Çevrimiçi</span>
+                      </div>
+                    ) : (
+                      <div className="detail-item">
+                        <i className="ti ti-cloud"></i>
+                        <span>Doğrudan bağlantı</span>
                       </div>
                     );
                   })()}
@@ -1385,8 +1286,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     )}
                   </div>
 
-                  <TableList 
-                    connectionInfo={selectedConnectionForModal}
+                  <TableList
+                    connectionId={selectedConnectionForModal.id}
                     onTableSelect={handleMultiTableSelect}
                     multiSelect={true}
                     selectedTables={selectedTablesForSave}

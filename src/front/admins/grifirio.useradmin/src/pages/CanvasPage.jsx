@@ -6,7 +6,7 @@ import { loadLayout, saveLayout, applyLayout, emptyLayout } from '../components/
 import { nodeIds, collectSubtree, persistedQueryIdOf } from '../components/Canvas/canvasGraph';
 import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
 import {
-  getConnectionById, getSelectedTables,
+  getConnectionSummary, getSelectedTables,
   submitAgentQuery, getAgentQueryStatus, getAgentQueryResult, getAgentQueryHistory,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
@@ -391,7 +391,7 @@ export default function CanvasPage() {
     const loadFromConnection = async () => {
       try {
         const [connection, selection] = await Promise.all([
-          getConnectionById(connectionId),
+          getConnectionSummary(connectionId),
           getSelectedTables(connectionId).catch(() => ({ tables: [] })),
         ]);
 

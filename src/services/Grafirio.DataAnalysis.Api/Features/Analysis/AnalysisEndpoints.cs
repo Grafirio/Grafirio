@@ -1,13 +1,31 @@
+using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
-using Grafirio.DataAnalysis.Api.Models;
+using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
+using Grafirio.Shared.Identity.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Grafirio.DataAnalysis.Api.Features.Analysis;
 
+/// <summary>
+/// On analiz uclari: veri kalitesi, istatistik, eksik veri, iliskiler.
+///
+/// Uclar kayitli baglanti kimligi aliyor, ham kimlik bilgisi degil — sebebi
+/// <see cref="Grafirio.DataAnalysis.Api.Features.Schema.SchemaEndpoints"/>
+/// ile ayni: <c>DataSourceTarget</c> alan overload bridge'i atlayip her zaman
+/// buluttan dogrudan TCP aciyor, ve arayuzun bu uclari cagirabilmek icin
+/// veritabani parolasini tarayiciya indirmesi gerekiyordu.
+/// </summary>
 public static class AnalysisEndpoints
 {
     public static void MapAnalysisEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/analysis")
+        // Politika adli: paylasilan kurulumda varsayilan sema yok, ciplak
+        // RequireAuthorization() 400 doner.
+        var group = app.MapGroup("/api/analysis/{connectionId:guid}")
+            .RequireAuthorization("CompanyAccess")
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithTags("Data Analysis")
             .WithOpenApi();
 
@@ -29,14 +47,19 @@ public static class AnalysisEndpoints
     }
 
     private static async Task<IResult> GetDataQuality(
+        Guid connectionId,
         AnalysisRequest request,
-        IDataSourceFactory dataSources,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(
-                DataSourceTarget.From(request.ConnectionInfo), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<TableQualityInfo>();
 
@@ -107,14 +130,19 @@ public static class AnalysisEndpoints
     }
 
     private static async Task<IResult> GetStatistics(
+        Guid connectionId,
         AnalysisRequest request,
-        IDataSourceFactory dataSources,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(
-                DataSourceTarget.From(request.ConnectionInfo), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<TableStatistics>();
 
@@ -197,14 +225,19 @@ public static class AnalysisEndpoints
     }
 
     private static async Task<IResult> GetMissingData(
+        Guid connectionId,
         AnalysisRequest request,
-        IDataSourceFactory dataSources,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(
-                DataSourceTarget.From(request.ConnectionInfo), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<MissingDataInfo>();
 
@@ -270,14 +303,19 @@ public static class AnalysisEndpoints
     }
 
     private static async Task<IResult> GetRelationships(
+        Guid connectionId,
         AnalysisRequest request,
-        IDataSourceFactory dataSources,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        [FromServices] IDataSourceFactory dataSources,
         CancellationToken ct)
     {
+        var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
+        if (error is not null) return error;
+
         try
         {
-            await using var session = await dataSources.OpenAsync(
-                DataSourceTarget.From(request.ConnectionInfo), ct);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var relationshipsQuery = @"
                 SELECT 
@@ -416,7 +454,11 @@ public class RelationshipInfo
     public string ReferencedColumn { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Hangi tablolar analiz edilecek. Baglantinin kendisi artik govdede degil
+/// yolda: kimlik bilgisini istekte tasimak, bridge yolunu kullanilamaz
+/// kiliyor ve parolayi gereksiz yere tarayicidan geciriyordu.
+/// </summary>
 public record AnalysisRequest(
-    SqlConnectionRequest ConnectionInfo,
     List<string> Tables
 );
