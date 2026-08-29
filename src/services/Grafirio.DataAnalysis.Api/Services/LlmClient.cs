@@ -164,6 +164,22 @@ public sealed class LlmClient : ILlmClient
 
             if (!response.IsSuccessStatusCode)
             {
+                // Baglam penceresi asildiginda Azure'un dondurdugu JSON
+                // dogrudan kullaniciya gosteriliyordu; "Input tokens exceed the
+                // configured limit of 272000 tokens" satirini okuyan kisinin
+                // yapabilecegi hicbir sey yok. Sebep de bir yapilandirma
+                // hatasi degil: istegin kendisi cok buyuk, yani bolunmesi
+                // gerekiyor.
+                if (IsContextLengthExceeded(body))
+                {
+                    throw new InvalidOperationException(
+                        "Gönderilen şema, yapay zekâ modelinin tek seferde " +
+                        "okuyabileceğinden büyük. Seçili tablolardan bir kısmını " +
+                        "çıkarıp tekrar deneyin; sorun sürerse sunucu tarafında " +
+                        "parça boyutunun düşürülmesi gerekiyor. " +
+                        $"(Azure: {Truncate(body, 200)})");
+                }
+
                 throw new InvalidOperationException(
                     $"Azure OpenAI HTTP {(int)response.StatusCode}: {Truncate(body, 300)}");
             }
@@ -196,6 +212,32 @@ public sealed class LlmClient : ILlmClient
         }
 
         return JsonSerializer.Serialize(payload);
+    }
+
+    /// <summary>
+    /// Istek modelin baglam penceresine sigmadi mi.
+    ///
+    /// Bu, gecici bir hata degil: ayni istek her denemede ayni sekilde
+    /// dusecek. Cagiran tarafin yapabilecegi tek sey istegi kucultmek, o
+    /// yuzden mesaj da bunu soyluyor.
+    /// </summary>
+    internal static bool IsContextLengthExceeded(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var error) &&
+                error.TryGetProperty("code", out var code))
+            {
+                return code.GetString() == "context_length_exceeded";
+            }
+        }
+        catch (JsonException)
+        {
+            // Govde JSON degilse teshis edilecek bir sey yok.
+        }
+
+        return false;
     }
 
     private static bool IsUnsupportedParameter(string body)

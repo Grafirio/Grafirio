@@ -23,7 +23,18 @@ const EMPTY = {
 };
 
 const POLL_INTERVAL_MS = 4000;
-const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+/* Takibin bırakıldığı süre.
+
+   On dakikaydı ve artık yetmiyor: sözlük, şema büyükse parçalara bölünüp
+   ayrı ayrı üretiliyor ve yirmi parçalık bir şemada iş rahatlıkla çeyrek
+   saati buluyor. Bir de sunucu tarafındaki yeniden deneme varsa süre
+   katlanıyor. Eski sınırda kullanıcı, arka planda BAŞARIYLA süren bir işe
+   "tamamlanmadı" yazısı görüyordu.
+
+   Bu bir zaman aşımı değil, yalnızca takibin bırakıldığı an: iş kuyrukta
+   yürüyor ve biz izlemeyi bıraksak da bitiyor. Mesaj da bunu söylüyor. */
+const POLL_TIMEOUT_MS = 45 * 60 * 1000;
 
 export function AnalysisProvider({ children }) {
   const [analysis, setAnalysis] = useState(EMPTY);
@@ -63,9 +74,13 @@ export function AnalysisProvider({ children }) {
 
     const tick = async () => {
       if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+        // İşi durduramıyoruz ve durdurmuyoruz da; bırakılan tek şey takip.
+        // "Başarısız oldu" demek yanlış olurdu: analiz büyük ihtimalle
+        // sürüyor ve bitince bağlantı hazır görünecek.
         setAnalysis((p) => ({
           ...p, running: false, open: true, minimized: false,
-          error: 'Analiz 10 dakikada tamamlanmadı. Sunucu loglarını kontrol edin.',
+          error: 'Analiz uzun sürdü, takip bırakıldı. İş arka planda devam '
+               + 'ediyor — bu sayfayı yenileyip durumu tekrar görebilirsiniz.',
         }));
         sessionStorage.removeItem(STORAGE_KEY);
         return;
@@ -74,6 +89,12 @@ export function AnalysisProvider({ children }) {
       try {
         const state = await getAnalysisStatus(connectionId);
         if (state.status === 'analyzing') {
+          // Sürerken de özet güncelleniyor: sunucu oraya "3/17 parça
+          // tamamlandı" yazıyor. Önceden bu dal erken dönüyordu, yani
+          // ilerleme üretilse bile ekrana hiç ulaşmıyordu.
+          setAnalysis((p) => (
+            p.summary === (state.summary || '') ? p : { ...p, summary: state.summary || '' }
+          ));
           timerRef.current = setTimeout(tick, POLL_INTERVAL_MS);
           return;
         }

@@ -80,7 +80,8 @@ public class ConnectionAnalysisConsumer(
             // sigmiyor ve model bos donuyor. Tablolar kolon butcesine gore
             // gruplanip ayri ayri soruluyor, sonuclar birlestiriliyor.
             // Sema tek parcaya sigiyorsa hicbir sey degismiyor.
-            var chunks = DictionaryChunks.Split(profile);
+            var chunks = DictionaryChunks.Split(
+                profile, table => PromptProfile.EstimateChars(table, JsonOptions));
             // Modele giden profil, sakladigimiz profilin aynisi degil: karar
             // verirken kullanilmayan alanlar (ornekleme gerekcesi, her satirda
             // tekrar eden bayraklar) cikariliyor. Profil nesnesi olduğu gibi
@@ -97,7 +98,25 @@ public class ConnectionAnalysisConsumer(
                     profile.Tables.Count, profile.Tables.Sum(t => t.Columns.Count), chunks.Count);
             }
 
-            var result = await llm.BuildSchemaDictionaryAsync(chunkProfiles, allTableNames, ct);
+            // Ilerleme kayda yaziliyor ki ekranda gorunebilsin. Yirmi parcalik
+            // bir semada analiz on bes dakika surebiliyor; o sureyi hicbir sey
+            // yazmayan bir spinner karsisinda gecirmek, kullaniciya "sistem
+            // kilitlendi" dedirtiyor. `SchemaSummary` bu durumda zaten mesaj
+            // tasiyicisi olarak kullaniliyor (bkz. `Fail`); sonuc geldiginde
+            // gercek ozetle degistiriliyor.
+            Func<int, int, Task>? onProgress = chunks.Count > 1
+                ? async (done, total) =>
+                {
+                    config.SchemaSummary = $"Sözlük üretiliyor: {done}/{total} parça tamamlandı.";
+                    config.UpdatedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync(ct);
+                }
+            : null;
+
+            if (onProgress is not null) await onProgress(0, chunks.Count);
+
+            var result = await llm.BuildSchemaDictionaryAsync(
+                chunkProfiles, allTableNames, onProgress, ct);
 
             if (!result.Success)
             {

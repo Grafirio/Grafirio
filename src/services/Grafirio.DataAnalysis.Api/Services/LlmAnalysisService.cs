@@ -66,9 +66,15 @@ public class LlmAnalysisService
     /// parcalanmis bir cagri kendi disindaki tablolari goremezdi. Yalnizca
     /// adlar gidiyor, profil degil — maliyeti ihmal edilebilir.
     /// </param>
+    /// <param name="onProgress">
+    /// Her dalga bittiginde tamamlanan parca sayisiyla cagriliyor. Yirmi
+    /// parcalik bir semada kullanicinin on bes dakika bos bir spinner
+    /// izlemesi, zaman asiminin kendisinden daha kotu.
+    /// </param>
     public async Task<LlmResult> BuildSchemaDictionaryAsync(
         IReadOnlyList<string> chunkProfiles,
         IReadOnlyList<string> allTableNames,
+        Func<int, int, Task>? onProgress = null,
         CancellationToken ct = default)
     {
         if (_model is null) return NotConfigured();
@@ -79,35 +85,41 @@ public class LlmAnalysisService
             "Semantik sözlük isteniyor. {Chunks} parça, {Tables} tablo.",
             chunkProfiles.Count, allTableNames.Count);
 
-        var parts = new List<string>(chunkProfiles.Count);
-        var explanations = new List<string>(chunkProfiles.Count);
+        // Sonuclar dizide, indeksleriyle duruyor: paralel calisan cagrilarin
+        // bitis sirasi degisken ama sozlugun icerigi degismemeli. Ayni secim
+        // her calistirmada ayni sozlugu uretsin.
+        var parts = new string[chunkProfiles.Count];
+        var explanations = new string?[chunkProfiles.Count];
+        var completed = 0;
 
         try
         {
-            // Parcalar SIRAYLA soruluyor, paralel degil. Azure'un kota siniri
-            // (429) istek basina degil dakika basina isliyor; yedi cagriyi ayni
-            // anda gondermek, tek bir cagriyla asilamayacak bir tavani
-            // asmanin en kolay yolu olurdu. Analiz zaten arka planda kosan bir
-            // is, sure burada en ucuz takas.
-            for (var index = 0; index < chunkProfiles.Count; index++)
+            // Parcalar DALGALAR halinde calisiyor. Ilk surumde sirayla
+            // cagriliyorlardi — yedi parcada dogru takasti, ama sahadaki sema
+            // yirmi parca cikardi ve yirmi ardisik cagri analizi kullanilamaz
+            // hale getiriyor. Sinirsiz paralellik de dogru degil: Azure'un 429
+            // kotasi dakika basina isliyor.
+            //
+            // Dalga sinirinin ilerlemeyi ana akista bildirmek gibi bir yan
+            // faydasi da var: DbContext'e paralel is parcaciklarindan
+            // dokunulmuyor.
+            for (var start = 0; start < chunkProfiles.Count; start += MaxParallelChunks)
             {
-                // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun
-                // sozlugu arti sorular tek cevaba sigmali, ustelik reasoning
-                // token'lari da ayni butceden dusuyor.
-                var text = await _model.GenerateAsync(
-                    BuildDictionaryPrompt(chunkProfiles[index], allTableNames, chunkProfiles.Count),
-                    temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+                var end = Math.Min(start + MaxParallelChunks, chunkProfiles.Count);
+                var wave = new List<Task>(end - start);
 
-                parts.Add(ExtractJson(text));
+                for (var i = start; i < end; i++) wave.Add(RunChunk(i));
 
-                var explanation = ExtractExplanation(text);
-                if (!string.IsNullOrWhiteSpace(explanation)) explanations.Add(explanation);
+                await Task.WhenAll(wave);
+
+                completed = end;
+                if (onProgress is not null) await onProgress(completed, chunkProfiles.Count);
 
                 if (chunkProfiles.Count > 1)
                 {
                     _logger.LogInformation(
-                        "Sözlük parçası tamamlandı: {Index}/{Total}",
-                        index + 1, chunkProfiles.Count);
+                        "Sözlük parçaları tamamlandı: {Done}/{Total}",
+                        completed, chunkProfiles.Count);
                 }
             }
 
@@ -115,7 +127,8 @@ public class LlmAnalysisService
             {
                 Success = true,
                 Json = SchemaDictionaryMerge.Combine(parts),
-                Explanation = string.Join("\n\n", explanations),
+                Explanation = string.Join("\n\n",
+                    explanations.Where(e => !string.IsNullOrWhiteSpace(e))),
                 RawResponse = string.Join("\n\n", parts)
             };
         }
@@ -127,10 +140,34 @@ public class LlmAnalysisService
             // alir ve sebebini gorecegi hicbir yer olmaz.
             _logger.LogError(ex,
                 "Semantik sözlük üretimi başarısız ({Done}/{Total} parça tamamlanmıştı)",
-                parts.Count, chunkProfiles.Count);
+                completed, chunkProfiles.Count);
             return new LlmResult { Success = false, Error = ex.Message };
         }
+
+        async Task RunChunk(int index)
+        {
+            // Varsayilan 2048 tavan bu is icin yetmiyor: onlarca kolonun
+            // sozlugu arti sorular tek cevaba sigmali, ustelik reasoning
+            // token'lari da ayni butceden dusuyor.
+            var text = await _model.GenerateAsync(
+                BuildDictionaryPrompt(chunkProfiles[index], allTableNames, chunkProfiles.Count),
+                temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+
+            // Ayri indeksler: kilit gerekmiyor.
+            parts[index] = ExtractJson(text);
+            explanations[index] = ExtractExplanation(text);
+        }
     }
+
+    /// <summary>
+    /// Ayni anda kac sozluk cagrisi kosacagi.
+    ///
+    /// Dort, iki riskin arasi: sirayla gitmek yirmi parcalik bir semada
+    /// analizi ceyrek saate cikariyor, sinirsiz paralellik ise Azure'un
+    /// dakikalik kotasini (429) tek hamlede tuketiyor. Kota yine de dolarsa
+    /// <c>LlmClient</c> Retry-After'a uyup bekliyor; sonuc yavaslar, patlamaz.
+    /// </summary>
+    public const int MaxParallelChunks = 4;
 
     /// <summary>
     /// Kullanicinin dogal dil sorusunu, semantik sozluge bakarak analiz
@@ -200,6 +237,10 @@ public class LlmAnalysisService
         Order/Offer gibi) fark edebilmen için tablo adlarını bir arada görmen
         gerekiyor. Bu listede olup profilde OLMAYAN tablolar için sözlük
         girdisi ÜRETME — onlar başka bir turda işleniyor.
+
+        Geniş bir tablonun kolonları da turlara bölünmüş olabilir: profilde
+        gördüğün kolonlar o tablonun TAMAMI olmayabilir. Tablonun ne işe
+        yaradığını gördüğün kolonlara bakarak yaz, görmediklerini varsayma.
 
         {{string.Join("\n", allTableNames.Select(n => "- " + n))}}
 

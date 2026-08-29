@@ -11,8 +11,17 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// buyutmek bir iki tablo kazandiriyor, sonra ayni duvara toslaniyor —
 /// 28 tablo finans semasinda uc bir sayi degil.
 ///
-/// Bolme KOLON butcesine gore yapiliyor, tablo sayisina gore degil: iki yuz
-/// kolonluk tek bir tablo, bes kolonluk on tablodan daha agir.
+/// Bolme tablo SAYISINA gore degil, iki butceye gore yapiliyor:
+///
+///   * Kolon sayisi — CIKTI tarafini sinirlar. Model kolon basina bir sozluk
+///     girdisi uretiyor.
+///   * Karakter sayisi — GIRDI penceresini sinirlar. Kolon sayisi bunun
+///     yalnizca vekil olcusu: sahada 28 tablo 291.577 token uretip Azure'un
+///     272.000 sinirini asti, cunku sorun kolon sayisi degil kolon
+///     agirligiydi.
+///
+/// Tek basina butceye sigmayan tablo kolonlarindan bolunuyor. Boylece "istek
+/// pencereye sigar mi" sorusu Azure'a sorulmadan once, burada cevaplaniyor.
 /// </summary>
 public static class DictionaryChunks
 {
@@ -27,46 +36,133 @@ public static class DictionaryChunks
     public const int MaxColumnsPerChunk = 120;
 
     /// <summary>
+    /// Bir cagriya girecek en fazla karakter — ikinci ve sert bütçe.
+    ///
+    /// Kolon sayisi ne kadar yer kaplanacaginin yalnizca VEKIL olcusu. Genis
+    /// bir tablonun kolonu, dar bir tablonunkinden bes kat uzun olabiliyor:
+    /// uzun kolon adlari, ornek degerler, min/max metinleri. Sahada 28 tablo
+    /// 291.577 token uretip Azure'un 272.000 sinirini asti; kolon butcesi bunu
+    /// tek basina onleyemez cunku sorun kolon sayisi degil kolon AGIRLIGIYDI.
+    ///
+    /// 200 bin karakter ~57 bin token eder; bugunku pencerelerin cok altinda
+    /// ve iceride kalmasi gereken bir emniyet payi. Asil bolmeyi hâlâ kolon
+    /// butcesi yapiyor (o, CIKTI tarafini sinirliyor); burasi yalnizca
+    /// pencereye carpmayi imkânsiz kiliyor.
+    /// </summary>
+    public const int MaxCharsPerChunk = 200_000;
+
+    /// <summary>
     /// Profili, her biri ayri bir LLM cagrisina girecek alt profillere boler.
     ///
-    /// Tablo sirasi korunuyor: ayni secim her calistirmada ayni parcalari
-    /// uretsin, boylece bir hata tekrar edilebilir olsun.
+    /// Iki butce birden uygulaniyor: kolon sayisi (cikti tarafini sinirlar) ve
+    /// karakter sayisi (girdi penceresini). Hangisi once dolarsa parca orada
+    /// kapaniyor.
     ///
-    /// Tek bir tablo tek basina butceyi asiyorsa yine de kendi parcasinda
-    /// gonderiliyor — kolonlari cagrilar arasinda bolmek, tablonun sozluk
-    /// girdisini birden fazla kez urettirmek ve hangisinin gecerli oldugunu
-    /// belirsiz birakmak olurdu. O durumda <c>LlmClient</c>'in butce
-    /// buyutme merdiveni son savunma olarak kaliyor.
+    /// Tablo ve kolon sirasi korunuyor: ayni secim her calistirmada ayni
+    /// parcalari uretsin, boylece bir hata tekrar edilebilir olsun.
     /// </summary>
+    /// <param name="measure">
+    /// Bir tablonun prompt'ta kaplayacagi karakter sayisi — normalde
+    /// <c>PromptProfile.EstimateChars</c>. Disaridan veriliyor ki parcalayici
+    /// serilestirmeye baglanmasin ve test edilebilsin.
+    /// </param>
     public static IReadOnlyList<DatabaseProfile> Split(
-        DatabaseProfile profile, int maxColumns = MaxColumnsPerChunk)
+        DatabaseProfile profile,
+        Func<TableProfile, int> measure,
+        int maxColumns = MaxColumnsPerChunk,
+        int maxChars = MaxCharsPerChunk)
     {
-        if (maxColumns < 1)
-            throw new ArgumentOutOfRangeException(nameof(maxColumns));
+        if (maxColumns < 1) throw new ArgumentOutOfRangeException(nameof(maxColumns));
+        if (maxChars < 1) throw new ArgumentOutOfRangeException(nameof(maxChars));
 
         var chunks = new List<DatabaseProfile>();
         var current = new List<TableProfile>();
         var currentColumns = 0;
+        var currentChars = 0;
 
         foreach (var table in profile.Tables)
         {
-            var columns = table.Columns.Count;
-
-            if (current.Count > 0 && currentColumns + columns > maxColumns)
+            foreach (var piece in SplitTable(table, measure, maxColumns, maxChars))
             {
-                chunks.Add(Build(profile, current));
-                current = [];
-                currentColumns = 0;
-            }
+                var columns = piece.Columns.Count;
+                var chars = measure(piece);
 
-            current.Add(table);
-            currentColumns += columns;
+                var full = currentColumns + columns > maxColumns
+                           || currentChars + chars > maxChars;
+
+                if (current.Count > 0 && full)
+                {
+                    chunks.Add(Build(profile, current));
+                    current = [];
+                    currentColumns = 0;
+                    currentChars = 0;
+                }
+
+                current.Add(piece);
+                currentColumns += columns;
+                currentChars += chars;
+            }
         }
 
         if (current.Count > 0) chunks.Add(Build(profile, current));
 
         return chunks;
     }
+
+    /// <summary>
+    /// Tek basina butceye sigmayan tabloyu kolonlarindan boler.
+    ///
+    /// Onceden bolunmuyordu: tablo kendi parcasina konup geciliyor, sigmazsa
+    /// <c>LlmClient</c>'in butce merdivenine birakiliyordu. Tablo basina yetmis
+    /// kolonun normal oldugu bir semada bu yeterli degil — uc yuz kolonluk
+    /// tek bir tablo butun analizi dusurur.
+    ///
+    /// Bolunen tablonun sozluk girdisi birden fazla parcada uretilir; bu bir
+    /// sorun degil, <c>SchemaDictionaryMerge</c> tablolari ada gore
+    /// tekillestiriyor ve kolonlari (tablo, kolon) ciftine gore birlestiriyor.
+    /// Modele de kolonlarin bir kismini gordugu soyleniyor.
+    /// </summary>
+    private static IEnumerable<TableProfile> SplitTable(
+        TableProfile table, Func<TableProfile, int> measure, int maxColumns, int maxChars)
+    {
+        var columnCount = table.Columns.Count;
+
+        if (columnCount <= maxColumns && measure(table) <= maxChars)
+        {
+            yield return table;
+            yield break;
+        }
+
+        if (columnCount <= 1)
+        {
+            // Bolunecek bir sey kalmadi: tek kolonu olan (ya da hic olmayan)
+            // bir tabloyu daha fazla kucultemeyiz.
+            yield return table;
+            yield break;
+        }
+
+        // Kolon basina maliyet olculen toplamdan cikariliyor; her alt kumeyi
+        // ayri ayri olcmek O(n^2) olurdu ve buradaki hassasiyet ona degmez.
+        var perColumn = Math.Max(1, measure(table) / columnCount);
+        var byChars = Math.Max(1, maxChars / perColumn);
+        var groupSize = Math.Min(maxColumns, byChars);
+
+        for (var start = 0; start < columnCount; start += groupSize)
+        {
+            yield return Slice(table, table.Columns.Skip(start).Take(groupSize).ToList());
+        }
+    }
+
+    /// <summary>Ayni tablonun, kolonlarinin bir kismini tasiyan kopyasi.</summary>
+    private static TableProfile Slice(TableProfile table, List<ColumnProfile> columns) => new()
+    {
+        Schema = table.Schema,
+        TableName = table.TableName,
+        ApproximateRowCount = table.ApproximateRowCount,
+        SampledRowCount = table.SampledRowCount,
+        Error = table.Error,
+        Columns = columns
+    };
 
     /// <summary>
     /// Alt profil. Iliskilerden yalnizca bu parcanin tablolarina DEGEN olanlar

@@ -35,7 +35,10 @@ export default function AnalysisTracker() {
             <strong>{analysis.connectionName}</strong>
             <span>
               {analysis.running
-                ? 'Tablolar okunuyor ve anlamlandırılıyor…'
+                // Sunucu ilerlemeyi özete yazıyor ("3/17 parça tamamlandı").
+                // Büyük şemada iş çeyrek saat sürebiliyor; sabit bir cümle
+                // izleyen kullanıcı sistemin kilitlendiğini sanıyor.
+                ? (analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…')
                 : 'Analiz tamamlandı'}
             </span>
           </span>
@@ -121,9 +124,14 @@ export default function AnalysisTracker() {
           {analysis.running && (
             <div className="analysis-loading">
               <div className="spinner-large"></div>
-              <p>Tablolar okunuyor ve anlamlandırılıyor… Bu işlem birkaç dakika sürebilir.</p>
+              {/* Büyük şemada sözlük parçalara bölünüp ayrı ayrı üretiliyor
+                  ve iş çeyrek saati bulabiliyor. Sunucu kaçıncı parçada
+                  olduğunu özete yazıyor; sabit bir cümle göstermek, süreyi
+                  olduğundan uzun hissettiriyor. */}
+              <p>{analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…'}</p>
               <p className="gf-hint">
-                Bu pencereyi küçültüp başka sayfalara geçebilirsiniz; analiz arka planda sürer.
+                Geniş şemalarda bu işlem on beş dakikayı bulabilir. Bu pencereyi
+                küçültüp başka sayfalara geçebilirsiniz; analiz arka planda sürer.
               </p>
             </div>
           )}
@@ -135,7 +143,9 @@ export default function AnalysisTracker() {
             </div>
           )}
 
-          {analysis.summary && (
+          {/* Sürerken özet ilerlemeyi taşıyor ve yukarıda gösteriliyor;
+              burada ikinci kez yazmak aynı satırı iki yerde tekrar ederdi. */}
+          {analysis.summary && !analysis.running && (
             <p className="gf-hint" style={{ marginBottom: 16 }}>{analysis.summary}</p>
           )}
 

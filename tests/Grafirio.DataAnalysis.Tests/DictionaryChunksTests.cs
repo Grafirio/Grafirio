@@ -5,10 +5,14 @@ namespace Grafirio.DataAnalysis.Tests;
 /// <summary>
 /// Sozluk uretiminin kac cagriya bolunecegi.
 ///
-/// Bolme kolon butcesine gore yapiliyor, tablo sayisina gore degil: cikti
-/// token'lari kolon basina harcaniyor ve iki yuz kolonluk tek bir tablo, bes
-/// kolonluk on tablodan agir. Butce yanlis hesaplanirsa parca yine tavana
-/// takilir ve bolmenin bir anlami kalmaz.
+/// Iki butce birden isliyor ve ikisi de ayri bir sinira karsi duruyor: kolon
+/// sayisi CIKTI tavanina, karakter sayisi GIRDI penceresine. Sahada once
+/// birincisi ("token butcesine sigmadi"), sonra ikincisi
+/// ("context_length_exceeded") patladi — yani ikisi de kuramsal degil.
+///
+/// Butce yanlis hesaplanirsa parca yine tavana takilir ve bolmenin bir anlami
+/// kalmaz; hesap dogru ama bolme yanlis olursa tablolar sozlukten sessizce
+/// duser. Ikisi de gozle gorulmeyen turden.
 /// </summary>
 public class DictionaryChunksTests
 {
@@ -30,12 +34,19 @@ public class DictionaryChunksTests
     private static List<List<string>> Layout(IReadOnlyList<DatabaseProfile> chunks) =>
         chunks.Select(c => c.Tables.Select(t => t.TableName).ToList()).ToList();
 
+    /// <summary>Kolon basina sabit maliyet varsayan olcum.</summary>
+    private static Func<TableProfile, int> Cost(int perColumn) =>
+        table => table.Columns.Count * perColumn;
+
+    /// <summary>Boyut butcesini devre disi birakan olcum.</summary>
+    private static readonly Func<TableProfile, int> Free = _ => 0;
+
     [Fact]
     public void Kucuk_sema_bolunmuyor()
     {
         // Tek cagriya sigan semada davranis degismemeli: prompt da, uretilen
         // sozluk de eskisiyle ayni kalsin.
-        var chunks = DictionaryChunks.Split(Profile(Table("A", 10), Table("B", 10)));
+        var chunks = DictionaryChunks.Split(Profile(Table("A", 10), Table("B", 10)), Free);
 
         Assert.Single(chunks);
         Assert.Equal(2, chunks[0].Tables.Count);
@@ -46,7 +57,20 @@ public class DictionaryChunksTests
     {
         var chunks = DictionaryChunks.Split(
             Profile(Table("A", 40), Table("B", 40), Table("C", 40), Table("D", 40)),
-            maxColumns: 100);
+            Free, maxColumns: 100);
+
+        Assert.Equal([["A", "B"], ["C", "D"]], Layout(chunks));
+    }
+
+    [Fact]
+    public void Karakter_butcesi_kolon_butcesinden_once_dolabiliyor()
+    {
+        // Asil vaka bu: kolon sayisi bolca yer birakiyor ama kolonlar agir.
+        // Sahada 28 tablo 291.577 token uretti; kolon butcesi tek basina
+        // bunu goremezdi cunku sorun kolon sayisi degil kolon agirligiydi.
+        var chunks = DictionaryChunks.Split(
+            Profile(Table("A", 40), Table("B", 40), Table("C", 40), Table("D", 40)),
+            Cost(100), maxColumns: 1000, maxChars: 9000);
 
         Assert.Equal([["A", "B"], ["C", "D"]], Layout(chunks));
     }
@@ -57,22 +81,62 @@ public class DictionaryChunksTests
         // Ayni secim her calistirmada ayni parcalari uretmeli; yoksa bir hata
         // tekrar edilebilir olmaz.
         var chunks = DictionaryChunks.Split(
-            Profile(Table("Z", 60), Table("A", 60), Table("M", 60)), maxColumns: 100);
+            Profile(Table("Z", 60), Table("A", 60), Table("M", 60)), Free, maxColumns: 100);
 
         Assert.Equal([["Z"], ["A"], ["M"]], Layout(chunks));
     }
 
     [Fact]
-    public void Tek_basina_butceyi_asan_tablo_kendi_parcasinda_gidiyor()
+    public void Tek_basina_butceyi_asan_tablo_kolonlarindan_bolunuyor()
     {
-        // Kolonlari cagrilar arasinda bolmek, ayni tablonun sozluk girdisini
-        // birden fazla kez urettirmek ve hangisinin gecerli oldugunu belirsiz
-        // birakmak olurdu.
+        // Onceden bolunmuyordu: tablo kendi parcasina konup geciliyordu ve
+        // sigmazsa butun analiz dusuyordu. Tablo basina yetmis kolonun normal
+        // oldugu bir semada bu yeterli degil.
         var chunks = DictionaryChunks.Split(
-            Profile(Table("Kucuk", 10), Table("Dev", 500), Table("Diger", 10)),
-            maxColumns: 100);
+            Profile(Table("Kucuk", 10), Table("Dev", 250), Table("Diger", 10)),
+            Free, maxColumns: 100);
 
-        Assert.Equal([["Kucuk"], ["Dev"], ["Diger"]], Layout(chunks));
+        // 250 kolon 100 + 100 + 50'ye bolunuyor; artan 50'lik parca bos yer
+        // biraktigi icin sonraki tablo onunla ayni cagriya giriyor. Her
+        // parcanin ayri cagri olmasi gereksiz cagri demek olurdu.
+        Assert.Equal(
+            [["Kucuk"], ["Dev"], ["Dev"], ["Dev", "Diger"]],
+            Layout(chunks));
+    }
+
+    [Fact]
+    public void Agir_tablo_karakter_butcesine_gore_bolunuyor()
+    {
+        var chunks = DictionaryChunks.Split(
+            Profile(Table("Dev", 100)), Cost(100), maxColumns: 1000, maxChars: 3000);
+
+        // Kolon basina 100 karakter, parca basina 3000 → 30'ar kolon.
+        Assert.Equal([30, 30, 30, 10], chunks.Select(c => c.Tables[0].Columns.Count));
+    }
+
+    [Fact]
+    public void Bolunen_tablonun_kimligi_ve_kolon_sirasi_korunuyor()
+    {
+        // Parcalar birlestirmede tablo ADINA gore tekillestiriliyor; kimlik
+        // kaybolursa ayni tablo iki ayri tablo gibi gorunur.
+        var chunks = DictionaryChunks.Split(Profile(Table("Dev", 250)), Free, maxColumns: 100);
+
+        Assert.All(chunks, c => Assert.Equal("dbo.Dev", c.Tables[0].Qualified));
+        Assert.Equal(
+            Enumerable.Range(1, 250).Select(i => $"C{i}"),
+            chunks.SelectMany(c => c.Tables[0].Columns.Select(col => col.ColumnName)));
+    }
+
+    [Fact]
+    public void Tek_kolonlu_tablo_daha_fazla_bolunmuyor()
+    {
+        // Bolunecek bir sey kalmadiginda sonsuz donguye girmemeli; butce
+        // asilsa bile tablo oldugu gibi gonderiliyor.
+        var chunks = DictionaryChunks.Split(
+            Profile(Table("Tek", 1)), Cost(10_000), maxColumns: 100, maxChars: 10);
+
+        Assert.Single(chunks);
+        Assert.Single(chunks[0].Tables[0].Columns);
     }
 
     [Fact]
@@ -89,7 +153,7 @@ public class DictionaryChunksTests
             new RelationshipProfile { FromTable = "dbo.P", ToTable = "dbo.Q" },
         ];
 
-        var chunks = DictionaryChunks.Split(profile, maxColumns: 100);
+        var chunks = DictionaryChunks.Split(profile, Free, maxColumns: 100);
 
         Assert.Equal([["A"], ["B"]], Layout(chunks));
         Assert.Equal(["dbo.X"], chunks[0].Relationships.Select(r => r.ToTable));
@@ -98,10 +162,12 @@ public class DictionaryChunksTests
 
     [Fact]
     public void Bos_profil_parca_uretmiyor() =>
-        Assert.Empty(DictionaryChunks.Split(Profile()));
+        Assert.Empty(DictionaryChunks.Split(Profile(), Free));
 
-    [Fact]
-    public void Gecersiz_butce_reddediliyor() =>
+    [Theory]
+    [InlineData(0, 100)]
+    [InlineData(100, 0)]
+    public void Gecersiz_butce_reddediliyor(int maxColumns, int maxChars) =>
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => DictionaryChunks.Split(Profile(Table("A", 1)), maxColumns: 0));
+            () => DictionaryChunks.Split(Profile(Table("A", 1)), Free, maxColumns, maxChars));
 }
