@@ -158,9 +158,90 @@ public static class RelationshipNaming
         return variants;
     }
 
-    /// <summary>Iki ad ayni varligi mi anlatiyor.</summary>
-    public static bool NamesMatch(string left, string right) =>
+    /// <summary>
+    /// Iki ad ayni varligi mi anlatiyor — yazim farki KABUL EDILMEDEN.
+    ///
+    /// <see cref="NamesMatch"/> ayrimi icin var: iki tablo parcasi da ayni
+    /// koke uyduğunda tam yazilani kazanmali. Yoksa daha uzun ama yanlis
+    /// yazilmis bir parca, tam eslesen kisa parcayi otelerdi.
+    /// </summary>
+    public static bool NamesMatchExactly(string left, string right) =>
         Variants(left).Intersect(Variants(right), StringComparer.Ordinal).Any();
+
+    /// <summary>
+    /// Iki ad ayni varligi mi anlatiyor. Tam eslesme yoksa TEK harflik yazim
+    /// farki da kabul edilir — bkz. <see cref="IsSingleTypoApart"/>.
+    /// </summary>
+    public static bool NamesMatch(string left, string right)
+    {
+        var leftVariants = Variants(left);
+        var rightVariants = Variants(right);
+
+        if (leftVariants.Intersect(rightVariants, StringComparer.Ordinal).Any())
+            return true;
+
+        return leftVariants.Any(l => rightVariants.Any(r => IsSingleTypoApart(l, r)));
+    }
+
+    /// <summary>
+    /// Bu uzunlugun altinda yazim farki hic kabul edilmiyor.
+    ///
+    /// Kisa adlarda tek harf her seyi degistirir: bes harfli iki ad arasindaki
+    /// tek fark adin besde biridir, ve semalarda kisa token bollugu var.
+    /// Aranan vakalar ("Referance"/"Reference") zaten uzun.
+    /// </summary>
+    private const int MinTypoLength = 6;
+
+    /// <summary>
+    /// Iki normalize ad, ESIT UZUNLUKTA tek harf ikamesiyle mi ayriliyor.
+    ///
+    /// Gercek vaka: ayni anlamdaki kolon iki tabloda iki farkli yazilmis —
+    /// <c>L_INT_ExportReference.Refer<b>e</b>nceId</c> ile
+    /// <c>...FinancialCalculate.Refer<b>a</b>nceId</c>. Tam esitlik arandigi
+    /// icin kenar HIC uretilmiyordu.
+    ///
+    /// Uc koruma var, ucu de gercek tuzaklardan:
+    ///
+    /// <list type="bullet">
+    /// <item>
+    /// <b>Yalnizca ikame; ekleme/silme yok.</b> Plan "mesafe 1" diyordu, ki
+    /// Levenshtein'da ekleme de buna girer — ama <c>Contact</c> /
+    /// <c>Contract</c> tek harf eklemeyle ayriliyor ve ikisi de gercek
+    /// semalarda yan yana duran, alakasiz tablolar. Esit uzunluk sarti bu
+    /// sinifi tumden kapatiyor, aradigimiz vakayi disarida birakmadan.
+    /// </item>
+    /// <item>
+    /// <b>Farkin rakam oldugu eslesmeler reddedilir.</b> <c>Adres1</c> /
+    /// <c>Adres2</c> ayni sey degil, ayni seyin iki ornegi.
+    /// </item>
+    /// <item>
+    /// <b>Asgari uzunluk.</b> Bkz. <see cref="MinTypoLength"/>.
+    /// </item>
+    /// </list>
+    ///
+    /// Mesafe 2'ye cikmak yok: <c>Order</c>/<c>Offer</c> ve
+    /// <c>Import</c>/<c>Export</c> orada, ve bunlari karistirmak sozlugun
+    /// "en pahali hata"si. Mesafe 1'de her ikisi de disarida kaliyor.
+    ///
+    /// Bu yalnizca ADAY uretir; deger ortusmesi kapisi arkada duruyor.
+    /// </summary>
+    public static bool IsSingleTypoApart(string left, string right)
+    {
+        if (left.Length != right.Length) return false;
+        if (left.Length < MinTypoLength) return false;
+
+        var difference = -1;
+        for (var i = 0; i < left.Length; i++)
+        {
+            if (left[i] == right[i]) continue;
+            if (difference >= 0) return false;
+            difference = i;
+        }
+
+        if (difference < 0) return false;
+
+        return !char.IsDigit(left[difference]) && !char.IsDigit(right[difference]);
+    }
 
     /// <summary>
     /// Tip uyumu. Kesin esitlik aranmiyor: <c>int</c> ile <c>bigint</c>,

@@ -92,6 +92,55 @@ public class RelationshipDiscoveryTests
     }
 
     [Fact]
+    public void Tek_harflik_yazim_farki_kenari_engellemez()
+    {
+        // Gercek vaka: ayni anlamdaki kolon iki tabloda iki farkli yazilmis.
+        // Kullanici bagi biliyordu, model de buldu — ama tam esitlik arandigi
+        // icin aday HIC uretilmiyor, sistem "bilinen bir baglanti yok" diyordu.
+        var reference = Table("L_INT_ExportReference", ("ReferenceId", "int", true));
+        var calculate = Table("C_INT_ExpectedValueReferanceFinancialCalculate",
+            ("Id", "int", true),
+            ("ReferanceId", "int", false));
+
+        var edge = Assert.Single(RelationshipDiscovery
+            .BuildCandidates([reference, calculate], KeysOf(reference, calculate)));
+
+        Assert.Equal("dbo.C_INT_ExpectedValueReferanceFinancialCalculate", edge.FromTable);
+        Assert.Equal("ReferanceId", edge.FromColumns[0]);
+        Assert.Equal("dbo.L_INT_ExportReference", edge.ToTable);
+        Assert.Equal("ReferenceId", edge.ToColumns[0]);
+        // Yazim toleransiyla gelen aday da yalnizca adaydir: LEFT JOIN,
+        // guvenilmez, ve deger ortusmesi kapisindan gecmek zorunda.
+        Assert.True(edge.IsOptional);
+        Assert.False(edge.IsTrusted);
+        Assert.Equal("inferred", edge.Source);
+        // Kesif logunda ayrica yazilabilmesi icin: tam esitlikten degil,
+        // toleranstan dogdu.
+        Assert.True(edge.MatchedByTypo);
+    }
+
+    [Fact]
+    public void Tam_yazilan_tablo_yazim_toleransina_tercih_edilir()
+    {
+        // Tolerans son care. Ayni koke hem tam yazilan hem tek harf farkli bir
+        // tablo uyuyorsa tam yazilan kazanmali; ikisinin parcasi da ayni
+        // uzunlukta oldugu icin secim aksi halde listedeki siraya kalirdi.
+        // Yanlis yazilan once geliyor: koruma yoksa bu test duser.
+        var typo = Table("L_INT_ExportReference", ("ReferenceId", "int", true));
+        var exact = Table("Referance", ("ReferanceId", "int", true));
+        var calculate = Table("C_INT_FinancialCalculate",
+            ("Id", "int", true),
+            ("ReferanceId", "int", false));
+
+        var edge = Assert.Single(RelationshipDiscovery
+            .BuildCandidates([typo, exact, calculate], KeysOf(typo, exact, calculate)));
+
+        Assert.Equal("dbo.Referance", edge.ToTable);
+        Assert.Equal("ReferanceId", edge.ToColumns[0]);
+        Assert.False(edge.MatchedByTypo);
+    }
+
+    [Fact]
     public void Tablonun_kendi_anahtari_kenar_uretmez()
     {
         // ReferenceId -> ReferenceId ve ReferenceNo -> ReferenceId uretiliyordu:

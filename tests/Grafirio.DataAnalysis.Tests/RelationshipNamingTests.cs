@@ -77,6 +77,40 @@ public class RelationshipNamingTests
         Assert.False(RelationshipNaming.NamesMatch(left, right), $"{left} ~ {right} eşleşmemeliydi");
 
     [Theory]
+    [InlineData("Referance", "Reference")]                          // asil vaka
+    [InlineData("ExportReferance", "ExportReference")]
+    [InlineData("Kategori", "Katagori")]
+    [InlineData("Referanslar", "Referenslar")]                      // cogul ekiyle birlikte
+    public void NamesMatch_tek_harflik_yazim_farkini_kaldirir(string left, string right)
+    {
+        // Gercek musteri semasi: ayni anlamdaki kolon iki tabloda iki farkli
+        // yazilmis. Tam esitlik arandigi icin kenar HIC uretilmiyordu.
+        Assert.True(RelationshipNaming.NamesMatch(left, right), $"{left} ~ {right} eşleşmeliydi");
+    }
+
+    [Theory]
+    [InlineData("Order", "Offer")]        // mesafe 2 — sozlugun "en pahali hata"si
+    [InlineData("Import", "Export")]      // mesafe 2
+    [InlineData("Adres1", "Adres2")]      // fark rakam: ayni seyin iki ornegi
+    [InlineData("Sube01", "Sube02")]      // fark rakam
+    [InlineData("Contact", "Contract")]   // tek EKLEME — esit uzunluk sarti bunu keser
+    [InlineData("Curency", "Currency")]   // ayni sinif: gercek bir yazim hatasi da olsa gecmiyor
+    [InlineData("Depo", "Dept")]          // asgari uzunlugun altinda
+    [InlineData("Tarih", "Tarif")]        // asgari uzunlugun altinda
+    public void NamesMatch_toleransi_tehlikeli_ciftlere_acmaz(string left, string right) =>
+        Assert.False(RelationshipNaming.NamesMatch(left, right), $"{left} ~ {right} eşleşmemeliydi");
+
+    [Theory]
+    [InlineData("referance", "reference", true)]
+    [InlineData("reference", "reference", false)]   // fark yok — tam eslesme burada aranmiyor
+    [InlineData("contact", "contract", false)]      // uzunluk esit degil
+    [InlineData("adres1", "adres2", false)]         // fark rakam
+    [InlineData("depo", "dept", false)]             // cok kisa
+    [InlineData("kurumlar", "kurumsal", false)]     // iki fark
+    public void IsSingleTypoApart(string left, string right, bool expected) =>
+        Assert.Equal(expected, RelationshipNaming.IsSingleTypoApart(left, right));
+
+    [Theory]
     [InlineData("Adres")]
     [InlineData("Ders")]
     [InlineData("Siparis")]
