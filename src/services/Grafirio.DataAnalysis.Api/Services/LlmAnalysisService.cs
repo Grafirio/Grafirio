@@ -296,6 +296,17 @@ public class LlmAnalysisService
         kırılım mı olduğunu söyler. `answers` varsa, veritabanını bilen
         kişinin verdiği yanıtlardır ve sözlükteki tanımı ezer.
 
+        `relationships` ise modelin yorumu değil, veritabanından okunmuş ve
+        değer örtüşmesiyle doğrulanmış ÖLÇÜMDÜR. Her kayıt bir tabloyu
+        diğerine bağlayan gerçek bir yolu gösterir: `fromTable`/`fromColumns`
+        ile `toTable`/`toColumns` eşleşen kolonları, `labelColumn` ise hedef
+        tabloda kodun okunabilir karşılığını tutan kolonu söyler.
+
+        `codeValues` de ölçümdür: az sayıda ayrık değeri olan kolonların
+        veritabanından okunmuş gerçek değerleri. Bir kolonun hangi kodları
+        tuttuğunu buradan öğrenirsin; filtre yazarken değer uydurmak yerine
+        buraya bak.
+
         ```json
         {{dictionaryJson}}
         ```
@@ -356,6 +367,74 @@ public class LlmAnalysisService
         10. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe
             yaz.
 
+        ## Birden fazla tablo — `joins`
+
+        Sorunun cevabı tek tabloda yoksa `joins` ile zincir kur. Her adım bir
+        öncekine `from` ile bağlanır; ilk adım `"from": "base"` der.
+
+        ```json
+        "joins": [
+          { "as": "musteri", "from": "base",    "table": "dbo.Musteriler" },
+          { "as": "ulke",    "from": "musteri", "table": "dbo.Ulkeler" }
+        ]
+        ```
+
+        Kurallar:
+
+        J1. YALNIZCA `relationships` listesinde GERÇEKTEN bulunan bir bağlantı
+            istenebilir. Bağlantı yoksa join kurma — iki tablo arasında yol
+            olmadığını `description` ile söyle. Eşleşen kolonları sen yazmazsın,
+            ölçülmüş kayıttan okunur.
+        J2. İki tablo arasında birden fazla bağlantı varsa `via` ile hangisini
+            kastettiğini söyle: `"via": "MusteriId"`. Söylemezsen sorgu
+            çalışmaz; tahmin edilmez.
+        J3. Gerekmiyorsa join isteme. Tek tabloyla cevaplanan soruya join
+            eklemek sonucu bozmaz ama yavaşlatır.
+        J4. Kod yerine ADI göster. Bağlandığın tablonun `labelColumn`'u varsa
+            kırılımı ona göre yap — kullanıcı müşteri numarası değil müşteri
+            adı görmek ister.
+        J5. Bağlanılan tablodan bir kolona atıf yaparken tablo adıyla nitele:
+            `"dbo.Musteriler.Ad"`. Niteleme yoksa kolon taban tabloda aranır.
+        J6. En fazla 8 adım.
+        J7. AYNI tabloya birden fazla kez bağlanabilirsin. Bir parametre/kod
+            tablosu çoğu zaman tek başına birden fazla şeyi tutar — para
+            birimleri, ödeme tipleri, durum kodları hepsi aynı tabloda, bir
+            ayırt edici kolonla ayrılmış. Böyle bir durumda her bağlantıya
+            AYRI bir `as` adı ver ve `filter` ile hangi grubu istediğini söyle:
+
+        ```json
+        "joins": [
+          { "as": "parabirimi", "from": "base", "table": "dbo.Parametreler",
+            "via": "ParaBirimiKodu", "filter": { "Tip": "CUR" } },
+          { "as": "odemetipi",  "from": "base", "table": "dbo.Parametreler",
+            "via": "OdemeTipiKodu", "filter": { "Tip": "PAY" } }
+        ]
+        ```
+
+            `filter` içindeki değerleri uydurma — sözlükteki `codeValues`
+            listesinde o kolon için hangi değerler yazıyorsa onlardan birini
+            kullan. Kolon `codeValues`'ta yoksa `filter` kullanma.
+
+        ## Bire-çok tablolar — `preAggregate`
+
+        Bir tabloda taban tablonun her satırı için BİRDEN FAZLA satır varsa
+        (fatura → fatura kalemleri gibi) o tabloyu doğrudan bağlamak satırları
+        çoğaltır ve bütün sayılar şişer. Böyle bir tablodan ölçü almak
+        istiyorsan ön toplama iste:
+
+        ```json
+        { "as": "kalem", "from": "base", "table": "dbo.FaturaKalemleri",
+          "preAggregate": { "aggregation": "sum", "column": "Tutar" } }
+        ```
+
+        Bu, kalemleri fatura başına önceden toplar ve sonucu tek satır olarak
+        bağlar; böylece "kaç fatura" ile "kalem tutarı toplamı" aynı sorguda
+        ikisi de doğru çıkar. Ön toplanmış sonuca `as` adıyla atıf yapılır:
+        `"target_column": "kalem"`.
+
+        Emin değilsen ön toplama iste — çoğaltılmış satırlardan çıkan sayı
+        sessizce yanlış olur, ön toplama ise hiçbir şeyi bozmaz.
+
         ## Zaman ifadeleri
 
         `filters` üç biçim kabul eder:
@@ -383,6 +462,11 @@ public class LlmAnalysisService
         {
           "analysis_type": "aggregation|statistics|correlation|regression|classification|anomaly|clustering",
           "target_table": "dbo.Shipments",
+          "joins": [
+            { "as": "musteri", "from": "base", "table": "dbo.Musteriler",
+              "via": "isteğe bağlı — birden fazla bağlantı varsa hangisi",
+              "preAggregate": { "aggregation": "sum", "column": "Tutar" } }
+          ],
           "target_column": "kolon_adı veya null",
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },

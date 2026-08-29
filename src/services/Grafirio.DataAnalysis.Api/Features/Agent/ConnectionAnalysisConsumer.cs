@@ -121,6 +121,13 @@ public class ConnectionAnalysisConsumer(
     /// </summary>
     public const int MaxRetries = 2;
 
+    /// <summary>
+    /// Bu sayidan fazla ayrik degeri olan kolon "kod kolonu" sayilmaz.
+    /// Ayirt edici kolonlarda tipik olarak bir avuc deger bulunur; esigi
+    /// yukseltmek sozlugu sisirir ve modele ise yaramayan veri gosterir.
+    /// </summary>
+    private const int CodeValueThreshold = 50;
+
     private async Task Fail(Data.Entities.AnalysisConfig config, string reason, CancellationToken ct)
     {
         config.Status = AgentAnalyzeEndpoints.AnalysisStatus.Failed;
@@ -154,6 +161,37 @@ public class ConnectionAnalysisConsumer(
             };
 
             root["relationships"] = JsonSerializer.SerializeToNode(profile.Relationships, JsonOptions);
+
+            // Az sayida ayrik degeri olan kolonlarin degerleri. Bunlar da
+            // olculmus gercek, modelin yorumu degil.
+            //
+            // Neden gerekli: bir parametre tablosu cogu zaman tek basina birden
+            // fazla seyi tutar — para birimleri, odeme tipleri, durum kodlari
+            // hepsi ayni tabloda, bir `Tip` kolonuyla ayrilmis. Boyle bir
+            // tabloya iki kez baglanmak icin ON'a "AND Tip = 'CUR'" girmesi
+            // gerekiyor ve modelin 'CUR' diye bir kod oldugunu bilmesinin baska
+            // yolu yok. Degerler yalnizca gizlilik politikasinin ornek
+            // toplamaya izin verdigi kolonlardan geliyor: `SampleValues`
+            // izin verilmeyen kolonlarda zaten bos.
+            var codeValues = new JsonArray();
+            foreach (var table in profile.Tables)
+            {
+                foreach (var column in table.Columns)
+                {
+                    if (column.SampleValues.Count == 0) continue;
+                    if (column.DistinctCount is null or > CodeValueThreshold) continue;
+
+                    codeValues.Add(new JsonObject
+                    {
+                        ["table"] = $"{table.Schema}.{table.TableName}",
+                        ["column"] = column.ColumnName,
+                        ["values"] = new JsonArray(
+                            column.SampleValues.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray())
+                    });
+                }
+            }
+
+            root["codeValues"] = codeValues;
 
             return root.ToJsonString(JsonOptions);
         }
