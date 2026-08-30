@@ -15,6 +15,8 @@ export const nodeIds = {
   question: (queryId) => `q:${queryId}`,
   answer:   (queryId) => `ans:${queryId}`,
   chart:    (queryId, i) => `chart:${queryId}:${i}`,
+  /** Bir konusma zincirinin tamami: konusma + grafik tek kart. */
+  card:     (rootQueryId) => `card:${rootQueryId}`,
   insight:  (queryId, i) => `ins:${queryId}:${i}`,
 };
 
