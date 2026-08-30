@@ -9,6 +9,7 @@ import {
   revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
 import TableList from '../components/DataAnalysis/TableList';
+import LearnedFactsPanel from '../components/Analysis/LearnedFactsPanel';
 import { useAnalysis } from '../contexts/AnalysisContext';
 import '../styles/SettingsPages.css';
 import '../styles/SqlConnectionSettings.css';
@@ -1068,6 +1069,12 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                   })}
                 </div>
               </div>
+
+              {/* Sistemin bu bağlantı hakkında öğrendikleri — görünür ve
+                  silinebilir olmak zorunda. */}
+              <LearnedFactsPanel
+                connectionId={selectedConnectionForAnalysis.savedConnectionId}
+              />
 
               {/* Ön Analiz Butonları */}
               <div className="analysis-section">

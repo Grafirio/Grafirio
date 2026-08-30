@@ -396,3 +396,83 @@
   font-size: 11px;
   color: var(--text-subtle);
 }
+
+/* ── Eşleştirme onayı ─────────────────────────────────────────────────────
+   Grafiğin altında, sonucu gördükten sonra sorulan soru. Uyarı sarısı
+   kullanılıyor, hata kırmızısı değil: ortada bir hata yok, cevabı bekleyen
+   bir varsayım var. Kırmızı, kullanıcıya yanlış bir şey yaptığını
+   düşündürüyor. */
+.bi-match-confirm {
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+.bi-match-confirm-item {
+  padding: 10px 12px;
+  border-left: 3px solid #C08A2E;
+}
+.bi-match-confirm-item + .bi-match-confirm-item {
+  border-top: 1px solid var(--border);
+}
+.bi-match-confirm-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 5px;
+}
+.bi-match-confirm-text {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-subtle);
+  margin: 0 0 7px;
+}
+.bi-match-confirm-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 7px;
+  /* Uzun nitelenmiş adlar düğümü genişletmesin. */
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.bi-match-confirm-metric {
+  font-size: 10.5px;
+  color: var(--text-subtle);
+  margin-bottom: 7px;
+}
+.bi-match-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bi-match-btn {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bi-match-btn:disabled { opacity: .55; cursor: default; }
+.bi-match-btn-yes {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.bi-match-btn-no {
+  background: white;
+  color: var(--text-subtle);
+}
+.bi-match-btn-no:hover:not(:disabled) { color: var(--text); }
+.bi-match-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

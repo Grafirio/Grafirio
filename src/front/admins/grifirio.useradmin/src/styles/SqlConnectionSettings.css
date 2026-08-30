@@ -958,3 +958,99 @@
   .bridge-section__head { flex-direction: column; }
   .bridge-row { flex-wrap: wrap; }
 }
+
+/* ── Öğrendiklerim ────────────────────────────────────────────────────────
+   Kalıcı ve sorgunun içinde görünmeyen bilgi, listelenebilir ve silinebilir
+   olmak zorunda. Reddedilen kayıtlar da burada: onlar da bir karar ve fikri
+   değişen kullanıcı görüp silebilmeli. */
+.learned-facts-hint {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-subtle, #6b7280);
+  margin: 0 0 10px;
+  max-width: 62ch;
+}
+.learned-facts-empty,
+.learned-facts-error {
+  font-size: 13px;
+  color: var(--text-subtle, #6b7280);
+  padding: 12px 14px;
+  border: 1px dashed var(--border, #d7dce2);
+  border-radius: 8px;
+}
+.learned-facts-error { color: #9c382c; border-style: solid; }
+.learned-facts-retry {
+  margin-left: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.learned-facts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.learned-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border, #d7dce2);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+/* Reddedilen kayıt sönük: hâlâ bir karar, ama aktif olarak kullanılan bir
+   bilgi değil. */
+.learned-fact--rejected { opacity: .72; }
+.learned-fact-main {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+}
+.learned-fact-kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-subtle, #6b7280);
+  white-space: nowrap;
+}
+.learned-fact-text {
+  font-size: 13px;
+  color: var(--text, #1f2937);
+  overflow-wrap: anywhere;
+}
+.learned-fact-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-subtle, #6b7280);
+  white-space: nowrap;
+}
+.learned-fact-flag { color: #9c382c; }
+.learned-fact-forget {
+  background: none;
+  border: 0;
+  padding: 4px;
+  border-radius: 6px;
+  color: var(--text-subtle, #6b7280);
+  cursor: pointer;
+}
+.learned-fact-forget:hover:not(:disabled) { color: #9c382c; }
+.learned-fact-forget:disabled { opacity: .5; cursor: default; }
+.learned-fact-forget:focus-visible {
+  outline: 2px solid var(--accent, #2a5893);
+  outline-offset: 1px;
+}

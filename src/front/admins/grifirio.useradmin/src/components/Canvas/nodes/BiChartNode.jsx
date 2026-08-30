@@ -139,7 +139,97 @@ function ChartActions({ onToggleRefine, refineOpen, onDelete }) {
   );
 }
 
-export default function BiChartNode({ data, onRefine, onDelete }) {
+/**
+ * Sonucun altında duran eşleştirme onayı.
+ *
+ * Sistem iki tabloyu adlarına bakıp tahminle bağladığında sonuç yine de
+ * gösteriliyor, ama sorusuyla birlikte. Sıra bilinçli: kullanıcı kolon
+ * eşleşmesini değerlendiremez, CEVABI değerlendirebilir — "bu firmalar
+ * doğru mu" cevaplanabilir bir soru, "ReferanceId ile ReferenceId aynı mı"
+ * değil.
+ *
+ * Sonucu göstermenin güvenli olmasının şartı ölçüm kapısı: buraya gelen
+ * eşleşme hedef benzersizliğini geçmiş durumda, yani join satırları
+ * çoğaltmıyor ve gösterilen sayılar şişmiş değil. Geçemeyen aday zaten
+ * kurulmuyor.
+ *
+ * "Hayır" da kaydediliyor. Yoksa aynı yanlış eşleşme her sorguda yeniden
+ * kurulur ve aynı soru tekrar tekrar sorulur.
+ */
+function MatchConfirmation({ pending, onAnswer }) {
+  const [answered, setAnswered] = useState({});
+  const [busy, setBusy] = useState(null);
+
+  const open = (pending || []).filter(p => !answered[matchKey(p)]);
+  if (!onAnswer || open.length === 0) return null;
+
+  const respond = async (match, accepted) => {
+    const key = matchKey(match);
+    setBusy(key);
+    try {
+      await onAnswer(match, accepted);
+      setAnswered(prev => ({ ...prev, [key]: accepted ? 'kaydedildi' : 'reddedildi' }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="bi-match-confirm">
+      {open.map((match) => {
+        const key = matchKey(match);
+        const overlap = typeof match.valueOverlap === 'number'
+          ? `${Math.round(match.valueOverlap * 100)}%`
+          : null;
+
+        return (
+          <div className="bi-match-confirm-item" key={key}>
+            <div className="bi-match-confirm-title">Bu sonucu bir varsayımla ürettim</div>
+            <p className="bi-match-confirm-text">
+              Şu iki kolonu eşleştirdim; adları bir harf farklı olduğu için bunu
+              tahmin ettim, veritabanı böyle bir bağ bildirmiyor:
+            </p>
+            <div className="bi-match-confirm-pair">
+              <span>{match.fromTable}.{match.fromColumn}</span>
+              <span>{match.toTable}.{match.toColumn}</span>
+            </div>
+            {overlap && (
+              <div className="bi-match-confirm-metric">
+                Değerlerin <strong>{overlap}</strong>’ı hedef tabloda bulundu.
+              </div>
+            )}
+            <p className="bi-match-confirm-text">
+              Yukarıdaki sonuç doğruysa bunu hafızaya yazayım ve bir daha sormayayım.
+            </p>
+            <div className="bi-match-confirm-actions">
+              <button
+                type="button"
+                className="bi-match-btn bi-match-btn-yes"
+                disabled={busy === key}
+                onClick={() => respond(match, true)}
+              >
+                Doğru, hafızaya yaz
+              </button>
+              <button
+                type="button"
+                className="bi-match-btn bi-match-btn-no"
+                disabled={busy === key}
+                onClick={() => respond(match, false)}
+              >
+                Yanlış, bir daha kurma
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const matchKey = (m) =>
+  `${m.fromTable}.${m.fromColumn}->${m.toTable}.${m.toColumn}`.toLowerCase();
+
+export default function BiChartNode({ data, onRefine, onDelete, onConfirmMatch }) {
   const rootRef = useRef(null);
 
   // Düzeltme kutusu: yanlış anlaşılmış bir soru için yeni bir grafik
@@ -367,6 +457,11 @@ export default function BiChartNode({ data, onRefine, onDelete }) {
       <div className="bi-chart-body">
         {renderChart()}
       </div>
+
+      <MatchConfirmation
+        pending={data?.pendingConfirmations}
+        onAnswer={onConfirmMatch}
+      />
 
       {refineOpen && onRefine && (
         <div className="bi-node-footer">

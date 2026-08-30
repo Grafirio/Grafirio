@@ -430,6 +430,12 @@ class AgentAnalyzer:
             edge, reversed_edge = self._find_edge(
                 edges, source_table, target, step.get("via"))
 
+            # Bu kenar tahminle kuruldu ve kullanici henuz onaylamadi.
+            # Sonuc gosterilecek — ama yanina "su iki kolonu esledim, dogru
+            # mu" sorusuyla. Kayit burada toplaniyor cunku iki dal da
+            # (dogrudan ve on toplanmis) ayni kenari kullaniyor.
+            self._record_pending(edge)
+
             schema, table = self._split_table(target)
             target_columns = self._table_columns(schema, table)
 
@@ -482,7 +488,7 @@ class AgentAnalyzer:
                         f"{target} ({', '.join(f'{k}={v}' for k, v in step_filter.items())})")
                 notes.append(
                     f"{source_table} → {target} "
-                    f"({'doğrulanmış' if edge.get('source') == 'fk' else 'çıkarsanmış'}"
+                    f"({self._edge_source_label(edge)}"
                     f"{self._overlap_note(edge)})")
 
             scope.add(join.table.alias, columns,
@@ -544,6 +550,54 @@ class AgentAnalyzer:
             return f", örtüşme %{round(float(overlap) * 100)}"
         except (TypeError, ValueError):
             return ""
+
+    @staticmethod
+    def _edge_source_label(edge: Dict) -> str:
+        """
+        Kenarin nereden geldigi. Denetim panelinde gorunen sey bu ve uc
+        kaynagin agirligi ayni degil: veritabaninin zorladigi bir kisit ile
+        adlara bakip tahmin edilmis bir eslesme arasindaki farki kullanicinin
+        gormesi gerekiyor.
+        """
+        return {
+            "fk": "doğrulanmış",
+            "declared": "sizin kurduğunuz",
+        }.get(edge.get("source"), "çıkarsanmış")
+
+    def _record_pending(self, edge: Dict) -> None:
+        """
+        Onay bekleyen bir eslesme kullanildiysa denetim izine yaziyor.
+
+        Sonuc yine de gosteriliyor. Sebep: kullanici kolon eslesmesini
+        degerlendiremez ama CEVABI degerlendirebilir — "bu firmalar dogru mu"
+        cevaplanabilir bir soru, "ReferanceId ile ReferenceId ayni mi" degil.
+
+        Sonucu gostermenin guvenli olmasinin sarti olcum kapisi: kenar zaten
+        hedef benzersizligini ve %60 ortusmeyi gecmis durumda, yani join
+        satirlari cogaltmiyor. Gecemeyen aday buraya hic gelmiyor.
+        """
+        if not edge.get("needsConfirmation"):
+            return
+
+        from_columns = edge.get("fromColumns") or []
+        to_columns = edge.get("toColumns") or []
+        if not from_columns or not to_columns:
+            return
+
+        pending = self.audit.setdefault("pendingConfirmations", [])
+
+        record = {
+            "fromTable": edge.get("fromTable"),
+            "fromColumn": from_columns[0],
+            "toTable": edge.get("toTable"),
+            "toColumn": to_columns[0],
+            "valueOverlap": edge.get("valueOverlap"),
+        }
+
+        # Ayni kenar zincirde iki kez gecebilir; kullaniciya iki kez
+        # sorulmamali.
+        if record not in pending:
+            pending.append(record)
 
     def _find_edge(self, edges: List[Dict], source_table: str,
                    target_table: str, via: Optional[str]) -> tuple:

@@ -37,6 +37,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         IReadOnlyList<string> selectedTables,
         bool samplingConsentGiven,
         IReadOnlyList<RelationshipDiscovery.DeclaredLink>? declaredLinks = null,
+        IReadOnlyList<RelationshipDiscovery.DeclaredLink>? rejectedLinks = null,
         CancellationToken ct = default)
     {
         if (selectedTables.Count == 0)
@@ -71,7 +72,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
         // kolon adlarina, tiplerine ve benzersizligine bakiyor.
         profile.Relationships = await relationships.DiscoverAsync(
-            session, profile.Tables, declaredLinks, ct);
+            session, profile.Tables, declaredLinks, rejectedLinks, ct);
         return profile;
     }
 
@@ -394,12 +395,26 @@ public class RelationshipProfile
     /// <summary>
     /// Aday, adlarin TAM esitliginden degil tek harflik yazim toleransindan
     /// dogduysa true. Kaydedilmiyor — yalnizca kesif logunda isaretlenmesi
-    /// icin tasiniyor.
+    /// ve <see cref="NeedsConfirmation"/> hesaplanmasi icin tasiniyor.
     ///
-    /// Sebebi: toleransin gercek testi bu semanin kendisi. Uygulandiktan
-    /// sonra <em>yeni</em> cikan kenarlarin gozle taranmasi gerekiyor;
-    /// isaret olmadan hangilerinin yeni oldugu logdan okunamaz.
+    /// Sebebi: toleransin gercek testi semanin kendisi. Uygulandiktan sonra
+    /// <em>yeni</em> cikan kenarlarin gozle taranmasi gerekiyor; isaret
+    /// olmadan hangilerinin yeni oldugu logdan okunamaz.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool MatchedByTypo { get; set; }
+
+    /// <summary>
+    /// Bu kenar kullaniciya SORULMALI mi.
+    ///
+    /// Adlari tam eslesmedigi icin tahminle kurulmus ve kullanici bu konuda
+    /// daha once bir sey soylememis demektir. Sorgu bu kenari kullandiginda
+    /// sonucun ustunde onay penceresi cikar: "su iki kolonu esledim, sonuc
+    /// asagida, dogruysa hafizaya yazayim".
+    ///
+    /// Onaylanmis kenar bu bayragi tasimaz — o artik <c>declared</c>
+    /// kaynakli. Reddedilmis kenar zaten hic uretilmez. Yani burada true
+    /// olan her sey, hakkinda henuz karar verilmemis olandir.
+    /// </summary>
+    public bool NeedsConfirmation { get; set; }
 }

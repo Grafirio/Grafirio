@@ -8,6 +8,7 @@ import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
 import {
   getConnectionSummary, getSelectedTables,
   submitAgentQuery, getAgentQueryStatus, getAgentQueryResult, getAgentQueryHistory,
+  learnFact, listLearnedFacts,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
 
@@ -20,6 +21,20 @@ const NODE_HEIGHT = {
   biMetricNode: 150,
 };
 const heightOf = (node) => NODE_HEIGHT[node.type] ?? 200;
+
+/* Bir eşleştirmenin kimliği. Sunucudaki `LearnedFact.RelationshipKey` ile
+   BİREBİR aynı olmak zorunda: aynı şeyi iki kez sormamak, iki tarafın aynı
+   kimliği üretmesine bağlı. Yön korunuyor — a→b ile b→a aynı iddia değil.
+
+   Köşeli parantezler baştan sona atılıyor, uçtan kırpılmıyor:
+   `[dbo].[Musteriler]` ortadakileri de taşıyor ve kırpma onu
+   `dbo].[musteriler` yapar. */
+const normalizeName = (value) =>
+  String(value ?? '').replace(/[[\]]/g, '').trim().toLowerCase();
+
+const relationshipKey = (m) =>
+  `rel:${normalizeName(m.fromTable)}.${normalizeName(m.fromColumn)}`
+  + `->${normalizeName(m.toTable)}.${normalizeName(m.toColumn)}`;
 
 /* ─────────────────────────────────────────────────────────────
    Canvas-node builder helpers
@@ -55,7 +70,15 @@ const buildCanvasNodes = (report, parentId, posRef, queryId, sourceQuestion = ''
       position: { x: sx + (i % 2) * COL_W, y: curY + Math.floor(i / 2) * (ROW_H_CHART + 32) },
       // Grafiği doğuran soru düğümde duruyor: "bunu düzelt" dendiğinde
       // düzeltmenin neyin üzerine bindiğini bilmek gerekiyor.
-      data: { ...chart, sourceQuestion },
+      //
+      // Onay soruları YALNIZCA ilk grafiğe iliştiriliyor. Bir sorgu birden
+      // fazla grafik üretebiliyor ve hepsi aynı join'i kullanıyor; aynı
+      // soruyu üç kez sormak, üçünde de okunmadan kapatılması demek.
+      data: {
+        ...chart,
+        sourceQuestion,
+        pendingConfirmations: i === 0 ? report.pendingConfirmations : undefined,
+      },
     });
     edge(id);
   });
@@ -351,6 +374,16 @@ export default function CanvasPage() {
      `{ queryId, nodeId }` — biri zinciri sunucuda, öteki tuvalde kuruyor. */
   const pendingAskRef = useRef(null);
 
+  /* Hakkında karar verilmiş eşleştirmelerin anahtarları. Sunucudaki kayıtla
+     aynı biçimde tutuluyor (bkz. LearnedFact.RelationshipKey) — aynı şeyi
+     iki kez sormamanın tek yolu iki tarafın aynı kimliği üretmesi. */
+  const answeredMatchesRef = useRef(new Set());
+
+  /* Henüz cevaplanmamış eşleştirmeler. Ref okuduğu için useCallback'e gerek
+     yok ve bağımlılık zinciri de kurmuyor. */
+  const unanswered = (matches) =>
+    (matches || []).filter(m => !answeredMatchesRef.current.has(relationshipKey(m)));
+
   // Silme onayı bekleyen düğüm
   const [pendingDelete, setPendingDelete] = useState(null);
 
@@ -444,6 +477,22 @@ export default function CanvasPage() {
     (async () => {
       const layout = loadLayout(connectionId);
       layoutRef.current = layout;
+
+      // Hakkında zaten karar verilmiş eşleşmeler. Sözlükteki
+      // `needsConfirmation` bayrağı ancak bir sonraki "Analiz Et"te
+      // güncelleniyor; o zamana kadar aynı bağ her sorguda soru olarak
+      // gelirdi. Üçüncü kez sorulan bir onay, okunmadan kapatılan bir
+      // onaydır.
+      try {
+        const { items = [] } = await listLearnedFacts(connectionId);
+        if (!cancelled) {
+          answeredMatchesRef.current = new Set(
+            items.filter(i => i.kind === 'relationship').map(i => i.key));
+        }
+      } catch {
+        // Okunamazsa en kötüsü aynı soru bir kez daha sorulur; kanvasın
+        // açılmasını engellememeli.
+      }
 
       try {
         const { queries = [] } = await getAgentQueryHistory(connectionId);
@@ -615,6 +664,10 @@ export default function CanvasPage() {
         const report = {
           answer,
           charts: res.charts || [],
+          // Sistem bu cevabı üretirken adlara bakıp tahmin ettiği bir bağ
+          // kullandıysa, sonucun altında sorulacak — daha önce cevaplanmış
+          // olanlar hariç.
+          pendingConfirmations: unanswered(res.audit?.pendingConfirmations),
           insights: (res.failedTasks || []).map(f => ({
             type: 'warning',
             title: `⚠ ${f.title || 'Görev tamamlanamadı'}`,
@@ -860,6 +913,68 @@ export default function CanvasPage() {
       setQueryCount(c => Math.max(0, c - 1));
     }
   }, [analysis, canvasEdges, persistLayout, rememberPositions]);
+
+  /* ── Eşleştirme onayı ──
+
+     Kullanıcı sonuca bakıp "bu doğru" ya da "bu yanlış" diyor; ikisi de
+     kaydediliyor. Hayır cevabını saklamak evet kadar önemli: unutulursa
+     sistem aynı yanlış eşleşmeyi her analizde yeniden kurar ve aynı soruyu
+     tekrar tekrar sorar.
+
+     Kayıt bu sorguyu değiştirmiyor — ekrandaki grafik ne ise o kalıyor.
+     Öğrenilen bilgi bir sonraki "Analiz Et"te sözlüğe işleniyor, çünkü bir
+     ilişkinin geçerli olup olmadığı ancak veritabanına bakılarak, ölçüm
+     kapısından geçirilerek bilinebilir. */
+  const handleNodeConfirmMatch = useCallback(async (node, match, accepted) => {
+    const connId = analysis?.connectionId || analysis?.requestId;
+    if (!connId) return;
+
+    try {
+      await learnFact(connId, {
+        kind: 'relationship',
+        accepted,
+        fromTable: match.fromTable,
+        fromColumn: match.fromColumn,
+        toTable: match.toTable,
+        toColumn: match.toColumn,
+        question: node.data?.sourceQuestion || null,
+      });
+
+      // Bu tur boyunca ve sonraki sorgularda bir daha sorulmasın. Sunucudaki
+      // `needsConfirmation` ancak bir sonraki "Analiz Et"te düşüyor.
+      answeredMatchesRef.current.add(relationshipKey(match));
+
+      // Soru cevaplandı: aynı düğümde bir daha görünmesin.
+      setCanvasNodes(p => p.map(n => (
+        n.id === node.id
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                pendingConfirmations: (n.data?.pendingConfirmations || []).filter(
+                  m => !(m.fromTable === match.fromTable && m.fromColumn === match.fromColumn
+                      && m.toTable === match.toTable && m.toColumn === match.toColumn)),
+              },
+            }
+          : n
+      )));
+
+      setMessages(p => [...p, {
+        role: 'ai',
+        ts: Date.now(),
+        content: accepted
+          ? `✓ ${match.fromColumn} → ${match.toColumn} eşleşmesi hafızaya yazıldı. `
+            + 'Bir sonraki "Analiz Et"ten itibaren bu bağlantı hazır olacak.'
+          : `✓ ${match.fromColumn} → ${match.toColumn} eşleşmesi reddedildi olarak kaydedildi; `
+            + 'bu bağlantı bir daha kurulmayacak.',
+      }]);
+    } catch (e) {
+      setMessages(p => [...p, {
+        role: 'ai', error: true, ts: Date.now(),
+        content: `❌ Kaydedilemedi: ${e.response?.data?.error || e.message}`,
+      }]);
+    }
+  }, [analysis]);
 
   /* ── Silme ── */
   const handleNodeDelete = useCallback((node) => setPendingDelete(node), []);
@@ -1155,6 +1270,7 @@ export default function CanvasPage() {
             onNodeAsk={handleNodeAsk}
             onNodeRefine={handleNodeRefine}
             onNodeDelete={handleNodeDelete}
+            onNodeConfirmMatch={handleNodeConfirmMatch}
           />
         </main>
       </div>
