@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { IconArrowLeft, IconDatabase, IconLoader2 } from '@tabler/icons-react';
 import InfiniteCanvas from '../components/Canvas/InfiniteCanvas';
 import { loadLayout, saveLayout, applyLayout, emptyLayout } from '../components/Canvas/canvasLayout';
-import { nodeIds, collectSubtree } from '../components/Canvas/canvasGraph';
+import { nodeIds } from '../components/Canvas/canvasGraph';
 import { DEFAULT_CHART_TYPE } from '../components/Canvas/chartTypes';
 import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
 import {
@@ -128,7 +128,7 @@ export const restoreFromHistory = (queries = []) => {
     y += CARD_HEIGHT + CARD_GAP;
   }
 
-  return { nodes, edges: [], nextPos: { x: RESTORE_BASE_X, y } };
+  return { nodes, nextPos: { x: RESTORE_BASE_X, y } };
 };
 
 /**
@@ -225,7 +225,6 @@ export default function CanvasPage() {
 
   // Canvas state
   const [canvasNodes, setCanvasNodes] = useState([]);
-  const [canvasEdges, setCanvasEdges] = useState([]);
 
   /* Hakkında karar verilmiş eşleştirmelerin anahtarları. Sunucudaki kayıtla
      aynı biçimde tutuluyor (bkz. LearnedFact.RelationshipKey) — aynı şeyi
@@ -356,7 +355,6 @@ export default function CanvasPage() {
 
 
         setCanvasNodes(laidOut.nodes);
-        setCanvasEdges(laidOut.edges);
 
 
 
@@ -386,28 +384,11 @@ export default function CanvasPage() {
     if (!oldId || !newId || oldId === newId) return;
 
     setCanvasNodes(prev => prev.map(n => (n.id === oldId ? { ...n, id: newId } : n)));
-    setCanvasEdges(prev => prev.map(e => (
-      e.source === oldId || e.target === oldId
-        ? {
-            ...e,
-            id: e.id.split(oldId).join(newId),
-            source: e.source === oldId ? newId : e.source,
-            target: e.target === oldId ? newId : e.target,
-          }
-        : e
-    )));
 
     const layout = layoutRef.current;
     if (layout.positions[oldId]) {
       layout.positions[newId] = layout.positions[oldId];
       delete layout.positions[oldId];
-    }
-    if (layout.parents[oldId]) {
-      layout.parents[newId] = layout.parents[oldId];
-      delete layout.parents[oldId];
-    }
-    for (const [child, parent] of Object.entries(layout.parents)) {
-      if (parent === oldId) layout.parents[child] = newId;
     }
     persistLayout();
   }, [persistLayout]);
@@ -605,26 +586,18 @@ export default function CanvasPage() {
     const node = pendingDelete;
     if (!node) return;
 
-    // Soru düğümü silinince dalın tamamı gidiyor: cevabı ve grafikleri
-    // tuvalde bırakmak, neyin sorulduğu bilinmeyen kutular demek.
-    const doomed = node.data?.type === 'question'
-      ? collectSubtree(canvasNodes, canvasEdges, node.id)
-      : new Set([node.id]);
-
-    setCanvasNodes(p => p.filter(n => !doomed.has(n.id)));
-    setCanvasEdges(p => p.filter(e => !doomed.has(e.source) && !doomed.has(e.target)));
+    // Kart kendi kendine yetiyor: konuşma da grafik de onun içinde, silinecek
+    // bir dalı yok. Eskiden soru düğümü silinince cevabı ve grafikleri de
+    // toplamak gerekiyordu — o düğümler artık yok.
+    setCanvasNodes(p => p.filter(n => n.id !== node.id));
 
     const layout = layoutRef.current;
-    layout.hidden = [...new Set([...layout.hidden, ...doomed])];
-    for (const id of doomed) {
-      delete layout.positions[id];
-      delete layout.parents[id];
-      delete layout.replacements[id];
-    }
+    layout.hidden = [...new Set([...layout.hidden, node.id])];
+    delete layout.positions[node.id];
     persistLayout();
 
     setPendingDelete(null);
-  }, [pendingDelete, canvasNodes, canvasEdges, persistLayout]);
+  }, [pendingDelete, persistLayout]);
 
   return (
     <div className="cp-root">
@@ -662,13 +635,18 @@ export default function CanvasPage() {
             </span>
           )}
         </div>
+      </div>
 
-
-        {/* ── Sağ: Sonsuz Tuval ── */}
+      {/* ══ TUVAL ════════════════════════════════════════════
+          `.cp-body` kalan yüksekliğin tamamını alıyor (flex: 1, height: 0);
+          tuval de onun içinde %100. Yan panel kalktı ama bu sarmalayıcı
+          KALMALI — tuval doğrudan `.cp-topbar` içine düşerse başlık çubuğu
+          sabit yükseklikte olduğu için sıfır yüksekliğe sıkışıyor ve ekran
+          bomboş görünüyor. */}
+      <div className="cp-body">
         <main className="cp-canvas-area">
           <InfiniteCanvas
             nodes={canvasNodes}
-            edges={canvasEdges}
             onNodeMove={handleNodeMove}
             onNodeAsk={handleCardAsk}
             onNodeDelete={handleNodeDelete}

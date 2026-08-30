@@ -226,18 +226,6 @@
   color: var(--danger);
 }
 
-/* ── Düğüm üzerindeki soru kutusu ── */
-.bi-node-footer {
-  border-top: 1px solid var(--border);
-  background: var(--surface-sunken);
-  padding: 8px 10px;
-}
-.bi-node-footer-hint {
-  font-size: 10.5px;
-  line-height: 1.45;
-  color: var(--text-subtle);
-  margin-bottom: 6px;
-}
 .bi-node-composer {
   display: flex;
   align-items: flex-end;
@@ -316,86 +304,6 @@
   to { transform: rotate(360deg); }
 }
 
-/* ── Table node ── */
-.bi-table-node { width: 480px; }
-.bi-table-body { padding: 0; }
-.bi-table-scroll { overflow-x: auto; max-height: 280px; overflow-y: auto; }
-.bi-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.bi-table th {
-  padding: 8px 10px;
-  background: var(--accent-soft);
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.bi-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--surface-sunken);
-  color: var(--text-muted);
-}
-.bi-table tr:last-child td { border-bottom: none; }
-.bi-table tr:hover td { background: var(--accent-soft); }
-.bi-table-empty { padding: 20px; text-align: center; color: var(--text-subtle); font-size: 13px; }
-.bi-table-more {
-  padding: 8px 10px;
-  font-size: 11px;
-  color: var(--accent);
-  text-align: center;
-  background: var(--accent-soft);
-}
-
-/* ── Insight node ── */
-.bi-insight-node {
-  width: 360px;
-  border-color: var(--accent-soft);
-  background: var(--accent-soft);
-}
-.bi-insight-body { padding: 12px 14px; }
-.bi-insight-body p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--text);
-  white-space: pre-wrap;
-}
-
-/* ── Metric node ── */
-.bi-metric-node {
-  width: 200px;
-  border-color: var(--accent);
-}
-.bi-metric-body {
-  padding: 14px 16px 16px;
-  text-align: center;
-}
-.bi-metric-value {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--text);
-  line-height: 1.1;
-}
-.bi-metric-unit {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-.bi-metric-change {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.bi-metric-period { font-weight: 400; color: var(--text-subtle); }
-.bi-metric-desc {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--text-subtle);
-}
 
 /* ── Eşleştirme onayı ─────────────────────────────────────────────────────
    Grafiğin altında, sonucu gördükten sonra sorulan soru. Uyarı sarısı
@@ -721,15 +629,3 @@
 .canvas-menu-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .canvas-menu-hint { font-size: 10.5px; color: var(--text-subtle); }
 
-/* Boş tuvalde girişin nerede olduğu yazıyor: sağ tık keşfedilen bir hareket
-   değil ve yan panel kalktığı için başka giriş yok. */
-.canvas-blank {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  font-size: 13.5px;
-  color: var(--text-subtle);
-}
