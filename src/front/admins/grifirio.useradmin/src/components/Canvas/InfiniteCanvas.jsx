@@ -1,18 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import BiChartNode from './nodes/BiChartNode';
 import BiAnalysisCard from './nodes/BiAnalysisCard';
 import CanvasContextMenu from './CanvasContextMenu';
-import BiTableNode from './nodes/BiTableNode';
-import BiInsightNode from './nodes/BiInsightNode';
-import BiMetricNode from './nodes/BiMetricNode';
 import './Canvas.css';
 
 const NODE_COMPONENTS = {
   biAnalysisCard: BiAnalysisCard,
-  biChartNode: BiChartNode,
-  biTableNode: BiTableNode,
-  biInsightNode: BiInsightNode,
-  biMetricNode: BiMetricNode,
 };
 
 /* Kenar uçları düğümün gerçek boyutundan hesaplanıyor; ölçüm gelene kadar
@@ -21,10 +13,6 @@ const NODE_COMPONENTS = {
    kutusu açılıp kapanıyor. */
 const DEFAULT_SIZE = {
   biAnalysisCard: { w: 760, h: 420 },
-  biChartNode: { w: 400, h: 330 },
-  biTableNode: { w: 480, h: 300 },
-  biInsightNode: { w: 360, h: 150 },
-  biMetricNode: { w: 200, h: 140 },
 };
 const FALLBACK_SIZE = { w: 380, h: 160 };
 
@@ -44,7 +32,7 @@ const NO_DRAG_SELECTOR = 'input, textarea, button, select, a, canvas, summary, d
 
 export default function InfiniteCanvas({
   nodes = [], edges = [], onNodeClick,
-  onNodeMove, onNodeAsk, onNodeRefine, onNodeDelete, onNodeConfirmMatch,
+  onNodeMove, onNodeAsk, onNodeDelete, onNodeConfirmMatch,
   onNodeChartType, onCreateCard,
 }) {
   /* ── Sağ tık menüsü ──
@@ -388,7 +376,6 @@ export default function InfiniteCanvas({
               <Comp
                 data={node.data}
                 onAsk={onNodeAsk ? (text) => onNodeAsk(node, text) : undefined}
-                onRefine={onNodeRefine ? (text) => onNodeRefine(node, text) : undefined}
                 onDelete={onNodeDelete ? () => onNodeDelete(node) : undefined}
                 onConfirmMatch={onNodeConfirmMatch
                   ? (match, accepted) => onNodeConfirmMatch(node, match, accepted)

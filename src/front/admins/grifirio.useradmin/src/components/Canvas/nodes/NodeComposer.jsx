@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 
 /**
- * Düğümün üzerindeki küçük soru kutusu.
+ * Kartın içindeki soru kutusu.
  *
- * Sol paneldeki sohbetten farkı bağlamı: buradan sorulan soru, üzerinde
- * durduğu düğümün devamı sayılır. Sol panelden sorulan her soru bağımsız
- * bir dal açar; ilişki kurmanın yolu buradan sormaktır.
+ * Buradan sorulan her soru, kartın kendi konuşmasının devamı sayılır ve
+ * cevabı kartın grafiğine gelir. Tuvalde başka bir giriş yok: bağımsız bir
+ * analiz istemek yeni bir kart açmak demek (tuvale sağ tık).
  *
  * `onMouseDown`/`onClick` yayılımı burada durduruluyor — tuval bu olayları
  * sürükleme ve kaydırma olarak okuyor, yazarken düğümün kaçmaması gerek.
