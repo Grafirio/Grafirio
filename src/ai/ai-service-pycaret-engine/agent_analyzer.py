@@ -267,6 +267,7 @@ class AgentAnalyzer:
             return self._with_audit(self._error_result(str(e)))
 
         self.audit["appliedFilters"] = filter_notes
+        self._record_learned_codes(config, filters, scope)
 
         try:
             # Gruplama/sayma sorulari SQL'de calisir: sonuc tablonun tamami
@@ -435,6 +436,7 @@ class AgentAnalyzer:
             # mu" sorusuyla. Kayit burada toplaniyor cunku iki dal da
             # (dogrudan ve on toplanmis) ayni kenari kullaniyor.
             self._record_pending(edge)
+            self._record_evidence(edge)
 
             schema, table = self._split_table(target)
             target_columns = self._table_columns(schema, table)
@@ -567,6 +569,86 @@ class AgentAnalyzer:
             "fk": "doğrulanmış",
             "declared": "sizin kurduğunuz",
         }.get(edge.get("source"), "çıkarsanmış")
+
+    #: Kanit dereceleri, GUCLUDEN ZAYIFA. Sira onemli: bir cevabin ne kadar
+    #: saglam durdugunu, kullandigi EN ZAYIF baglanti belirliyor.
+    #:
+    #:   fk       — veritabaninin kendisi bu iliskiyi zorluyor.
+    #:   inferred — adlar ortusuyor VE degerler tutuyor; ikisi de olculdu.
+    #:   declared — veritabanini bilen bir insan boyle oldugunu soyledi.
+    #:              Hedefin benzersizligi yine olculdu ama dusuk ortusme
+    #:              engellemiyor, yalnizca uyariyor.
+    _EVIDENCE_ORDER = ["fk", "inferred", "declared"]
+
+    def _record_evidence(self, edge: Dict) -> None:
+        """
+        Cevabin dayandigi en zayif kaniti denetim izine yaziyor.
+
+        Neden en zayifi: sekiz tabloyu birlestiren bir sorguda yedisi
+        bildirilmis yabanci anahtar, biri kullanicinin beyani olabilir. O
+        cevap "dogrulanmis" degildir — zinciri en zayif halkasi tasir.
+
+        Denetim panelini ACMADAN gorunmesi gerekiyor. Panel varken bile
+        acilmiyor; acilmayan bir panelde duran uyari, uyari degildir.
+        """
+        source = edge.get("source")
+        if source not in self._EVIDENCE_ORDER:
+            source = "inferred"
+
+        current = self.audit.get("evidence")
+        if current is None or (self._EVIDENCE_ORDER.index(source)
+                               > self._EVIDENCE_ORDER.index(current)):
+            self.audit["evidence"] = source
+
+    def _record_learned_codes(self, config: Dict, filters: Any,
+                              scope: ColumnScope) -> None:
+        """
+        Kullanicinin OGRETTIGI bir kod anlamina dayanildiysa denetim izine
+        yaziyor: "'ROD' karayolu demek" bilgisi sizden geldi ve bu cevap ona
+        dayaniyor.
+
+        Yalnizca kodlar izlenebiliyor, es anlamlilar izlenemiyor. Sebep
+        durust olmayi gerektiriyor: "gelir" kelimesini EarningAmount'a
+        baglayan sey modelin prompt icindeki sessiz karari; hangi es
+        anlamliyi kullandigini bize soylemiyor. Bilmedigimiz bir seyi
+        "kullanildi" diye yazmak, denetim izinin degerini bitirir.
+
+        Iki sart birden araniyor — kolon adi VE deger — cunku yanlis bir
+        "sizin ogrettiginiz bilgi kullanildi" notu, hic not olmamasindan
+        kotudur.
+        """
+        if not isinstance(filters, dict) or not filters:
+            return
+
+        entries = [e for e in (config.get("codeValues") or [])
+                   if isinstance(e, dict) and isinstance(e.get("meanings"), dict)]
+        if not entries:
+            return
+
+        used: List[str] = []
+
+        for raw_column, raw_value in filters.items():
+            resolved = scope.resolve(raw_column)
+            if resolved is None:
+                continue
+
+            # Filtre tek deger ya da liste olabilir; ikisi de ayni sekilde
+            # aranıyor. Aralik filtreleri ({gte, lt}) kod olamaz.
+            values = raw_value if isinstance(raw_value, (list, tuple, set)) else [raw_value]
+
+            for entry in entries:
+                if str(entry.get("column") or "").lower() != resolved.name.lower():
+                    continue
+                for value in values:
+                    meaning = entry["meanings"].get(str(value))
+                    if meaning is None:
+                        continue
+                    note = f"{resolved.name} = '{value}' → {meaning}"
+                    if note not in used:
+                        used.append(note)
+
+        if used:
+            self.audit["learnedCodes"] = used
 
     def _record_pending(self, edge: Dict) -> None:
         """

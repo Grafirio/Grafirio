@@ -1201,6 +1201,52 @@ check(
     None,
 )
 
+# Bir cevabın ne kadar sağlam durduğunu kullandığı EN ZAYIF bağlantı
+# belirliyor. Sekiz tabloyu birleştiren bir sorguda yedisi bildirilmiş yabancı
+# anahtar, biri kullanıcının beyanı olabilir — o cevap "doğrulanmış" değildir.
+
+_evidence = AgentAnalyzer(_StubDataPort())
+_evidence._record_evidence({"source": "fk"})
+check("tek kaynak varsa o yazılır", _evidence.audit.get("evidence"), "fk")
+
+_evidence._record_evidence({"source": "declared"})
+check("daha zayıf kaynak öne geçer", _evidence.audit.get("evidence"), "declared")
+
+_evidence._record_evidence({"source": "fk"})
+check("güçlü kaynak zayıfı geri almaz", _evidence.audit.get("evidence"), "declared")
+
+_unknown = AgentAnalyzer(_StubDataPort())
+_unknown._record_evidence({"source": "bilinmeyen"})
+check("tanınmayan kaynak çıkarım sayılır",
+      _unknown.audit.get("evidence"), "inferred")
+
+# Kullanıcının öğrettiği kod anlamına dayanıldıysa denetim izinde yazıyor.
+# İki şart birden aranıyor — kolon adı VE değer — çünkü yanlış bir "sizin
+# öğrettiğiniz bilgi kullanıldı" notu, hiç not olmamasından kötüdür.
+
+_codes_scope = ColumnScope()
+_codes_scope.add("t0", {"referencetype": "ReferenceType", "tutar": "Tutar"},
+                 ["dbo.Kayit", "Kayit"], is_base=True)
+_codes_config = {"codeValues": [
+    {"table": "dbo.Kayit", "column": "ReferenceType",
+     "values": ["ROD", "SEA"], "meanings": {"ROD": "karayolu"}},
+]}
+
+_codes = AgentAnalyzer(_StubDataPort())
+_codes._record_learned_codes(_codes_config, {"ReferenceType": "ROD"}, _codes_scope)
+check("öğretilmiş kod anlamı denetim izine yazılır",
+      _codes.audit.get("learnedCodes"), ["ReferenceType = 'ROD' → karayolu"])
+
+_unlearned = AgentAnalyzer(_StubDataPort())
+_unlearned._record_learned_codes(_codes_config, {"ReferenceType": "SEA"}, _codes_scope)
+check("anlamı öğretilmemiş kod için not yazılmaz",
+      _unlearned.audit.get("learnedCodes"), None)
+
+_wrong_column = AgentAnalyzer(_StubDataPort())
+_wrong_column._record_learned_codes(_codes_config, {"Tutar": "ROD"}, _codes_scope)
+check("değer tutsa da kolon tutmuyorsa not yazılmaz",
+      _wrong_column.audit.get("learnedCodes"), None)
+
 check("bildirilmiş kaynak etiketi",
       AgentAnalyzer._edge_source_label({"source": "fk"}), "doğrulanmış")
 check("beyan kaynak etiketi",

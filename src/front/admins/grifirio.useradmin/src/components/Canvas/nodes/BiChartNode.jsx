@@ -140,6 +140,36 @@ function ChartActions({ onToggleRefine, refineOpen, onDelete }) {
 }
 
 /**
+ * Bu cevabın neye dayandığı — panel açılmadan, grafiğin dibinde.
+ *
+ * "Nasıl hesaplandı?" paneli zaten her şeyi yazıyor ama kapalı açılıyor ve
+ * kapalı kalıyor. Açılmayan bir panelde duran uyarı, uyarı değildir.
+ *
+ * Yalnızca `fk` dışındaki durumlarda çıkıyor: veritabanının kendisinin
+ * zorladığı bir ilişkiyi kullanıcıya bildirmenin bir karşılığı yok, her
+ * grafiğe not iliştirmek de notların okunmamasını sağlar.
+ *
+ * Gösterilen şey, cevabın kullandığı EN ZAYIF bağlantı: sekiz tablonun
+ * yedisi yabancı anahtarla bağlıysa ve biri beyansa, o cevap doğrulanmış
+ * değildir — zinciri en zayıf halkası taşır.
+ */
+const EVIDENCE_NOTE = {
+  inferred: 'Bu cevap, adları ve değerleri ölçülerek çıkarılmış bir bağlantı kullanıyor.',
+  declared: 'Bu cevap, sizin kurduğunuz bir bağlantıyı kullanıyor.',
+};
+
+function EvidenceNote({ evidence }) {
+  const note = EVIDENCE_NOTE[evidence];
+  if (!note) return null;
+
+  return (
+    <div className={`bi-evidence bi-evidence--${evidence}`}>
+      {note}
+    </div>
+  );
+}
+
+/**
  * Sonucun altında duran eşleştirme onayı.
  *
  * Sistem iki tabloyu adlarına bakıp tahminle bağladığında sonuç yine de
@@ -457,6 +487,8 @@ export default function BiChartNode({ data, onRefine, onDelete, onConfirmMatch }
       <div className="bi-chart-body">
         {renderChart()}
       </div>
+
+      <EvidenceNote evidence={data?.evidence} />
 
       <MatchConfirmation
         pending={data?.pendingConfirmations}
