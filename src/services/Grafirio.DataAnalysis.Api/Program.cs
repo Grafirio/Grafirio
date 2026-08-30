@@ -133,6 +133,7 @@ if (!string.IsNullOrWhiteSpace(mongoConnectionString))
     builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IMongoClient>().GetDatabase(mongoDatabaseName));
     builder.Services.AddSingleton<ConnectionProfileStore>();
+    builder.Services.AddSingleton<LearnedFactStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
     // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin
@@ -147,6 +148,7 @@ else
     builder.Services.AddSingleton<IMongoDatabase>(_ => throw new InvalidOperationException(
         "Mongo__ConnectionString tanımlı değil; tablo seçimi ve şema profili kullanılamaz."));
     builder.Services.AddSingleton<ConnectionProfileStore>();
+    builder.Services.AddSingleton<LearnedFactStore>();
     builder.Services.AddSingleton<BridgeStore>();
     builder.Services.AddSingleton<IBridgePresence>(sp => sp.GetRequiredService<BridgeStore>());
     // Baglanti tanimlarini bridge'e iten servis. Mongo'ya bagli oldugu icin

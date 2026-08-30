@@ -27,11 +27,16 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
     /// <summary>Ornek satir cekme sorgusunun zaman asimi (saniye).</summary>
     private const int SampleTimeoutSeconds = 60;
 
+    /// <param name="declaredLinks">
+    /// Kullanicinin daha once onayladigi baglantilar. Ad kalibinin bulamadigi
+    /// iliskiler yalnizca bu yoldan geliyor; olcum kapisindan yine geciyorlar.
+    /// </param>
     public async Task<DatabaseProfile> ProfileAsync(
         IDataSourceSession session,
         string databaseName,
         IReadOnlyList<string> selectedTables,
         bool samplingConsentGiven,
+        IReadOnlyList<RelationshipDiscovery.DeclaredLink>? declaredLinks = null,
         CancellationToken ct = default)
     {
         if (selectedTables.Count == 0)
@@ -65,7 +70,8 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
         // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
         // kolon adlarina, tiplerine ve benzersizligine bakiyor.
-        profile.Relationships = await relationships.DiscoverAsync(session, profile.Tables, ct);
+        profile.Relationships = await relationships.DiscoverAsync(
+            session, profile.Tables, declaredLinks, ct);
         return profile;
     }
 
