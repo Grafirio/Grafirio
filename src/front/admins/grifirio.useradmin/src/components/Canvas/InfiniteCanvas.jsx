@@ -1,11 +1,14 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import BiChartNode from './nodes/BiChartNode';
+import BiAnalysisCard from './nodes/BiAnalysisCard';
+import CanvasContextMenu from './CanvasContextMenu';
 import BiTableNode from './nodes/BiTableNode';
 import BiInsightNode from './nodes/BiInsightNode';
 import BiMetricNode from './nodes/BiMetricNode';
 import './Canvas.css';
 
 const NODE_COMPONENTS = {
+  biAnalysisCard: BiAnalysisCard,
   biChartNode: BiChartNode,
   biTableNode: BiTableNode,
   biInsightNode: BiInsightNode,
@@ -17,6 +20,7 @@ const NODE_COMPONENTS = {
    değil — soru düğümünde soru kutusu var, grafik düğümünde düzeltme
    kutusu açılıp kapanıyor. */
 const DEFAULT_SIZE = {
+  biAnalysisCard: { w: 760, h: 420 },
   biChartNode: { w: 400, h: 330 },
   biTableNode: { w: 480, h: 300 },
   biInsightNode: { w: 360, h: 150 },
@@ -41,7 +45,14 @@ const NO_DRAG_SELECTOR = 'input, textarea, button, select, a, canvas, summary, d
 export default function InfiniteCanvas({
   nodes = [], edges = [], onNodeClick,
   onNodeMove, onNodeAsk, onNodeRefine, onNodeDelete, onNodeConfirmMatch,
+  onNodeChartType, onCreateCard,
 }) {
+  /* ── Sağ tık menüsü ──
+     Tuvale girişin tek yolu bu. Yan paneldeki sohbet kaldırıldı: bütün
+     kartların soruları tek akışta toplandığı için ayrı konuların cümleleri
+     alt alta düşüyor ve okunmuyordu. Artık her konuşma kendi kartının
+     içinde duruyor ve kart, kullanıcının sağ tıkladığı yere kuruluyor. */
+  const [menu, setMenu] = useState(null);
   const [transform, setTransform] = useState({ x: 60, y: 60, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const startPanRef = useRef({ x: 0, y: 0 });
@@ -309,6 +320,23 @@ export default function InfiniteCanvas({
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
+      onContextMenu={(e) => {
+        // Kartın üstündeki sağ tık tarayıcının kendi menüsü olarak kalıyor:
+        // yazıyı kopyalamak, bağlantıyı açmak orada çalışmaya devam etmeli.
+        if (!onCreateCard || e.target.closest('.canvas-node')) return;
+        e.preventDefault();
+
+        const rect = canvasRef.current.getBoundingClientRect();
+        const zoom = transformRef.current.zoom || 1;
+        setMenu({
+          // Menü ekranda tıklanan yerde duruyor…
+          screenX: e.clientX - rect.left,
+          screenY: e.clientY - rect.top,
+          // …kart ise tuvalin o noktasına kuruluyor.
+          x: Math.round((e.clientX - rect.left - transformRef.current.x) / zoom),
+          y: Math.round((e.clientY - rect.top - transformRef.current.y) / zoom),
+        });
+      }}
     >
       {/* Dot-grid */}
       <svg
@@ -365,6 +393,9 @@ export default function InfiniteCanvas({
                 onConfirmMatch={onNodeConfirmMatch
                   ? (match, accepted) => onNodeConfirmMatch(node, match, accepted)
                   : undefined}
+                onChartType={onNodeChartType
+                  ? (type) => onNodeChartType(node, type)
+                  : undefined}
               />
             </div>
           );
@@ -372,6 +403,26 @@ export default function InfiniteCanvas({
       </div>
 
       {/* Controls */}
+      {menu && (
+        <CanvasContextMenu
+          x={menu.screenX}
+          y={menu.screenY}
+          onClose={() => setMenu(null)}
+          onPick={(chartType) => {
+            setMenu(null);
+            onCreateCard(chartType, { x: menu.x, y: menu.y });
+          }}
+        />
+      )}
+
+      {/* Tuval boşken girişin nerede olduğu görünmeli: sağ tık keşfedilen
+          bir hareket değil. */}
+      {nodes.length === 0 && onCreateCard && (
+        <div className="canvas-blank">
+          Başlamak için tuvale <strong>sağ tıklayın</strong> ve bir grafik türü seçin.
+        </div>
+      )}
+
       <div className="canvas-controls">
         <button className="canvas-ctrl-btn" title="Tümünü Göster" onClick={fitView}>⌖</button>
         <button className="canvas-ctrl-btn" title="Yakınlaş"

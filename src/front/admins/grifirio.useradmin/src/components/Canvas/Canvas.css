@@ -494,3 +494,242 @@
    varlığını bilebilir, veri onu doğrulamamıştır. Ayırt edilebilir olmalı. */
 .bi-evidence--declared { border-left: 3px solid #C08A2E; }
 .bi-evidence--inferred { border-left: 3px solid var(--border); }
+
+/* ══ Analiz kartı ═════════════════════════════════════════════════════════
+   Konuşma ve grafik tek küme. Zemin beyaz ve kart tuvalden belirgin biçimde
+   ayrılıyor: bir kartın nerede bitip ötekinin nerede başladığı, ekranda beş
+   kart varken tek bakışta okunmalı. */
+.bi-card {
+  width: 760px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .10);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.bi-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+.bi-card-close {
+  background: none;
+  border: 0;
+  font-size: 13px;
+  line-height: 1;
+  padding: 5px 7px;
+  border-radius: 6px;
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+.bi-card-close:hover { background: #fdeceb; color: #9c382c; }
+
+.bi-card-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 340px;
+}
+.bi-card-talk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+/* Konuşma kendi içinde kayıyor: kart büyümüyor. Eski yapıda uzayan sohbet
+   ekranı aşağı doğru sonsuz çekiyordu ve grafikler gözden kayboluyordu. */
+.bi-card-stream {
+  flex: 1;
+  min-height: 120px;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 2px;
+}
+.bi-card-hint,
+.bi-card-empty {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-subtle);
+  margin: 0;
+}
+.bi-card-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bi-turn {
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 7px 9px;
+  border-radius: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.bi-turn--user {
+  background: var(--accent-soft);
+  color: var(--text);
+  align-self: flex-end;
+  max-width: 92%;
+}
+.bi-turn--ai {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+.bi-turn--error { background: #fdeceb; color: #9c382c; }
+.bi-turn--loading { display: flex; gap: 4px; align-items: center; }
+.bi-turn--loading span {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--text-subtle);
+  animation: bi-blink 1.2s infinite ease-in-out;
+}
+.bi-turn--loading span:nth-child(2) { animation-delay: .2s; }
+.bi-turn--loading span:nth-child(3) { animation-delay: .4s; }
+@keyframes bi-blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  .bi-turn--loading span { animation: none; opacity: .6; }
+}
+
+.bi-card-chart { padding: 10px; min-width: 0; }
+/* Kartın içindeki grafik kendi kutusunu çizmiyor: kart zaten bir kutu. */
+.bi-card-chart .bi-node {
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.bi-card-chart .bi-node-header { display: none; }
+
+/* ── Tür seçici ── */
+.bi-card-types { position: relative; }
+.bi-card-type-current {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+.bi-card-caret { color: var(--text-subtle); }
+.bi-card-type-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 30;
+  min-width: 210px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, .16);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.bi-card-type-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.bi-card-type-option:hover { background: var(--surface-sunken); }
+.bi-card-type-option.is-active { background: var(--accent-soft); }
+.bi-card-type-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.bi-card-type-hint { font-size: 10.5px; color: var(--text-subtle); }
+
+/* ── Kart içi denetim izi ── */
+.bi-card-audit { font-size: 11px; }
+.bi-card-audit summary {
+  cursor: pointer;
+  color: var(--text-subtle);
+  padding: 3px 0;
+  user-select: none;
+}
+.bi-card-audit-rows {
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.bi-card-audit-rows > div { display: grid; grid-template-columns: 84px 1fr; gap: 8px; }
+.bi-card-audit-rows dt { color: var(--text-subtle); }
+.bi-card-audit-rows dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.bi-card-audit-sql {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  display: block;
+  max-height: 90px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* ══ Sağ tık menüsü ═══════════════════════════════════════════════════════ */
+.canvas-menu {
+  position: absolute;
+  /* Zum düğmelerinin (z-index 100) üstünde: menü geçici ve o an
+     kullanıcının baktığı şey, düğmeler her zaman orada. */
+  z-index: 120;
+  min-width: 230px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
+.canvas-menu-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  padding: 6px 9px 4px;
+}
+.canvas-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.canvas-menu-item:hover { background: var(--surface-sunken); }
+.canvas-menu-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.canvas-menu-hint { font-size: 10.5px; color: var(--text-subtle); }
+
+/* Boş tuvalde girişin nerede olduğu yazıyor: sağ tık keşfedilen bir hareket
+   değil ve yan panel kalktığı için başka giriş yok. */
+.canvas-blank {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 13.5px;
+  color: var(--text-subtle);
+}

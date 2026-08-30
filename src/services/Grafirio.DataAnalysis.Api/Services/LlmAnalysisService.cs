@@ -200,14 +200,44 @@ public class LlmAnalysisService
         {
             // Bugunun tarihi prompt'a giriyor: "bu yil", "gecen ay", "son 3
             // ay" gibi ifadeler bu olmadan tarih araligina cevrilemez.
+            // Tavan 4000'den yukseltildi. Bu cagrinin girdisi sabit degil:
+            // sozluk buyudukce ve konusma uzadikca cevap da uzuyor, ustelik
+            // reasoning token'lari ayni butceden dusuyor. Genis bir semada
+            // netlestirme turundan sonra 4000 yetmiyor ve model cevabi
+            // ortasinda kesiliyordu. Sozluk uretimi ayni dersi 16000'de
+            // ogrenmisti.
             var text = await _model.GenerateAsync(
                 BuildTranslationPrompt(question, dictionaryJson, schemaSummary, DateTime.UtcNow, conversation),
-                temperature: 0.1, maxTokens: 4000, cancellationToken: ct);
+                temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
+
+            var json = ExtractJson(text);
+
+            // Ayristirma BURADA deneniyor, uc noktada degil. Onceden bozuk
+            // metin oldugu gibi asagi geciyor, uc nokta onu ayristiramayinca
+            // kullaniciya "model gecerli bir yanit uretmedi, sorunuzu daha
+            // acik yazin" deniyordu — ve modelin ne yazdigi hicbir yere
+            // yazilmadigi icin sebebi aranamiyordu. Sunucu metni goruyor;
+            // gormedigini soylemesi icin bir sebep yok.
+            if (!IsParseableObject(json))
+            {
+                _logger.LogError(
+                    "Çeviri yanıtı JSON olarak okunamadı. Modelin ham cevabı: {Raw}",
+                    Truncate(text, 2000));
+
+                return new LlmResult
+                {
+                    Success = false,
+                    Error = "Yapay zekâ okunabilir bir yanıt üretmedi. Bu genellikle "
+                          + "cevabın yarıda kesilmesinden olur; aynı soruyu tekrar "
+                          + "sormak çoğu zaman yeterlidir.",
+                    RawResponse = text
+                };
+            }
 
             return new LlmResult
             {
                 Success = true,
-                Json = ExtractJson(text),
+                Json = json,
                 Explanation = ExtractExplanation(text),
                 RawResponse = text
             };
@@ -807,6 +837,33 @@ public class LlmAnalysisService
         tek cümleyle yaz.
         """;
     }
+
+    /// <summary>
+    /// Metin gercekten bir JSON NESNESI mi.
+    ///
+    /// Bos nesne de kabul edilmiyor: <see cref="ExtractJson"/> hicbir sey
+    /// bulamadiginda <c>"{}"</c> donuyor ve o, "model tabloyu secemedi"
+    /// gibi gorunuyor. Ikisi ayni sey degil — biri modelin karari, digeri
+    /// bizim okuyamamamiz — ve kullaniciya verilecek cevap da ayni degil.
+    /// </summary>
+    private static bool IsParseableObject(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json.Trim() == "{}") return false;
+
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(json).ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string Truncate(string? text, int max) =>
+        string.IsNullOrEmpty(text) ? "(boş)"
+        : text.Length <= max ? text
+        : text[..max] + $"… (+{text.Length - max} karakter)";
 
     private static string ExtractJson(string text)
     {
