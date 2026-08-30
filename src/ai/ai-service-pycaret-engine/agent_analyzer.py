@@ -206,22 +206,22 @@ class AgentAnalyzer:
             if analysis_type != "aggregation":
                 return self._with_audit(self._error_result(
                     "Birleşim yalnızca gruplama sorularında kullanılabilir."))
-            # Sessizce dusurmek yerine acikca reddediliyor: birlesim bunlari
-            # uygulayamiyor ve uygulanmamis bir esik ya da eksik bir seri,
-            # grafige bakarak fark edilmez.
-            unsupported = [name for name, value in
-                           (("having", having), ("window", window),
-                            ("joins", params.get("joins")))
-                           if value]
-            if unsupported:
+            # Pencere hesabi hala reddediliyor ve bu bilincli. Birikim ya da
+            # hareketli ortalama, birlesimin TAMAMI uzerinde anlamli; dal
+            # basina hesaplanirsa iki ayri birikim cikar ve grafik "kumulatif"
+            # dendigi halde kumulatif olmayan bir sey gosterir. Sessizce
+            # yanlis bir seri uretmektense acikca reddetmek dogru.
+            if window:
                 return self._with_audit(self._error_result(
-                    f"Birleşimle birlikte {', '.join(unsupported)} "
-                    "kullanılamıyor. Soruyu ya tek kaynak üzerinden sorun ya "
-                    "da bu hesabı bırakın."))
+                    "Birleşimle birlikte birikim/hareketli ortalama "
+                    "hesaplanamıyor: bu hesaplar dal başına değil birleşimin "
+                    "tamamı üzerinde anlamlı. Soruyu tek kaynak üzerinden "
+                    "sorun ya da bu hesabı bırakın."))
             try:
                 return self._with_audit(self._sql_union(
-                    union, target_table, group_by, target_column, aggregation,
-                    filters, sort_order, limit, chart_type, chart_title,
+                    config, union, target_table, group_by, target_column,
+                    aggregation, filters, params.get("joins"), having,
+                    sort_order, limit, chart_type, chart_title,
                     description))
             except ValueError as e:
                 return self._with_audit(self._error_result(str(e)))
@@ -376,7 +376,7 @@ class AgentAnalyzer:
 
     def _resolve_joins(self, config: Dict, base: TableRef, base_table: str,
                        requested: List[Dict], aliases: AliasFactory,
-                       scope: ColumnScope) -> tuple:
+                       scope: ColumnScope, param_scope: str = "") -> tuple:
         """
         Modelin istedigi zinciri, olculmus iliskilere dayanarak kurar.
 
@@ -479,8 +479,12 @@ class AgentAnalyzer:
                 # WHERE eslesmeyen satirlari da eler ve join sessizce INNER'a
                 # doner. Deger metne girmiyor, parametreye baglaniyor.
                 if isinstance(step_filter, dict) and step_filter:
+                    # Parametre adi dal kapsamini tasiyor. Birlesimde dallar
+                    # AYNI parametre sozlugunu paylasiyor; iki dalda da
+                    # sifirinci adimda filtre varsa ayni ad iki farkli degere
+                    # baglanirdi ve biri sessizce otekinin degerini alirdi.
                     extra, filter_params = self._build_join_filter(
-                        step_filter, columns, join.table.alias, idx)
+                        step_filter, columns, join.table.alias, f"{param_scope}{idx}")
                     join = Join(join.table, list(join.conditions) + extra,
                                 cardinality=join.cardinality, kind=join.kind)
                     params.update(filter_params)
@@ -500,7 +504,7 @@ class AgentAnalyzer:
         return joins, params, notes
 
     def _build_join_filter(self, step_filter: Dict, columns: Dict[str, str],
-                           alias: str, step_index: int) -> tuple:
+                           alias: str, step_index: Any) -> tuple:
         """
         Join'i ayirt eden sabit kosullari `Predicate`e cevirir.
 
@@ -876,47 +880,117 @@ class AgentAnalyzer:
     SERIES_LIMIT = 500
 
     def _build_having(self, having: Any, aggregate: Aggregate,
-                      prefix: str = "h") -> tuple:
+                      prefix: str = "h", scope: Optional[ColumnScope] = None) -> tuple:
         """
-        Toplulastirma sonrasi kosulu `HavingPredicate`e cevirir.
+        Toplulastirma sonrasi kosullari `HavingPredicate`e cevirir.
 
-        Kosul her zaman sorgunun KENDI olcusune uygulanir: "toplami 1 milyonu
-        gecen musteriler" gibi. Modele ayri bir toplulastirma yazdirmiyoruz —
-        WHERE ile HAVING'i karistirmak zaten en kolay hata ve iki ayri olcu
-        tanimlatmak bunu kolaylastirmaktan baska ise yaramaz.
+        En yalin bicimde kosul sorgunun KENDI olcusune uygulanir — "toplami 1
+        milyonu gecen musteriler". Ama tek olcu yetmiyor: "cirosu 1 milyonu
+        gecen AMA siparis sayisi 5'ten az olan musteriler" iki ayri hesap
+        istiyor ve ikincisi grafikte gosterilmiyor, yalnizca eliyor.
+
+        Bu yuzden kosul kendi islemini ve kolonunu soyleyebiliyor:
+
+            {"op": ">", "value": 1000000}                         kendi olcusu
+            {"aggregation": "count", "op": "<", "value": 5}       satir sayisi
+            {"column": "Tutar", "aggregation": "sum", "op": ">",  baska kolon
+             "value": 1000000}
+
+        Birden fazla kosul liste olarak verilir ve VE ile baglanir; "ama"
+        kelimesinin karsiligi bu.
+
+        Kosulda gecen kolonun kirilimda ya da olcude olmasi gerekmiyor —
+        HAVING grubun tamami uzerinde hesaplaniyor ve bu gecerli SQL.
+        `validate` kolonun kapsamda oldugunu ayrica denetliyor.
 
         Doner: (kosullar, parametreler, denetim notu)
         """
         if not having:
             return [], {}, None
 
-        if isinstance(having, (int, float)) and not isinstance(having, bool):
-            # "having": 1000000 — kastedilen neredeyse her zaman "bundan buyuk".
-            having = {"op": ">", "value": having}
+        conditions = having if isinstance(having, list) else [having]
 
-        if not isinstance(having, dict):
+        predicates: List[HavingPredicate] = []
+        params: Dict[str, Any] = {}
+        notes: List[str] = []
+
+        for index, raw in enumerate(conditions):
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+                # "having": 1000000 — kastedilen neredeyse her zaman
+                # "bundan buyuk".
+                raw = {"op": ">", "value": raw}
+
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    "Toplulaştırma sonrası koşul anlaşılamadı; "
+                    "{\"op\": \">\", \"value\": 1000} biçiminde olmalı.")
+
+            op = self._HAVING_OPS.get(str(raw.get("op") or "").strip())
+            if op is None:
+                raise ValueError(
+                    f"'{raw.get('op')}' tanınmayan bir karşılaştırma. "
+                    f"Kullanılabilir: {', '.join(sorted(set(self._HAVING_OPS)))}.")
+
+            value = raw.get("value")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(
+                    "Toplulaştırma sonrası koşulun değeri bir sayı olmalı; "
+                    "koşul hesaplanmış ölçüye uygulanıyor.")
+
+            measure, label = self._having_measure(raw, aggregate, scope, index)
+
+            key = f"{prefix}{index}"
+            params[key] = value
+            predicates.append(HavingPredicate(measure, op, [key]))
+            notes.append(f"{label} {op} {value}")
+
+        return predicates, params, " ve ".join(notes)
+
+    def _having_measure(self, condition: Dict, default: Aggregate,
+                        scope: Optional[ColumnScope], index: int) -> tuple:
+        """
+        Bir kosulun uzerinde calisacagi olcu. Islem ve kolon verilmemisse
+        sorgunun kendi olcusu kullaniliyor — bugunku davranis.
+
+        Doner: (olcu, denetim izinde gorunecek etiket)
+        """
+        wanted_agg = str(condition.get("aggregation") or "").strip().lower()
+        wanted_col = condition.get("column")
+
+        if not wanted_agg and not wanted_col:
+            label = default.label if default.column is None else (
+                f"{default.func.upper()}({default.column.name})")
+            return default, label
+
+        func = wanted_agg or default.func
+        if func not in self._NUMERIC_AGGS and func != "count":
             raise ValueError(
-                "Toplulaştırma sonrası koşul anlaşılamadı; "
-                "{\"op\": \">\", \"value\": 1000} biçiminde olmalı.")
+                f"'{func}' koşulda kullanılamaz. Kullanılabilir: "
+                f"count, {', '.join(sorted(self._NUMERIC_AGGS))}.")
 
-        op = self._HAVING_OPS.get(str(having.get("op") or "").strip())
-        if op is None:
-            raise ValueError(
-                f"'{having.get('op')}' tanınmayan bir karşılaştırma. "
-                f"Kullanılabilir: {', '.join(sorted(set(self._HAVING_OPS)))}.")
+        column = None
+        if wanted_col:
+            if scope is None:
+                raise ValueError(
+                    "Koşulda kolon belirtilemez: bu sorgu tipinde kolonlar "
+                    "çözümlenemiyor.")
+            column = scope.resolve(wanted_col)
+            if column is None:
+                raise ValueError(
+                    f"Koşulda geçen alan bulunamadı — "
+                    f"{self._column_missing(str(wanted_col), scope)}")
+        elif func != "count":
+            # COUNT disindaki islemler bir kolon ister; kolonsuz SUM
+            # anlamsizdir. Sorgunun kendi olcu kolonu varsa o kullaniliyor.
+            column = default.column
+            if column is None:
+                raise ValueError(
+                    f"'{func}' koşulu için hangi alanın hesaplanacağı "
+                    "belirtilmemiş.")
 
-        value = having.get("value")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(
-                "Toplulaştırma sonrası koşulun değeri bir sayı olmalı; "
-                "koşul hesaplanmış ölçüye uygulanıyor.")
-
-        key = f"{prefix}0"
-        label = aggregate.label if aggregate.column is None else (
-            f"{aggregate.func.upper()}({aggregate.column.name})")
-        return ([HavingPredicate(aggregate, op, [key])],
-                {key: value},
-                f"{label} {op} {value}")
+        label = f"{func.upper()}({column.name})" if column is not None else "COUNT(*)"
+        # Etiket yalnizca denetim izi icin; HAVING'in ciktida bir kolonu yok.
+        return Aggregate(func, column, f"_h{index}"), label
 
     def _build_window(self, window: Any, aggregate: Aggregate,
                       group_refs: List[ColumnRef], direction: str) -> tuple:
@@ -1069,7 +1143,7 @@ class AgentAnalyzer:
 
         try:
             having_predicates, having_params, having_note = self._build_having(
-                having, measure)
+                having, measure, scope=scope)
             windows, window_note, is_series = self._build_window(
                 window, measure, group_refs, direction)
         except ValueError as e:
@@ -1205,10 +1279,11 @@ class AgentAnalyzer:
     # Birlesim
     # ------------------------------------------------------------------
 
-    def _sql_union(self, union: Any, base_table: Optional[str],
+    def _sql_union(self, config: Dict, union: Any, base_table: Optional[str],
                    group_by: List[str], target_col: Optional[str],
-                   aggregation: str, filters: Dict, sort_order: str,
-                   limit: int, chart_type: str, title: str, desc: str) -> Dict:
+                   aggregation: str, filters: Dict, joins: Any, having: Any,
+                   sort_order: str, limit: int, chart_type: str, title: str,
+                   desc: str) -> Dict:
         """
         Ayni sorunun birden fazla tabloda sorulmasi ve sonuclarin alt alta
         eklenmesi.
@@ -1219,10 +1294,17 @@ class AgentAnalyzer:
         tablolari YANYANA koyar, birlesim ALT ALTA. Ikisini karistirmak, iki
         farkli soruya ayni cevabi vermek olur.
 
-        Dallar join kurmuyor. Bilincli bir sinir: bir dalin zinciri otekinden
-        farkliysa cikti kolonlari da farklilasir ve birlesim sessizce yanlis
-        seriler uretir. Ihtiyac cikarsa once zincirin dallar arasinda ayni
-        oldugunu dogrulamak gerekir.
+        Dallar KENDI join zincirini kurabiliyor. Buna ihtiyac var cunku
+        birlesimin en dogal sorusu ("ithalat ve ihracati musteri ADINA gore
+        kir") adi baska tablodan almayi gerektiriyor ve ad olmadan kirilim
+        musteri koduna duser — kullanicinin okuyamayacagi bir grafik.
+
+        Sinir cikti kolonlarinda, join'de degil: hangi zincir kurulursa
+        kurulsun dallarin urettigi kolon ADETI ve ADI birebir ayni olmali.
+        Cikti adlari ILK dalin kirilimindan aliniyor, sonraki dallar kendi
+        kolonlarini o adla etiketliyor. Tutmazsa <c>validate_union</c>
+        reddediyor — birlesimde kolonlar SIRAYLA eslesir ve farkli olursa
+        sonuc patlamaz, sessizce karisir.
         """
         if isinstance(union, list):
             # Modelin sik yaptigi kisayol: taban dalin etiketi verilmemis.
@@ -1248,21 +1330,22 @@ class AgentAnalyzer:
             "group_by": group_by,
             "target_column": target_col,
             "filters": filters,
+            "joins": joins or [],
         }]
         for index, other in enumerate(others):
             if not isinstance(other, dict) or not other.get("table"):
                 raise ValueError(
                     f"Birleşimin {index + 2}. dalında tablo belirtilmemiş.")
-            if other.get("joins"):
-                raise ValueError(
-                    "Birleşimin dalında tablo birleştirme desteklenmiyor; "
-                    "dalların çıktı kolonları birebir aynı olmak zorunda.")
             descriptors.append({
                 "table": str(other["table"]),
                 "label": str(other.get("label") or self._short_table(other["table"])),
                 "group_by": other.get("group_by") or group_by,
                 "target_column": other.get("target_column", target_col),
                 "filters": other.get("filters") or {},
+                # Dalin kendi zinciri. Verilmemisse taban dalinki DENENMIYOR:
+                # iki tablonun ayni yoldan gitmesi icin bir sebep yok ve
+                # yanlis varsayilan, sessizce bos bir seri uretir.
+                "joins": other.get("joins") or [],
             })
 
         # Etiket sonuclari ayirmanin TEK yolu: iki dal ayni etiketi tasirsa
@@ -1296,6 +1379,14 @@ class AgentAnalyzer:
             scope = ColumnScope()
             scope.add(ref.alias, columns,
                       [branch["table"], f"{schema}.{table}", table], is_base=True)
+
+            # Zincir kirilimdan ONCE kuruluyor: kirilim baglanan tablonun bir
+            # kolonu olabilir ("musteri adina gore") ve o kolon kapsama
+            # girmeden cozulemez.
+            branch_joins, join_params, join_notes = self._resolve_joins(
+                config, ref, branch["table"], branch["joins"], aliases, scope,
+                param_scope=f"u{index}_")
+            params.update(join_params)
 
             group_refs: List[ColumnRef] = []
             for position, raw in enumerate(branch["group_by"]):
@@ -1341,17 +1432,32 @@ class AgentAnalyzer:
             label_param = f"src{index}"
             params[label_param] = branch["label"]
 
+            measure = Aggregate(agg_key, measure_ref, "value")
+
+            # Esik her dala AYRI uygulaniyor ve dogrusu bu: "toplami 1M'yi
+            # gecen musteriler" sorusu, ithalatta 1M'yi gecen ile ihracatta
+            # gecen musterileri ayri ayri sorar. Birlesimden sonra uygulamak
+            # iki kaynagin toplamini esige sokmak olurdu — sorulan bu degil.
+            branch_having, having_params, having_note = self._build_having(
+                having, measure, prefix=f"hu{index}_", scope=scope)
+            params.update(having_params)
+
             branches.append(UnionBranch(
                 spec=QuerySpec(
                     base=ref,
+                    joins=branch_joins,
                     group_by=group_refs,
-                    aggregate=Aggregate(agg_key, measure_ref, "value"),
+                    aggregate=measure,
                     where=predicates,
+                    having=branch_having,
                 ),
                 label_param=label_param))
 
+            detail = list(filter_notes) + list(join_notes)
+            if having_note and index == 0:
+                notes.append(f"Her kaynakta koşul: {having_note}")
             notes.append(f"{branch['label']} ← {branch['table']}"
-                         + (f" ({' · '.join(filter_notes)})" if filter_notes else ""))
+                         + (f" ({' · '.join(detail)})" if detail else ""))
 
         direction = "asc" if str(sort_order).lower() == "asc" else "desc"
         spec = UnionSpec(

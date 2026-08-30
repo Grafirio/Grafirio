@@ -637,9 +637,25 @@ public class LlmAnalysisService
         "having": { "op": ">", "value": 1000000 }
         ```
 
-        Koşul her zaman bu sorgunun kendi `aggregation`'ına uygulanır; ayrıca
-        bir alan yazman gerekmiyor. `op` şunlardan biri: `>`, `>=`, `<`, `<=`,
-        `=`, `<>`. Değer sayı olmalı.
+        En yalın biçimde koşul bu sorgunun kendi `aggregation`'ına uygulanır;
+        ayrıca bir alan yazman gerekmiyor. `op` şunlardan biri: `>`, `>=`,
+        `<`, `<=`, `=`, `<>`. Değer sayı olmalı.
+
+        Koşul BAŞKA bir hesaba da uygulanabilir ve birden fazla koşul
+        yazılabilir. "Cirosu 1 milyonu geçen **ama** sipariş sayısı 5'ten az
+        olan müşteriler" gibi sorular bunu gerektirir — ikinci hesap grafikte
+        görünmez, yalnızca eler:
+
+        ```json
+        "having": [
+          { "op": ">", "value": 1000000 },
+          { "aggregation": "count", "op": "<", "value": 5 }
+        ]
+        ```
+
+        Koşullar VE ile bağlanır. `aggregation` verilmezse sorgunun kendi
+        işlemi, `column` verilmezse sorgunun kendi ölçü alanı kullanılır.
+        `count` alan istemez. Koşuldaki alanın `group_by`'da olması gerekmez.
 
         `filters` ile karıştırma — ikisi farklı soruları cevaplar:
 
@@ -700,10 +716,38 @@ public class LlmAnalysisService
         satırları, altına ihracat satırları. Soru "ikisini karşılaştır" ise
         birleşim, "şunun şusu" ise join.
 
-        Kurallar: birleşimde `group_by` zorunlu, her dalın etiketi farklı
-        olmalı ve `union` ile birlikte `joins`, `having`, `window`
-        kullanılamaz — bunlardan birine ihtiyaç varsa soruyu tek kaynak
-        üzerinden sor.
+        Kurallar: birleşimde `group_by` zorunlu ve her dalın etiketi farklı
+        olmalı.
+
+        **Her dal kendi `joins` zincirini kurabilir.** Buna çoğu zaman ihtiyaç
+        var: "ithalat ve ihracatı müşteri ADINA göre kır" dendiğinde ad başka
+        tablodadır. Taban dalın zinciri en dıştaki `joins` alanında, diğer
+        dalların zinciri kendi içlerinde yazılır — taban dalınki onlara
+        KOPYALANMAZ, her dal kendi yolunu söylemeli:
+
+        ```json
+        "joins": [{ "as": "m", "from": "base", "table": "dbo.Musteriler" }],
+        "group_by": ["dbo.Musteriler.Ad"],
+        "union": {
+          "label": "İthalat",
+          "with": [{
+            "table": "dbo.Ihracat", "label": "İhracat",
+            "joins": [{ "as": "m", "from": "base", "table": "dbo.Musteriler" }]
+          }]
+        }
+        ```
+
+        Değişmeyen tek şart: dalların ürettiği kolon SAYISI ve SIRASI aynı
+        olmalı. Kolon adları farklı olabilir (`UlkeAdi` / `Country`); çıktı
+        adı ilk dalınkidir.
+
+        `having` de kullanılabilir ve **her dala ayrı ayrı** uygulanır:
+        "toplamı 1 milyonu geçen müşteriler" sorusu, ithalatta geçenlerle
+        ihracatta geçenleri ayrı ayrı sorar.
+
+        `window` (birikim, hareketli ortalama) birleşimle kullanılamaz: bu
+        hesaplar dal başına değil birleşimin tamamı üzerinde anlamlıdır.
+        İhtiyaç varsa soruyu tek kaynak üzerinden sor.
 
         ## Zaman ifadeleri
 

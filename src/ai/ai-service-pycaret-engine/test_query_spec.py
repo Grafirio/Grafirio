@@ -1067,6 +1067,55 @@ expect_error(
     "tanınmayan bir karşılaştırma", ValueError,
 )
 
+# ── İki ayrı ölçüye koşul ─────────────────────────────────────────────────
+#
+# "Cirosu 1 milyonu geçen AMA sipariş sayısı 5'ten az olan müşteriler" iki
+# ayrı hesap istiyor ve ikincisi grafikte hiç görünmüyor — yalnızca eliyor.
+# Tek ölçüyle bu soru yazılamıyordu.
+
+_having_scope = ColumnScope()
+_having_scope.add("t0", {"tutar": "Tutar", "ay": "Ay", "adet": "Adet"},
+                  ["dbo.Siparisler", "Siparisler"], is_base=True)
+
+_multi, _multi_params, _multi_note = analyzer._build_having(
+    [{"op": ">", "value": 1000000},
+     {"aggregation": "count", "op": "<", "value": 5}],
+    measure, scope=_having_scope)
+
+check("iki koşul iki yüklem üretir", len(_multi), 2)
+check("ilk koşul sorgunun kendi ölçüsüne uygulanır",
+      _multi[0].sql(), "SUM([t0].[Tutar]) > :h0")
+check("ikinci koşul kendi işlemini kullanır",
+      _multi[1].sql(), "COUNT(*) < :h1")
+check("koşullar ayrı parametrelere bağlanır",
+      _multi_params, {"h0": 1000000, "h1": 5})
+# "ama" kelimesinin karşılığı VE; denetim izinde de öyle okunmalı.
+check("denetim izinde koşullar VE ile birleşir",
+      _multi_note, "SUM(Tutar) > 1000000 ve COUNT(*) < 5")
+
+_other_col, _, _other_note = analyzer._build_having(
+    {"column": "Adet", "aggregation": "sum", "op": ">=", "value": 10},
+    measure, scope=_having_scope)
+check("koşul başka bir kolona uygulanabilir",
+      _other_col[0].sql(), "SUM([t0].[Adet]) >= :h0")
+check("başka kolonun koşulu denetim izinde yazar", _other_note, "SUM(Adet) >= 10")
+
+expect_error(
+    "koşulda olmayan kolon reddedilir",
+    lambda: analyzer._build_having(
+        {"column": "BoyleBirKolonYok", "aggregation": "sum", "op": ">", "value": 1},
+        measure, scope=_having_scope),
+    "bulunamadı", ValueError,
+)
+
+expect_error(
+    "koşulda tanınmayan işlem reddedilir",
+    lambda: analyzer._build_having(
+        {"aggregation": "median", "op": ">", "value": 1}, measure,
+        scope=_having_scope),
+    "koşulda kullanılamaz", ValueError,
+)
+
 windows, wnote, series = analyzer._build_window(
     "running_total", measure, [group_ref], "desc")
 check("birikim çerçevesini kendisi kurar", windows[0].frame, "cumulative")
@@ -1158,6 +1207,137 @@ check("beyan kaynak etiketi",
       AgentAnalyzer._edge_source_label({"source": "declared"}), "sizin kurduğunuz")
 check("çıkarım kaynak etiketi",
       AgentAnalyzer._edge_source_label({"source": "inferred"}), "çıkarsanmış")
+
+
+# ── Birleşim + join ───────────────────────────────────────────────────────
+#
+# Birleşimin en doğal sorusu ("ithalat ve ihracatı müşteri ADINA göre kır")
+# adı başka tablodan almayı gerektiriyor. Ad olmadan kırılım müşteri koduna
+# düşer — kullanıcının okuyamayacağı bir grafik.
+#
+# Buradaki risk şu: dalların çıktı kolonları hizalanmazsa sorgu PATLAMAZ,
+# seriler sessizce karışır. O yüzden üretilen SQL'in kendisi ölçülüyor.
+
+
+class _UnionSqlCaptured(Exception):
+    """Üretilen SQL yakalandı; testin veriye ihtiyacı yok."""
+
+    def __init__(self, sql, params):
+        self.sql = sql
+        self.params = params
+
+
+class _UnionPort(_SchemaPort):
+    TABLES = {
+        "Ithalat": ["Id", "MusteriId", "Tutar"],
+        "Ihracat": ["Id", "MusteriId", "Tutar"],
+        "Musteriler": ["Id", "Ad"],
+    }
+
+    def read_sql(self, sql, params=None, max_rows=None):
+        p = params or {}
+        # Şema sorgusu tablo adıyla geliyor; birleşim sorgusu gelmiyor.
+        if "table" in p and "schema" in p:
+            return _FakeFrame(self.TABLES[p["table"]])
+        raise _UnionSqlCaptured(sql, p)
+
+
+_union_edges = [
+    edge("dbo.Ithalat", ["MusteriId"], "dbo.Musteriler", ["Id"]),
+    edge("dbo.Ihracat", ["MusteriId"], "dbo.Musteriler", ["Id"]),
+]
+
+_union_analyzer = AgentAnalyzer(_UnionPort())
+
+
+def run_union(**overrides):
+    """Birleşimi çalıştırır ve üretilen SQL ile parametreleri döner."""
+    call = {
+        "config": {"relationships": _union_edges},
+        "union": {
+            "label": "İthalat",
+            "with": [{"table": "dbo.Ihracat", "label": "İhracat",
+                      "joins": [{"as": "m", "from": "base", "table": "dbo.Musteriler"}]}],
+        },
+        "base_table": "dbo.Ithalat",
+        "group_by": ["dbo.Musteriler.Ad"],
+        "target_col": "Tutar",
+        "aggregation": "sum",
+        "filters": {},
+        "joins": [{"as": "m", "from": "base", "table": "dbo.Musteriler"}],
+        "having": None,
+        "sort_order": "desc",
+        "limit": 5,
+        "chart_type": "bar",
+        "title": "",
+        "desc": "",
+    }
+    call.update(overrides)
+    try:
+        _union_analyzer._sql_union(
+            call["config"], call["union"], call["base_table"], call["group_by"],
+            call["target_col"], call["aggregation"], call["filters"],
+            call["joins"], call["having"], call["sort_order"], call["limit"],
+            call["chart_type"], call["title"], call["desc"])
+    except _UnionSqlCaptured as captured:
+        return captured.sql, captured.params
+    raise AssertionError("birleşim SQL üretmeden döndü")
+
+
+_union_sql, _union_params = run_union()
+
+check("birleşimin iki dalı da kendi join'ini kuruyor",
+      _union_sql.count("LEFT JOIN"), 2)
+check("birleşim UNION ALL ile kuruluyor",
+      "UNION ALL" in _union_sql, True)
+# Kırılım bağlanan tablodan geliyor: ad, kod değil.
+check("kırılım bağlanan tablonun kolonundan çözülüyor",
+      _union_sql.count("[Ad]") >= 2, True)
+
+# Pencere hesabı hâlâ reddediliyor ve bu bilinçli: birikim dal başına
+# hesaplanırsa iki ayrı birikim çıkar ve grafik "kümülatif" dendiği halde
+# kümülatif olmayan bir şey gösterir. Sessizce yanlış bir seri üretmektense
+# açıkça reddetmek doğru.
+_window_result = _union_analyzer.run_analysis(
+    {"relationships": _union_edges},
+    {"analysis_type": "aggregation", "target_table": "dbo.Ithalat",
+     "group_by": ["Tutar"], "target_column": "Tutar", "aggregation": "sum",
+     "union": {"with": [{"table": "dbo.Ihracat"}]},
+     "window": {"function": "running_total"}})
+
+check("birleşimde pencere hesabı reddediliyor",
+      _window_result.get("success"), False)
+check("reddin sebebi yazıyor",
+      "birleşimin tamamı" in (_window_result.get("error") or ""), True)
+
+# Eşik her dala ayrı uygulanıyor: "toplamı 1M'yi geçen müşteriler" sorusu,
+# ithalatta geçen ile ihracatta geçeni ayrı ayrı sorar. Birleşimden sonra
+# uygulamak iki kaynağın toplamını eşiğe sokmak olurdu — sorulan bu değil.
+_having_sql, _having_params = run_union(having={"op": ">", "value": 1000000})
+check("eşik her dalda ayrı ayrı uygulanıyor",
+      _having_sql.count("HAVING"), 2)
+check("iki dalın eşik parametresi ayrı adlarda",
+      sorted(k for k in _having_params if k.startswith("hu")),
+      ["hu0_0", "hu1_0"])
+
+# Dallar AYNI parametre sözlüğünü paylaşıyor. İki dalda da sıfırıncı adımda
+# filtre varsa aynı ad iki farklı değere bağlanırdı ve biri sessizce
+# ötekinin değerini alırdı.
+_filtered_sql, _filtered_params = run_union(
+    joins=[{"as": "m", "from": "base", "table": "dbo.Musteriler",
+            "filter": {"Ad": "A"}}],
+    union={
+        "label": "İthalat",
+        "with": [{"table": "dbo.Ihracat", "label": "İhracat",
+                  "joins": [{"as": "m", "from": "base", "table": "dbo.Musteriler",
+                             "filter": {"Ad": "B"}}]}],
+    },
+)
+_join_filter_keys = sorted(k for k in _filtered_params if k.startswith("j"))
+check("dal başına join filtresi ayrı parametre adı alıyor",
+      len(_join_filter_keys), 2)
+check("iki dalın join filtresi farklı değerlere bağlı",
+      sorted(_filtered_params[k] for k in _join_filter_keys), ["A", "B"])
 
 
 print("\n\n".join(FAILS) if FAILS else "TÜM TESTLER GEÇTİ")
