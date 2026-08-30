@@ -1112,5 +1112,53 @@ expect_error(
 )
 
 
+# ── Onay bekleyen eşleşmeler ──────────────────────────────────────────────
+#
+# Adları bir harf farklı olduğu için tahminle kurulan bağlantı, sonuçla
+# birlikte kullanıcıya sorulacak. Denetim izine yazılmazsa soru hiç
+# sorulmaz ve sistem tahminini sessizce doğru sayar.
+
+_pending_analyzer = AgentAnalyzer(_StubDataPort())
+
+_typo_edge = {
+    "fromTable": "dbo.C_INT_Calc", "fromColumns": ["ReferanceId"],
+    "toTable": "dbo.L_INT_ExportReference", "toColumns": ["ReferenceId"],
+    "valueOverlap": 0.94, "source": "inferred", "needsConfirmation": True,
+}
+
+_pending_analyzer._record_pending(_typo_edge)
+# Aynı kenar zincirde iki kez geçebilir; kullanıcıya iki kez sorulmamalı.
+_pending_analyzer._record_pending(_typo_edge)
+
+check(
+    "onay bekleyen eşleşme denetim izine bir kez yazılır",
+    _pending_analyzer.audit.get("pendingConfirmations"),
+    [{
+        "fromTable": "dbo.C_INT_Calc", "fromColumn": "ReferanceId",
+        "toTable": "dbo.L_INT_ExportReference", "toColumn": "ReferenceId",
+        "valueOverlap": 0.94,
+    }],
+)
+
+_settled = AgentAnalyzer(_StubDataPort())
+_settled._record_pending({
+    "fromTable": "dbo.A", "fromColumns": ["BId"],
+    "toTable": "dbo.B", "toColumns": ["Id"],
+    "source": "fk",
+})
+check(
+    "hakkında karar verilmiş kenar sorulmaz",
+    _settled.audit.get("pendingConfirmations"),
+    None,
+)
+
+check("bildirilmiş kaynak etiketi",
+      AgentAnalyzer._edge_source_label({"source": "fk"}), "doğrulanmış")
+check("beyan kaynak etiketi",
+      AgentAnalyzer._edge_source_label({"source": "declared"}), "sizin kurduğunuz")
+check("çıkarım kaynak etiketi",
+      AgentAnalyzer._edge_source_label({"source": "inferred"}), "çıkarsanmış")
+
+
 print("\n\n".join(FAILS) if FAILS else "TÜM TESTLER GEÇTİ")
 sys.exit(1 if FAILS else 0)

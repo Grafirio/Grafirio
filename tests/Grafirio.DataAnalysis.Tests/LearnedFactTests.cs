@@ -42,6 +42,20 @@ public class LearnedFactTests
     }
 
     [Fact]
+    public void Iliski_anahtarinin_bicimi_arayuzle_ortak_bir_sozlesme()
+    {
+        // Bu bicim CanvasPage.jsx icindeki `relationshipKey` ile BIREBIR ayni
+        // olmak zorunda. Arayuz, bir eslesmenin daha once cevaplanip
+        // cevaplanmadigini bu anahtarla anliyor; bicim kayarsa hicbir sey
+        // patlamaz — yalnizca kullaniciya ayni soru tekrar tekrar sorulur.
+        //
+        // Burayi degistiren, CanvasPage.jsx'i de degistirmeli.
+        Assert.Equal(
+            "rel:dbo.siparisler.musteriid->dbo.musteriler.id",
+            LearnedFact.RelationshipKey("dbo.Siparisler", "MusteriId", "dbo.Musteriler", "Id"));
+    }
+
+    [Fact]
     public void Ayni_kolon_yeniden_tanimlanirsa_ustune_yazilir()
     {
         // Tanim anahtarin PARCASI DEGIL. Olsaydi, bir kolonun tanimini

@@ -52,10 +52,19 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// cevaplar. Fark su: cikarimda dusuk ortusme adayi eler, beyanda
     /// yalnizca uyarir. Hedef benzersizligi ise beyanda da zorunlu.
     /// </param>
+    /// <param name="rejectedByUser">
+    /// Kullanicinin "bu eslesme yanlis" dedigi baglantilar. Bunlar aday
+    /// olarak bile uretilmiyor.
+    ///
+    /// Reddi hatirlamak, onayi hatirlamak kadar onemli: unutulursa sistem
+    /// ayni yanlis eslesmeyi her analizde yeniden kurar, her sorguda yeniden
+    /// sorar ve kullanicinin verdigi cevabin hicbir agirligi olmaz.
+    /// </param>
     public async Task<List<RelationshipProfile>> DiscoverAsync(
         IDataSourceSession session,
         IReadOnlyList<TableProfile> tables,
         IReadOnlyList<DeclaredLink>? declaredByUser = null,
+        IReadOnlyList<DeclaredLink>? rejectedByUser = null,
         CancellationToken ct = default)
     {
         var usable = tables.Where(t => t.Error is null && t.Columns.Count > 0).ToList();
@@ -113,9 +122,19 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 "Beyan edilen bağlantı kullanıldı ({Overlap:P0}): {Edge}", overlap, Key(candidate));
         }
 
+        var rejected = RejectedKeys(rejectedByUser);
+
         foreach (var candidate in BuildCandidates(usable, uniqueColumns))
         {
             if (!seen.Add(Key(candidate))) continue;
+
+            // Kullanici bu eslesmeye "hayir" demis. Olcmeye bile gerek yok;
+            // olcum kapisindan gecse de kurulmayacak.
+            if (rejected.Contains(EdgeIdentity(candidate)))
+            {
+                logger.LogDebug("Reddedilmiş eşleşme, kurulmadı: {Edge}", Key(candidate));
+                continue;
+            }
 
             var overlap = await MeasureOverlapAsync(session, candidate, ct);
             if (overlap is null) continue;
@@ -130,6 +149,12 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
             candidate.Confidence = overlap >= HighConfidenceOverlap ? "high" : "medium";
             candidate.Note = $"Değerlerin %{overlap * 100:F0}'ı hedef tabloda bulundu.";
+
+            // Adlar tam eslesmedigi icin tahminle kuruldu ve kullanici bu
+            // konuda henuz bir sey soylemedi: onaylanmis olsa "declared"
+            // kenari kazanirdi, reddedilmis olsa yukarida elenirdi.
+            candidate.NeedsConfirmation = candidate.MatchedByTypo;
+
             edges.Add(candidate);
 
             // Yazim toleransindan dogan kenarlar ayrica yaziliyor: toleransin
@@ -137,7 +162,8 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
             // esik yanlis ve buradan gorulmesi gerekiyor.
             if (candidate.MatchedByTypo)
                 logger.LogInformation(
-                    "Yazım toleransıyla bulundu ({Overlap:P0}): {Edge}", overlap, Key(candidate));
+                    "Yazım toleransıyla bulundu ({Overlap:P0}), onay bekliyor: {Edge}",
+                    overlap, Key(candidate));
         }
 
         AttachLabelColumns(edges, usable);
@@ -153,6 +179,29 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
     private static string Key(RelationshipProfile r) =>
         $"{r.FromTable}({string.Join(",", r.FromColumns)})->{r.ToTable}";
+
+    /// <summary>
+    /// Reddedilenlerle karsilastirmak icin kenarin kimligi. <see cref="Key"/>
+    /// hedef KOLONU tasimiyor — o, ayni tabloya giden iki farkli kenari ayirt
+    /// etmek icin degil, tekrar uretimi engellemek icin var. Ret ise kolon
+    /// duzeyinde verilmis bir karar ve o duzeyde uygulanmali.
+    /// </summary>
+    private static string EdgeIdentity(RelationshipProfile r) => Identity(
+        r.FromTable, r.FromColumns.FirstOrDefault(),
+        r.ToTable, r.ToColumns.FirstOrDefault());
+
+    private static string Identity(string? fromTable, string? fromColumn, string? toTable, string? toColumn) =>
+        $"{Norm(fromTable)}.{Norm(fromColumn)}->{Norm(toTable)}.{Norm(toColumn)}";
+
+    private static string Norm(string? value) =>
+        string.Concat((value ?? "").Where(c => c is not ('[' or ']'))).Trim().ToLowerInvariant();
+
+    private static HashSet<string> RejectedKeys(IReadOnlyList<DeclaredLink>? rejected) =>
+        rejected is null || rejected.Count == 0
+            ? []
+            : rejected
+                .Select(r => Identity(r.FromTable, r.FromColumn, r.ToTable, r.ToColumn))
+                .ToHashSet(StringComparer.Ordinal);
 
     /* ── 1. Bildirilmis yabanci anahtarlar ────────────────────────────── */
 

@@ -439,3 +439,30 @@ export const revokeBridge = async (bridgeId) => {
   return response.data;
 };
 
+
+/* ── Öğrenilen bilgiler ──────────────────────────────────────────────────
+   Sistem bir bağlantıyı adlara bakıp tahmin ettiğinde sonucun yanında
+   soruyor: "şu iki kolonu eşledim, doğru mu?". Cevap — evet de hayır da —
+   buraya yazılıyor ve aynı şey bir daha sorulmuyor. */
+
+/** Kullanıcının onayladığı (ya da reddettiği) bir bilgiyi kalıcı kaydeder. */
+export const learnFact = async (connectionId, fact) => {
+  const response = await axios.post(
+    `${API_BASE_URL}/api/agent/config/${connectionId}/learned`, fact, { timeout: 15000 });
+  return response.data;
+};
+
+/** Bu bağlantı için öğrenilmiş her şey — reddedilenler dahil. */
+export const listLearnedFacts = async (connectionId) => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/agent/config/${connectionId}/learned`, { timeout: 15000 });
+  return response.data;
+};
+
+/** Yanlış öğrenilmiş bir bilgiyi siler. */
+export const forgetLearnedFact = async (connectionId, key) => {
+  const response = await axios.delete(
+    `${API_BASE_URL}/api/agent/config/${connectionId}/learned/${encodeURIComponent(key)}`,
+    { timeout: 15000 });
+  return response.data;
+};

@@ -40,7 +40,7 @@ const NO_DRAG_SELECTOR = 'input, textarea, button, select, a, canvas, summary, d
 
 export default function InfiniteCanvas({
   nodes = [], edges = [], onNodeClick,
-  onNodeMove, onNodeAsk, onNodeRefine, onNodeDelete,
+  onNodeMove, onNodeAsk, onNodeRefine, onNodeDelete, onNodeConfirmMatch,
 }) {
   const [transform, setTransform] = useState({ x: 60, y: 60, zoom: 1 });
   const [isPanning, setIsPanning] = useState(false);
@@ -362,6 +362,9 @@ export default function InfiniteCanvas({
                 onAsk={onNodeAsk ? (text) => onNodeAsk(node, text) : undefined}
                 onRefine={onNodeRefine ? (text) => onNodeRefine(node, text) : undefined}
                 onDelete={onNodeDelete ? () => onNodeDelete(node) : undefined}
+                onConfirmMatch={onNodeConfirmMatch
+                  ? (match, accepted) => onNodeConfirmMatch(node, match, accepted)
+                  : undefined}
               />
             </div>
           );

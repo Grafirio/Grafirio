@@ -86,15 +86,12 @@ public class ConnectionAnalysisConsumer(
                     "Öğrenilmiş bilgi okundu: {Accepted} onaylı, {Rejected} reddedilmiş.",
                     accepted.Count, learned.Count - accepted.Count);
 
-            var declaredLinks = accepted
-                .Where(f => f.Kind == LearnedFact.Relationship)
-                .Select(f => new RelationshipDiscovery.DeclaredLink(
-                    f.FromTable ?? "", f.FromColumn ?? "", f.ToTable ?? "", f.ToColumn ?? ""))
-                .ToList();
+            var declaredLinks = LinksOf(accepted);
+            var rejectedLinks = LinksOf(learned.Where(f => !f.Accepted));
 
             var profile = await profiler.ProfileAsync(
                 session, connection.Database, selectedTables, message.SamplingConsentGiven,
-                declaredLinks, ct);
+                declaredLinks, rejectedLinks, ct);
 
             // Sozluk tek cagriyla uretilemiyor: cikti kolon sayisiyla dogru
             // orantili buyudugu icin birkac yuz kolonda cevap token butcesine
@@ -182,6 +179,17 @@ public class ConnectionAnalysisConsumer(
             await Fail(config, ex.Message, ct);
         }
     }
+
+    /// <summary>
+    /// Iliski kayitlarini kesif hattinin anladigi bicime cevirir. Iliski
+    /// disindaki turler (es anlamli, tanim…) burada elenir.
+    /// </summary>
+    private static List<RelationshipDiscovery.DeclaredLink> LinksOf(
+        IEnumerable<LearnedFact> facts) => facts
+            .Where(f => f.Kind == LearnedFact.Relationship)
+            .Select(f => new RelationshipDiscovery.DeclaredLink(
+                f.FromTable ?? "", f.FromColumn ?? "", f.ToTable ?? "", f.ToColumn ?? ""))
+            .ToList();
 
     /// <summary>
     /// MassTransit yapilandirmasindaki yeniden deneme sayisiyla ayni olmali;
