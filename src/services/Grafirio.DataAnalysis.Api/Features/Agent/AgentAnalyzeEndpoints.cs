@@ -75,6 +75,11 @@ public static class AgentAnalyzeEndpoints
         // ve gorunmez bir bilgi, yanlis ogrenilmisse her sorguyu sessizce
         // bozar ve kullanicinin sebebi bulabilecegi hicbir yer olmaz.
         // Yanlis ogrenilmis bir bilgi, hic ogrenmemekten kotudur.
+        group.MapPost("/config/{connectionId:guid}/learned", Learn)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
+            .WithName("LearnFact")
+            .WithDescription("Kullanıcının onayladığı bir bilgiyi kalıcı olarak kaydeder");
+
         group.MapGet("/config/{connectionId:guid}/learned", ListLearned)
             .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("ListLearnedFacts")
@@ -454,6 +459,82 @@ public static class AgentAnalyzeEndpoints
     /* ── "Ogrendiklerim" ──────────────────────────────────────────────── */
 
     /// <summary>
+    /// Onay penceresinin yazdigi yer.
+    ///
+    /// Kayit ANINDA gecerli olmuyor: sozluk bir sonraki "Analiz Et"te
+    /// yeniden uretilirken isleniyor. Bunun tek istisnasi olamaz, cunku
+    /// ogrenilen bilginin (ozellikle bir iliskinin) gecerli olup olmadigi
+    /// ancak veritabanina bakilarak — olcum kapisindan gecirilerek —
+    /// bilinebilir ve o kapi profil cikarma adiminda kuruluyor.
+    /// </summary>
+    private static async Task<IResult> Learn(
+        Guid connectionId,
+        LearnRequest request,
+        [FromServices] LearnedFactStore facts,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        var fact = BuildFact(request, identity.UserId.ToString());
+        if (fact is null)
+            return Results.BadRequest(new
+            {
+                error = "Eksik ya da tanınmayan bilgi türü. Beklenen: "
+                      + string.Join(", ", LearnedFact.AllKinds)
+            });
+
+        await facts.SaveAsync(connectionId, companyId.Value.ToString(), fact, ct);
+
+        return Results.Ok(new { success = true, key = fact.Key, description = fact.Describe() });
+    }
+
+    /// <summary>
+    /// Istegi bir kayda cevirir. Eksik alanli istek <c>null</c> doner —
+    /// yarim bir kaydi yazmak, hicbir zaman eslesmeyecek bir anahtari
+    /// kalici hale getirmek olurdu.
+    /// </summary>
+    private static LearnedFact? BuildFact(LearnRequest request, string? userId)
+    {
+        static bool Has(string? value) => !string.IsNullOrWhiteSpace(value);
+
+        return request.Kind switch
+        {
+            LearnedFact.Relationship
+                when Has(request.FromTable) && Has(request.FromColumn)
+                  && Has(request.ToTable) && Has(request.ToColumn) =>
+                LearnedFact.ForRelationship(
+                    request.FromTable!, request.FromColumn!, request.ToTable!, request.ToColumn!,
+                    request.Accepted, request.Question, userId),
+
+            LearnedFact.Synonym when Has(request.Table) && Has(request.Means) =>
+                LearnedFact.ForSynonym(
+                    request.Table!, request.Column, request.Means!,
+                    request.Accepted, request.Question, userId),
+
+            LearnedFact.Meaning when Has(request.Table) && Has(request.Means) =>
+                LearnedFact.ForMeaning(
+                    request.Table!, request.Column, request.Means!,
+                    request.Accepted, request.Question, userId),
+
+            LearnedFact.CodeMeaning
+                when Has(request.Table) && Has(request.Column)
+                  && Has(request.Value) && Has(request.Means) =>
+                LearnedFact.ForCodeMeaning(
+                    request.Table!, request.Column!, request.Value!, request.Means!,
+                    request.Accepted, request.Question, userId),
+
+            LearnedFact.Label when Has(request.Table) && Has(request.Column) =>
+                LearnedFact.ForLabel(
+                    request.Table!, request.Column!,
+                    request.Accepted, request.Question, userId),
+
+            _ => null,
+        };
+    }
+
+    /// <summary>
     /// Bu baglanti icin ogrenilmis her sey — reddedilenler dahil.
     ///
     /// Reddedilenler de gosteriliyor cunku onlar da bir karar: kullanici
@@ -587,6 +668,26 @@ public static class AgentAnalyzeEndpoints
 public record AnalyzeRequest(bool SamplingConsentGiven);
 
 public record AnswersRequest(Dictionary<string, string>? Answers);
+
+/// <summary>
+/// Kullanicinin onayladigi (ya da reddettigi) tek bir bilgi.
+///
+/// <paramref name="Accepted"/> <c>false</c> gelebilir ve bu bir hata degil,
+/// bilgidir: "bu eslesme yanlis" cevabi da kaydediliyor. Yoksa sistem ayni
+/// yanlis eslesmeyi her sorguda yeniden kurar ve yeniden sorar.
+/// </summary>
+public record LearnRequest(
+    string Kind,
+    bool Accepted,
+    string? FromTable,
+    string? FromColumn,
+    string? ToTable,
+    string? ToColumn,
+    string? Table,
+    string? Column,
+    string? Value,
+    string? Means,
+    string? Question);
 
 public record QuestionDto(string Id, string? Table, string? Column, string Question, List<string> Options);
 
