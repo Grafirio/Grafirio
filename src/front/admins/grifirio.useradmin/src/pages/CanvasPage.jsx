@@ -662,9 +662,15 @@ export default function CanvasPage() {
             </span>
           )}
         </div>
+      </div>
 
-
-        {/* ── Sağ: Sonsuz Tuval ── */}
+      {/* ══ TUVAL ════════════════════════════════════════════
+          `.cp-body` kalan yüksekliğin tamamını alıyor (flex: 1, height: 0);
+          tuval de onun içinde %100. Yan panel kalktı ama bu sarmalayıcı
+          KALMALI — tuval doğrudan `.cp-topbar` içine düşerse başlık çubuğu
+          sabit yükseklikte olduğu için sıfır yüksekliğe sıkışıyor ve ekran
+          bomboş görünüyor. */}
+      <div className="cp-body">
         <main className="cp-canvas-area">
           <InfiniteCanvas
             nodes={canvasNodes}

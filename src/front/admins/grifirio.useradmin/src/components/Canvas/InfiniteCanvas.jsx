@@ -414,15 +414,6 @@ export default function InfiniteCanvas({
           }}
         />
       )}
-
-      {/* Tuval boşken girişin nerede olduğu görünmeli: sağ tık keşfedilen
-          bir hareket değil. */}
-      {nodes.length === 0 && onCreateCard && (
-        <div className="canvas-blank">
-          Başlamak için tuvale <strong>sağ tıklayın</strong> ve bir grafik türü seçin.
-        </div>
-      )}
-
       <div className="canvas-controls">
         <button className="canvas-ctrl-btn" title="Tümünü Göster" onClick={fitView}>⌖</button>
         <button className="canvas-ctrl-btn" title="Yakınlaş"
@@ -445,7 +436,13 @@ export default function InfiniteCanvas({
             </svg>
           </div>
           <h3>Sonsuz Tuval</h3>
-          <p>Sol panelden bir rapor seçin veya soru sorun.<br />Analiz sonuçları buraya <strong>node</strong> olarak yerleştirilecek.</p>
+          {/* "Sol panelden sorun" yazıyordu; o panel kaldırıldı ve giriş
+              artık yalnızca sağ tık. Yanlış yönlendiren bir boş ekran,
+              yönlendirmeyen bir boş ekrandan kötü. */}
+          <p>
+            Tuvale <strong>sağ tıklayın</strong> ve bir grafik türü seçin.
+            <br />Soru soracağınız kart oraya kurulur.
+          </p>
           <div className="canvas-empty-hints">
             <span>🖱 Sürükle: Tuval kaydır</span>
             <span>⚲ Tekerlek: Yakınlaş / Uzaklaş</span>
