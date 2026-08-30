@@ -115,6 +115,65 @@ public class DeclaredRelationshipTests
             [hareket, cari], KeysOf(hareket, cari)));
     }
 
+    /* ── Geçersizleşen beyan sessizce düşmez ──────────────────────────────
+       Şema değişir: kolon kaldırılır, tablo seçimden çıkar, bir zamanlar
+       benzersiz olan anahtar çoğullaşır. Kullanıcı bunu görmezse kurduğu
+       bağlantının hâlâ çalıştığını sanar ve sorgu "bu tabloları
+       birleştiremem" dediğinde sebebi hiçbir yerde yazmaz. */
+
+    [Fact]
+    public void Kurulamayan_beyanin_sebebi_disari_veriliyor()
+    {
+        var hareket = Table("Hareketler", ("Id", "int", true), ("CariKodu", "nvarchar", false));
+        var cari = Table("Cariler", ("Kod", "nvarchar", false));   // benzersiz değil
+        var problems = new List<RelationshipDiscovery.DeclaredProblem>();
+
+        Discovery.BuildDeclaredCandidates(
+            [new RelationshipDiscovery.DeclaredLink("dbo.Hareketler", "CariKodu", "dbo.Cariler", "Kod")],
+            [hareket, cari], KeysOf(hareket, cari), problems);
+
+        var problem = Assert.Single(problems);
+        Assert.Equal("dbo.Hareketler", problem.Link.FromTable);
+        // Sebep doğrudan kullanıcıya gösteriliyor: teknik terim değil, ne
+        // olduğunu ve neden böyle olduğunu anlatan cümle.
+        Assert.Contains("benzersiz değil", problem.Reason);
+        Assert.Contains("çoğaltır", problem.Reason);
+    }
+
+    [Theory]
+    [InlineData("dbo.BoyleBirTabloYok", "F1", "dbo.Cariler", "Id", "tablosu")]
+    [InlineData("dbo.Hareketler", "YokKolon", "dbo.Cariler", "Id", "kolonu artık yok")]
+    [InlineData("dbo.Hareketler", "F1", "dbo.Hareketler", "Id", "kendisini")]
+    public void Her_eleme_sebebiyle_birlikte_bildiriliyor(
+        string fromTable, string fromColumn, string toTable, string toColumn, string fragment)
+    {
+        var hareket = Table("Hareketler", ("Id", "int", true), ("F1", "int", false));
+        var cari = Table("Cariler", ("Id", "int", true));
+        var problems = new List<RelationshipDiscovery.DeclaredProblem>();
+
+        Discovery.BuildDeclaredCandidates(
+            [new RelationshipDiscovery.DeclaredLink(fromTable, fromColumn, toTable, toColumn)],
+            [hareket, cari], KeysOf(hareket, cari), problems);
+
+        Assert.Contains(fragment, Assert.Single(problems).Reason);
+    }
+
+    [Fact]
+    public void Kurulan_beyan_sorun_bildirmiyor()
+    {
+        // İkinci yarı birincisi kadar önemli: düzelen bir sorunun ekranda
+        // asılı kalması, kullanıcıyı olmayan bir sorunu kovalamaya gönderir.
+        var hareket = Table("Hareketler", ("Id", "int", true), ("F1", "int", false));
+        var cari = Table("Cariler", ("Id", "int", true));
+        var problems = new List<RelationshipDiscovery.DeclaredProblem>();
+
+        Discovery.BuildDeclaredCandidates(
+            [new RelationshipDiscovery.DeclaredLink("dbo.Hareketler", "F1", "dbo.Cariler", "Id")],
+            [hareket, cari], KeysOf(hareket, cari), problems);
+
+        Assert.Empty(problems);
+    }
+
     [Fact]
     public void Beyan_yoksa_hicbir_sey_uretilmiyor()
     {

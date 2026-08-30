@@ -38,6 +38,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         bool samplingConsentGiven,
         IReadOnlyList<RelationshipDiscovery.DeclaredLink>? declaredLinks = null,
         IReadOnlyList<RelationshipDiscovery.DeclaredLink>? rejectedLinks = null,
+        ICollection<RelationshipDiscovery.DeclaredProblem>? declaredProblems = null,
         CancellationToken ct = default)
     {
         if (selectedTables.Count == 0)
@@ -72,7 +73,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
         // kolon adlarina, tiplerine ve benzersizligine bakiyor.
         profile.Relationships = await relationships.DiscoverAsync(
-            session, profile.Tables, declaredLinks, rejectedLinks, ct);
+            session, profile.Tables, declaredLinks, rejectedLinks, declaredProblems, ct);
         return profile;
     }
 

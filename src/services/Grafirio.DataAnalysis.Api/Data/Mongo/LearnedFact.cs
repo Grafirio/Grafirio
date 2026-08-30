@@ -87,6 +87,12 @@ public sealed class LearnedFact
        "Kim, ne zaman, hangi soruya cevaben" — yanlis ogrenilmis bir bilgi
        bulundugunda tek tutamak bu. */
     public string? Question { get; init; }
+
+    /// <summary>
+    /// Son "Analiz Et"te bu kayit kurulamadiysa sebebi; kurulabildiyse null.
+    /// Kullaniciya oldugu gibi gosteriliyor.
+    /// </summary>
+    public string? Problem { get; init; }
     public string? UserId { get; init; }
     public DateTime CreatedAt { get; init; }
 

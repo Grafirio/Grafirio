@@ -466,3 +466,17 @@ export const forgetLearnedFact = async (connectionId, key) => {
     { timeout: 15000 });
   return response.data;
 };
+
+/**
+ * Bir tablonun kolonları.
+ *
+ * Elle bağlantı kurarken sözlük değil GERÇEK ŞEMA okunuyor: adı hiçbir şey
+ * anlatmayan kolonlar (`F1`, `X_REF`) sözlükte çoğu zaman hiç yazmıyor — ki
+ * elle bağlanması gereken kolonlar tam olarak onlar.
+ */
+export const getTableColumns = async (connectionId, fullName) => {
+  const response = await axios.get(
+    `${API_BASE_URL}/api/schema/${connectionId}/table/${encodeURIComponent(fullName)}`,
+    { timeout: 30000 });
+  return response.data;
+};
