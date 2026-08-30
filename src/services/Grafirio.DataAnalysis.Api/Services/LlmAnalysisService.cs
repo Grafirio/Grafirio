@@ -465,6 +465,11 @@ public class LlmAnalysisService
         tuttuğunu buradan öğrenirsin; filtre yazarken değer uydurmak yerine
         buraya bak.
 
+        Bir `codeValues` kaydında `meanings` varsa, o kodların ne anlama
+        geldiğini veritabanını bilen kişi söylemiştir:
+        `"meanings": { "ROD": "karayolu" }`. Kullanıcı "kara" dediğinde hangi
+        kodu filtreleyeceğini oradan bulursun — kod adına bakıp tahmin etme.
+
         ```json
         {{dictionaryJson}}
         ```

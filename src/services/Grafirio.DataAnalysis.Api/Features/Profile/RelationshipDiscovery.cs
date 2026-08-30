@@ -42,9 +42,20 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// <summary>Ortusme olcumu kisa tutulur; takilan aday elenir.</summary>
     private const int OverlapQueryTimeoutSeconds = 30;
 
+    /// <param name="declaredByUser">
+    /// Veritabanini bilen birinin elle kurdugu baglantilar. Adlari hic
+    /// benzemeyen kolonlar (<c>F1</c>, <c>X_REF</c>, kisaltmalar) yalnizca bu
+    /// yoldan bulunabilir; ad kalibi orada kor.
+    ///
+    /// Beyan olcumu ATLAMAZ. Kullanici bir iliskinin VARLIGINI bilebilir;
+    /// toplamlari sisirip sisirmeyecegini bilemez — o soruyu yalnizca veri
+    /// cevaplar. Fark su: cikarimda dusuk ortusme adayi eler, beyanda
+    /// yalnizca uyarir. Hedef benzersizligi ise beyanda da zorunlu.
+    /// </param>
     public async Task<List<RelationshipProfile>> DiscoverAsync(
         IDataSourceSession session,
         IReadOnlyList<TableProfile> tables,
+        IReadOnlyList<DeclaredLink>? declaredByUser = null,
         CancellationToken ct = default)
     {
         var usable = tables.Where(t => t.Error is null && t.Columns.Count > 0).ToList();
@@ -63,6 +74,44 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
         var edges = new List<RelationshipProfile>(declared);
         var seen = declared.Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Beyanlar cikarimdan ONCE isleniyor. Ayni kenari cikarim da bulacak
+        // olsa bile, kullanicinin soyledigi kazanmali: kaynagi kayitta
+        // "declared" kalsin ki denetim izinde neye dayanildigi gorunsun.
+        var declaredEdges = BuildDeclaredCandidates(declaredByUser, usable, uniqueColumns);
+        foreach (var candidate in declaredEdges)
+        {
+            if (!seen.Add(Key(candidate))) continue;
+
+            var overlap = await MeasureOverlapAsync(session, candidate, ct);
+
+            if (overlap is null)
+            {
+                // Beyan sessizce dusurulmez. Olcum patliyorsa sebebi
+                // neredeyse her zaman tip uyusmazligi ve kullanici bunu
+                // bilmeden bekler.
+                logger.LogWarning(
+                    "Beyan edilen bağlantı ölçülemedi, atlandı: {Edge}", Key(candidate));
+                continue;
+            }
+
+            candidate.ValueOverlap = Math.Round(overlap.Value, 3);
+
+            // Cikarimdan tek farki burasi: dusuk ortusme adayi ELEMEZ.
+            // Kullanici tabloyu tanidigi icin kismen dolu bir kolonu bilerek
+            // baglayabilir; ona "bu yanlis" demek bizim isimiz degil. Ama
+            // sayinin ne oldugunu soylemek bizim isimiz.
+            candidate.Confidence = overlap >= HighConfidenceOverlap ? "high" : "medium";
+            candidate.Note = overlap < MinOverlap
+                ? $"Sizin kurduğunuz bağlantı. Değerlerin yalnızca %{overlap * 100:F0}'ı "
+                  + "hedef tabloda bulundu — sonuçlar eksik çıkabilir."
+                : $"Sizin kurduğunuz bağlantı. Değerlerin %{overlap * 100:F0}'ı hedef tabloda bulundu.";
+
+            edges.Add(candidate);
+
+            logger.LogInformation(
+                "Beyan edilen bağlantı kullanıldı ({Overlap:P0}): {Edge}", overlap, Key(candidate));
+        }
 
         foreach (var candidate in BuildCandidates(usable, uniqueColumns))
         {
@@ -93,9 +142,11 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
         AttachLabelColumns(edges, usable);
 
+        var userDeclaredCount = edges.Count(e => e.Source == "declared");
         logger.LogInformation(
-            "İlişki keşfi tamamlandı: {Total} bağlantı ({Declared} bildirilmiş, {Inferred} çıkarsanmış)",
-            edges.Count, declared.Count, edges.Count - declared.Count);
+            "İlişki keşfi tamamlandı: {Total} bağlantı ({Fk} bildirilmiş, {Declared} beyan, {Inferred} çıkarsanmış)",
+            edges.Count, declared.Count, userDeclaredCount,
+            edges.Count - declared.Count - userDeclaredCount);
 
         return edges;
     }
@@ -282,6 +333,103 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 }
             }
         }
+    }
+
+    /* ── 2b. Kullanicinin beyan ettigi baglantilar ────────────────────── */
+
+    /// <summary>
+    /// Veritabanini bilen birinin kurdugu tek bir baglanti. Adlar nitelenmis
+    /// gelir (<c>dbo.Tablo</c>); buyuk/kucuk harf onemli degildir.
+    /// </summary>
+    public readonly record struct DeclaredLink(
+        string FromTable, string FromColumn, string ToTable, string ToColumn);
+
+    /// <summary>
+    /// Beyanlari aday kenara cevirir. Cozulemeyen beyan sessizce dusmez —
+    /// her eleme sebebiyle birlikte loglanir, cunku kullanici kurdugu
+    /// baglantinin calistigini varsayarak bekler.
+    ///
+    /// Hedef benzersizligi burada da ZORUNLU. Sebebi dogruluk degil emniyet:
+    /// benzersiz olmayan bir hedefe join satirlari cogaltir ve
+    /// <c>COUNT(*)</c> sessizce baska bir seyi saymaya baslar.
+    /// </summary>
+    public List<RelationshipProfile> BuildDeclaredCandidates(
+        IReadOnlyList<DeclaredLink>? links,
+        IReadOnlyList<TableProfile> tables,
+        IReadOnlyDictionary<string, HashSet<string>> uniqueColumns)
+    {
+        var result = new List<RelationshipProfile>();
+        if (links is null || links.Count == 0) return result;
+
+        TableProfile? Find(string qualified) => tables.FirstOrDefault(
+            t => string.Equals(t.Qualified, qualified, StringComparison.OrdinalIgnoreCase));
+
+        static string? Resolve(TableProfile table, string column) => table.Columns
+            .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase))
+            ?.ColumnName;
+
+        foreach (var link in links)
+        {
+            var from = Find(link.FromTable);
+            var to = Find(link.ToTable);
+
+            if (from is null || to is null)
+            {
+                // Tablo secimden cikmis ya da semadan kaldirilmis olabilir.
+                logger.LogWarning(
+                    "Beyan edilen bağlantının tablosu bu analizde yok: {From} -> {To}",
+                    link.FromTable, link.ToTable);
+                continue;
+            }
+
+            if (ReferenceEquals(from, to))
+            {
+                logger.LogWarning(
+                    "Beyan edilen bağlantı kendi tablosunu gösteriyor, atlandı: {Table}", from.Qualified);
+                continue;
+            }
+
+            var fromColumn = Resolve(from, link.FromColumn);
+            var toColumn = Resolve(to, link.ToColumn);
+
+            if (fromColumn is null || toColumn is null)
+            {
+                logger.LogWarning(
+                    "Beyan edilen bağlantının kolonu bulunamadı: {From}.{FromColumn} -> {To}.{ToColumn}",
+                    from.Qualified, link.FromColumn, to.Qualified, link.ToColumn);
+                continue;
+            }
+
+            if (!uniqueColumns.TryGetValue(to.Qualified, out var keys) || !keys.Contains(toColumn))
+            {
+                logger.LogWarning(
+                    "Beyan edilen bağlantının hedefi benzersiz değil, atlandı: {To}.{ToColumn}. "
+                    + "Benzersiz olmayan hedefe join satırları çoğaltır.",
+                    to.Qualified, toColumn);
+                continue;
+            }
+
+            var childIsUnique =
+                uniqueColumns.TryGetValue(from.Qualified, out var ownKeys)
+                && ownKeys.Contains(fromColumn);
+
+            result.Add(new RelationshipProfile
+            {
+                FromTable = from.Qualified,
+                FromColumns = [fromColumn],
+                ToTable = to.Qualified,
+                ToColumns = [toColumn],
+                Cardinality = childIsUnique
+                    ? RelationshipProfile.OneToOne
+                    : RelationshipProfile.ManyToOne,
+                // Beyanda da referans butunlugu garantisi yok: LEFT JOIN.
+                IsOptional = true,
+                IsTrusted = false,
+                Source = "declared",
+            });
+        }
+
+        return result;
     }
 
     private static string? PickTargetColumn(

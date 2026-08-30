@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using MassTransit;
@@ -37,6 +38,7 @@ public class ConnectionAnalysisConsumer(
     LlmAnalysisService llm,
     SchemaProfiler profiler,
     IDataSourceFactory dataSources,
+    LearnedFactStore facts,
     ILogger<ConnectionAnalysisConsumer> logger)
     : IConsumer<AnalyzeConnectionRequested>
 {
@@ -72,8 +74,27 @@ public class ConnectionAnalysisConsumer(
         {
             await using var session = await dataSources.OpenAsync(connection, ct);
 
+            // Kullanicinin daha once ogrettikleri. Sozluk her analizde
+            // sifirdan uretiliyor; bunlar duruyor ve uzerine isleniyor.
+            // Reddedilenler de geliyor — onlar sozluge islenmez, yalnizca
+            // "bir daha sorma" kaydidir.
+            var learned = await facts.GetAllAsync(message.ConnectionId, message.CompanyId, ct);
+            var accepted = learned.Where(f => f.Accepted).ToList();
+
+            if (learned.Count > 0)
+                logger.LogInformation(
+                    "Öğrenilmiş bilgi okundu: {Accepted} onaylı, {Rejected} reddedilmiş.",
+                    accepted.Count, learned.Count - accepted.Count);
+
+            var declaredLinks = accepted
+                .Where(f => f.Kind == LearnedFact.Relationship)
+                .Select(f => new RelationshipDiscovery.DeclaredLink(
+                    f.FromTable ?? "", f.FromColumn ?? "", f.ToTable ?? "", f.ToColumn ?? ""))
+                .ToList();
+
             var profile = await profiler.ProfileAsync(
-                session, connection.Database, selectedTables, message.SamplingConsentGiven, ct);
+                session, connection.Database, selectedTables, message.SamplingConsentGiven,
+                declaredLinks, ct);
 
             // Sozluk tek cagriyla uretilemiyor: cikti kolon sayisiyla dogru
             // orantili buyudugu icin birkac yuz kolonda cevap token butcesine
@@ -138,7 +159,7 @@ public class ConnectionAnalysisConsumer(
                 throw new InvalidOperationException(result.Error ?? "Sözlük üretilemedi.");
             }
 
-            var dictionary = AttachProfileFacts(result.Json, profile);
+            var dictionary = AttachProfileFacts(result.Json, profile, accepted);
 
             config.ConfigJson = dictionary;
             config.SchemaSummary = result.Explanation;
@@ -192,7 +213,15 @@ public class ConnectionAnalysisConsumer(
     /// yani hangi baglantilarin bulundugu hicbir yerde kalmiyordu. Sorgu
     /// aninda yol takibi yapabilmenin on kosulu bunlarin kalici olmasi.
     /// </summary>
-    private static string AttachProfileFacts(string dictionaryJson, DatabaseProfile profile)
+    /// <param name="learned">
+    /// Kullanicinin ONAYLADIGI bilgiler. Reddedilenler buraya hic gelmez:
+    /// onlar sozlukte degil, "bir daha sorma" kaydinda yasar.
+    ///
+    /// Iliski beyanlari burada islenmiyor — onlar profil cikarilirken olcum
+    /// kapisindan gecip <c>profile.Relationships</c> icine girdi zaten.
+    /// </param>
+    private static string AttachProfileFacts(
+        string dictionaryJson, DatabaseProfile profile, IReadOnlyList<LearnedFact> learned)
     {
         try
         {
@@ -240,12 +269,159 @@ public class ConnectionAnalysisConsumer(
 
             root["codeValues"] = codeValues;
 
+            ApplyLearnedFacts(root, learned);
+
             return root.ToJsonString(JsonOptions);
         }
         catch (JsonException)
         {
             return dictionaryJson;
         }
+    }
+
+    /// <summary>
+    /// Kullanicinin ogrettiklerini sozluge isler. Model her analizde sozlugu
+    /// sifirdan uretiyor; bu adim olmadan ogrenilen her sey her "Analiz Et"te
+    /// kayboluyordu.
+    ///
+    /// Uc tur isleniyor, ucu de sozlugun ZATEN OKUNAN alanlarina yaziliyor —
+    /// ceviri prompt'u degismiyor, motor tarafinda hicbir sey degismiyor.
+    /// </summary>
+    public static void ApplyLearnedFacts(JsonObject root, IReadOnlyList<LearnedFact> learned)
+    {
+        if (learned.Count == 0) return;
+
+        var tables = Ensure(root, "tables");
+        var columns = Ensure(root, "columns");
+
+        foreach (var fact in learned)
+        {
+            switch (fact.Kind)
+            {
+                // "gelir dedigimde EarningAmount'u kastediyorum" — kullanicinin
+                // kelimesi `synonyms`'e giriyor, ceviri zaten oradan esliyor.
+                case LearnedFact.Synonym when !string.IsNullOrWhiteSpace(fact.Means):
+                    var target = string.IsNullOrWhiteSpace(fact.Column)
+                        ? FindOrAddTable(tables, fact.Table)
+                        : FindOrAddColumn(columns, fact.Table, fact.Column);
+                    AddSynonym(target, fact.Means!);
+                    target["source"] = "user";
+                    break;
+
+                // "Analiz Et" sorularinin cevaplari. Tanim, sozlukteki
+                // tanimin uzerine yaziliyor: modelin tahmini degil,
+                // veritabanini bilen kisinin cevabi.
+                case LearnedFact.Meaning when !string.IsNullOrWhiteSpace(fact.Means):
+                    if (string.IsNullOrWhiteSpace(fact.Column))
+                    {
+                        var table = FindOrAddTable(tables, fact.Table);
+                        table["purpose"] = fact.Means;
+                        table["confidence"] = "high";
+                        table["source"] = "user";
+                    }
+                    else
+                    {
+                        var column = FindOrAddColumn(columns, fact.Table, fact.Column);
+                        column["meaning"] = fact.Means;
+                        column["confidence"] = "high";
+                        column["source"] = "user";
+                    }
+                    break;
+
+                // "ROD karayolu demek" — olculmus deger listesinin yanina
+                // anlami yaziliyor. Filtre yazarken model artik kullanicinin
+                // "kara" demesiyle 'ROD' kodunu birlestirebiliyor.
+                case LearnedFact.CodeMeaning
+                    when !string.IsNullOrWhiteSpace(fact.Value) && !string.IsNullOrWhiteSpace(fact.Means):
+                    AttachCodeMeaning(root, fact);
+                    break;
+
+                // "Bu tablonun okunabilir adi su kolonda" — hedef tablosu bu
+                // olan her kenarin etiketi degistiriliyor. J4 kurali zaten
+                // `labelColumn`'u okuyor.
+                case LearnedFact.Label when !string.IsNullOrWhiteSpace(fact.Column):
+                    OverrideLabelColumn(root, fact);
+                    break;
+            }
+        }
+    }
+
+    private static JsonArray Ensure(JsonObject root, string name)
+    {
+        if (root[name] is JsonArray existing) return existing;
+        var created = new JsonArray();
+        root[name] = created;
+        return created;
+    }
+
+    private static bool Same(JsonNode? node, string? value) =>
+        string.Equals(node?.GetValue<string>(), value, StringComparison.OrdinalIgnoreCase);
+
+    private static JsonObject FindOrAddTable(JsonArray tables, string? name)
+    {
+        var found = tables.OfType<JsonObject>().FirstOrDefault(t => Same(t["name"], name));
+        if (found is not null) return found;
+
+        var created = new JsonObject { ["name"] = name, ["confidence"] = "high" };
+        tables.Add(created);
+        return created;
+    }
+
+    private static JsonObject FindOrAddColumn(JsonArray columns, string? table, string? column)
+    {
+        var found = columns.OfType<JsonObject>()
+            .FirstOrDefault(c => Same(c["table"], table) && Same(c["column"], column));
+        if (found is not null) return found;
+
+        var created = new JsonObject
+        {
+            ["table"] = table,
+            ["column"] = column,
+            ["role"] = "other",
+            ["confidence"] = "high"
+        };
+        columns.Add(created);
+        return created;
+    }
+
+    private static void AddSynonym(JsonObject entry, string synonym)
+    {
+        if (entry["synonyms"] is not JsonArray list)
+        {
+            list = [];
+            entry["synonyms"] = list;
+        }
+
+        // Ayni kelime iki kez ogretilirse listede iki kez durmasin.
+        if (list.Any(n => Same(n, synonym))) return;
+        list.Add(synonym);
+    }
+
+    private static void AttachCodeMeaning(JsonObject root, LearnedFact fact)
+    {
+        var entry = (root["codeValues"] as JsonArray)?.OfType<JsonObject>()
+            .FirstOrDefault(c => Same(c["table"], fact.Table) && Same(c["column"], fact.Column));
+
+        // Kolon olculmus deger listesinde yoksa anlam yazacak yer de yok.
+        // Bu sessiz bir kayip degil: boyle bir kolon zaten filtrelenemiyor.
+        if (entry is null) return;
+
+        if (entry["meanings"] is not JsonObject meanings)
+        {
+            meanings = [];
+            entry["meanings"] = meanings;
+        }
+
+        meanings[fact.Value!] = fact.Means;
+    }
+
+    private static void OverrideLabelColumn(JsonObject root, LearnedFact fact)
+    {
+        if (root["relationships"] is not JsonArray edges) return;
+
+        foreach (var edge in edges.OfType<JsonObject>())
+            if (Same(edge["toTable"], fact.Table))
+                edge["labelColumn"] = fact.Column;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
