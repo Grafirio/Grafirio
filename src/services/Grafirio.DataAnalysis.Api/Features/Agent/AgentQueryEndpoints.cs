@@ -307,8 +307,12 @@ public static class AgentQueryEndpoints
         }
         catch (JsonException)
         {
-            clarification = "Soru analiz edilemedi — model geçerli bir yanıt üretmedi. "
-                          + "Sorunuzu biraz daha açık yazıp tekrar dener misiniz?";
+            // Emniyet agi: bozuk yanit artik cevirinin kendisinde yakalaniyor
+            // ve buraya gelmiyor. Geldigi gun de kullaniciya DOGRU seyi
+            // soylemeli — "sorunuzu daha acik yazin" yanlis ogutti, cunku
+            // sorunun okunakligiyla ilgisi yok.
+            clarification = "Yapay zekânın yanıtı okunamadı. Aynı soruyu tekrar "
+                          + "sormayı deneyin; sorunuzda bir sorun yok.";
             return false;
         }
     }

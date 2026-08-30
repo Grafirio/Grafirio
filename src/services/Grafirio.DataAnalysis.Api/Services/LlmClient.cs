@@ -97,16 +97,28 @@ public sealed class LlmClient : ILlmClient
                 client, url, apiKey, prompt, temperature, budget, cancellationToken);
 
             var content = ExtractContent(body);
-            if (!string.IsNullOrWhiteSpace(content)) return content;
-
             var finishReason = ExtractFinishReason(body);
+
+            // Butce kontrolu icerik kontrolunden ONCE. Onceden tersiydi ve
+            // arada bir sinif kaciyordu: model cevabi YAZMAYA BASLAYIP
+            // ortasinda kesildiginde finish_reason="length" gelir ama icerik
+            // BOS DEGILDIR. O metin buradan gecerli bir cevap gibi donuyor,
+            // sonra JSON olarak ayristirilamiyor ve kullanici "model gecerli
+            // bir yanit uretmedi, sorunuzu daha acik yazin" mesajini
+            // aliyordu. Sorusunda bir sey yoktu; cevap yarim kalmisti.
+            //
+            // Yarim cevap cevap degildir: butce buyutulup yeniden soruluyor.
+            if (finishReason != "length" && !string.IsNullOrWhiteSpace(content))
+                return content;
+
             if (finishReason == "length" && budgetAttempt < maxBudgetAttempts)
             {
                 budget *= 2;
                 _logger.LogWarning(
-                    "Azure OpenAI token bütçesi düşünmeye yetip cevaba yetmedi (finish_reason=length). " +
-                    "Bütçe {Budget} token'a çıkarılıp tekrar denenecek ({Attempt}/{Max}).",
-                    budget, budgetAttempt, maxBudgetAttempts);
+                    "Azure OpenAI cevabı token bütçesine sığmadı (finish_reason=length, " +
+                    "yazılan {Written} karakter atıldı). Bütçe {Budget} token'a " +
+                    "çıkarılıp tekrar denenecek ({Attempt}/{Max}).",
+                    content?.Length ?? 0, budget, budgetAttempt, maxBudgetAttempts);
                 continue;
             }
 
