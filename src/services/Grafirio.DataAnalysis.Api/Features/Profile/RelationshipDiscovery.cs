@@ -82,6 +82,13 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
             candidate.Confidence = overlap >= HighConfidenceOverlap ? "high" : "medium";
             candidate.Note = $"Değerlerin %{overlap * 100:F0}'ı hedef tabloda bulundu.";
             edges.Add(candidate);
+
+            // Yazim toleransindan dogan kenarlar ayrica yaziliyor: toleransin
+            // gercek testi bu sema. Beklenen sayi birkac tane; onlarca cikiyorsa
+            // esik yanlis ve buradan gorulmesi gerekiyor.
+            if (candidate.MatchedByTypo)
+                logger.LogInformation(
+                    "Yazım toleransıyla bulundu ({Overlap:P0}): {Edge}", overlap, Key(candidate));
         }
 
         AttachLabelColumns(edges, usable);
@@ -201,17 +208,26 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 // Rol oneki tasiyan kolonlar (gonderici/alici) boyle cozuluyor.
                 foreach (var attempt in RelationshipNaming.TailSegments(stem))
                 {
-                    // En UZUN eslesen tablo parcasi kazanir: "ExportReference"
-                    // eslesmesi "Reference" eslesmesine tercih edilir, yoksa
-                    // birden fazla tablo ayni kisa ada indiginde secim rastgele
-                    // olurdu.
-                    var target = tableSegments
+                    // Once TAM yazilan kazanir, sonra en UZUN olan.
+                    //
+                    // Uzunluk siralamasinin sebebi: "ExportReference" eslesmesi
+                    // "Reference" eslesmesine tercih edilmeli, yoksa birden
+                    // fazla tablo ayni kisa ada indiginde secim rastgele olurdu.
+                    //
+                    // Tam yazilanin one alinmasinin sebebi yazim toleransi:
+                    // artik tek harf farkli parcalar da eslesiyor ve bunlardan
+                    // biri daha uzun olabilir. Tolerans bir son care; tam
+                    // yazilan bir aday varken ona basvurulmamali.
+                    var match = tableSegments
                         .SelectMany(x => x.Segments.Select(s => (x.Table, Segment: s)))
                         .Where(x => RelationshipNaming.NamesMatch(x.Segment, attempt))
-                        .OrderByDescending(x => x.Segment.Length)
-                        .Select(x => x.Table)
+                        .Select(x => (x.Table, x.Segment,
+                            Exact: RelationshipNaming.NamesMatchExactly(x.Segment, attempt)))
+                        .OrderByDescending(x => x.Exact)
+                        .ThenByDescending(x => x.Segment.Length)
                         .FirstOrDefault();
 
+                    var target = match.Table;
                     if (target is null) continue;
 
                     // Kendi tablosunu isaret eden aday uretilmiyor.
@@ -259,6 +275,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                         IsOptional = true,
                         IsTrusted = false,
                         Source = "inferred",
+                        MatchedByTypo = !match.Exact,
                     };
 
                     break; // en yakin eslesme kazanir

@@ -384,4 +384,16 @@ public class RelationshipProfile
     public string? LabelColumn { get; set; }
 
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Aday, adlarin TAM esitliginden degil tek harflik yazim toleransindan
+    /// dogduysa true. Kaydedilmiyor — yalnizca kesif logunda isaretlenmesi
+    /// icin tasiniyor.
+    ///
+    /// Sebebi: toleransin gercek testi bu semanin kendisi. Uygulandiktan
+    /// sonra <em>yeni</em> cikan kenarlarin gozle taranmasi gerekiyor;
+    /// isaret olmadan hangilerinin yeni oldugu logdan okunamaz.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool MatchedByTypo { get; set; }
 }
