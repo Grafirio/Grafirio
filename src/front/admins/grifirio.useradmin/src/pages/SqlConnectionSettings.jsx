@@ -1074,6 +1074,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                   silinebilir olmak zorunda. */}
               <LearnedFactsPanel
                 connectionId={selectedConnectionForAnalysis.savedConnectionId}
+                tables={(selectedConnectionForAnalysis.selectedTables || [])
+                  .map(t => t.fullName)}
               />
 
               {/* Ön Analiz Butonları */}

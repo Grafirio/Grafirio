@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { listLearnedFacts, forgetLearnedFact } from '../../services/dataAnalysisService';
+import DeclareLinkForm from './DeclareLinkForm';
 
 /**
  * "Öğrendiklerim" — bu bağlantı için kullanıcının sisteme öğrettiği her şey.
@@ -29,11 +30,12 @@ const formatDate = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('tr-TR');
 };
 
-export default function LearnedFactsPanel({ connectionId }) {
+export default function LearnedFactsPanel({ connectionId, tables = [] }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [removing, setRemoving] = useState(null);
+  const [declaring, setDeclaring] = useState(false);
 
   const load = useCallback(async () => {
     if (!connectionId) return;
@@ -77,6 +79,25 @@ export default function LearnedFactsPanel({ connectionId }) {
         kullanılmaz.
       </p>
 
+      {tables.length > 0 && (
+        <div className="declare-link-wrap">
+          <button
+            type="button"
+            className="declare-link-toggle"
+            onClick={() => setDeclaring(v => !v)}
+          >
+            {declaring ? '− Kapat' : '+ Kolonları elle eşleştir'}
+          </button>
+          {declaring && (
+            <DeclareLinkForm
+              connectionId={connectionId}
+              tables={tables}
+              onSaved={load}
+            />
+          )}
+        </div>
+      )}
+
       {loading && <div className="learned-facts-empty">Yükleniyor…</div>}
 
       {error && !loading && (
@@ -108,6 +129,14 @@ export default function LearnedFactsPanel({ connectionId }) {
                 <span className="learned-fact-text">{item.description}</span>
               </div>
               <div className="learned-fact-meta">
+                {/* Geçersizleşen beyan sessizce düşürülmüyor. Şema değişir,
+                    kolon kaldırılır, anahtar çoğullaşır — kullanıcı bunu
+                    görmezse kurduğu bağlantının hâlâ çalıştığını sanar. */}
+                {item.problem && (
+                  <span className="learned-fact-problem" title={item.problem}>
+                    ⚠ {item.problem}
+                  </span>
+                )}
                 {!item.accepted && (
                   <span className="learned-fact-flag">reddedildi — bu bağ kurulmuyor</span>
                 )}

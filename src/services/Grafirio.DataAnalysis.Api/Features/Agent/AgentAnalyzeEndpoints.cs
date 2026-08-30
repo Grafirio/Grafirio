@@ -564,6 +564,9 @@ public static class AgentAnalyzeEndpoints
                 // Ekranda gosterilecek olan bu: teknik kimlik degil, cumle.
                 description = f.Describe(),
                 question = f.Question,
+                // Son analizde kurulamadıysa sebebi. Kullanıcı bunu görmeden
+                // bağlantısının çalıştığını sanar.
+                problem = f.Problem,
                 createdAt = f.CreatedAt
             })
         });

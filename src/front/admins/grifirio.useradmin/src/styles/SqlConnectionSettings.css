@@ -1054,3 +1054,86 @@
   outline: 2px solid var(--accent, #2a5893);
   outline-offset: 1px;
 }
+
+/* ── Elle bağlantı kurma ── */
+.declare-link-wrap { margin: 0 0 12px; }
+.declare-link-toggle {
+  font-size: 12.5px;
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent, #2a5893);
+  cursor: pointer;
+}
+.declare-link-toggle:focus-visible { outline: 2px solid var(--accent, #2a5893); outline-offset: 2px; }
+.declare-link {
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--border, #d7dce2);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.declare-link-hint,
+.declare-link-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-subtle, #6b7280);
+  margin: 0;
+  max-width: 62ch;
+}
+.declare-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.declare-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 190px;
+}
+.declare-link-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--text-subtle, #6b7280);
+}
+.declare-link-field select {
+  padding: 7px 9px;
+  font-size: 13px;
+  border: 1px solid var(--border, #d7dce2);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text, #1f2937);
+}
+.declare-link-field select:disabled { opacity: .6; }
+.declare-link-error {
+  font-size: 12.5px;
+  color: #9c382c;
+}
+.declare-link-save {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border: 1px solid var(--accent, #2a5893);
+  border-radius: 7px;
+  background: var(--accent, #2a5893);
+  color: #fff;
+  cursor: pointer;
+}
+.declare-link-save:disabled { opacity: .5; cursor: default; }
+
+.learned-fact-problem {
+  color: #8a5a12;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

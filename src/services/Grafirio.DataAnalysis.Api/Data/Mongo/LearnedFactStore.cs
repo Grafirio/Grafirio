@@ -94,6 +94,36 @@ public class LearnedFactStore
     }
 
     /// <summary>
+    /// Bir kaydin son "Analiz Et"te kurulup kurulamadigini yazar.
+    ///
+    /// <paramref name="problem"/> <c>null</c> ise kayit saglikli demektir ve
+    /// varsa eski uyari temizlenir — duzelen bir sorunun ekranda asili
+    /// kalmasi, hic uyarmamak kadar kotu.
+    ///
+    /// Kaydi SILMIYORUZ. Sema gecici olarak degismis olabilir (tablo secimden
+    /// cikarilmis, sonra geri eklenmis); kullanicinin ogrettigi seyi onun
+    /// haberi olmadan atmak, ogrenmeyi hic kaydetmemekten farksiz.
+    /// </summary>
+    public async Task SetStatusAsync(
+        Guid connectionId, string companyId, string key, string? problem,
+        CancellationToken ct = default)
+    {
+        var update = problem is null
+            ? Builders<BsonDocument>.Update.Unset("problem").Unset("problemAt")
+            : Builders<BsonDocument>.Update.Set("problem", problem).Set("problemAt", DateTime.UtcNow);
+
+        await _collection.UpdateOneAsync(
+            Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("_id", DocumentId(connectionId, key)),
+                Builders<BsonDocument>.Filter.Eq("companyId", companyId)),
+            update,
+            // Upsert YOK: durum yalnizca var olan bir kayda yazilir. Aksi
+            // halde silinmis bir kayit, ilk analizde govdesiz olarak geri
+            // dogardi.
+            cancellationToken: ct);
+    }
+
+    /// <summary>
     /// Tek bir kaydi siler. Kullanicinin yanlis ogretilmis bir bilgiden
     /// kurtulma yolu bu; onsuz bu ozelligin tamami gonderilmemeli.
     /// </summary>
@@ -128,6 +158,7 @@ public class LearnedFactStore
         Value = Text(doc, "value"),
         Means = Text(doc, "means"),
         Question = Text(doc, "question"),
+        Problem = Text(doc, "problem"),
         UserId = Text(doc, "userId"),
         CreatedAt = doc.TryGetValue("createdAt", out var c) && c.IsValidDateTime
             ? c.ToUniversalTime()

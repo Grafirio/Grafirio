@@ -89,9 +89,16 @@ public class ConnectionAnalysisConsumer(
             var declaredLinks = LinksOf(accepted);
             var rejectedLinks = LinksOf(learned.Where(f => !f.Accepted));
 
+            // Kurulamayan beyanlar buraya düşüyor ve kayıtlarının üstüne
+            // yazılıyor. Sessizce düşürmek, kullanıcıyı kurduğu bağlantının
+            // hâlâ çalıştığına inandırmak olurdu.
+            var declaredProblems = new List<RelationshipDiscovery.DeclaredProblem>();
+
             var profile = await profiler.ProfileAsync(
                 session, connection.Database, selectedTables, message.SamplingConsentGiven,
-                declaredLinks, rejectedLinks, ct);
+                declaredLinks, rejectedLinks, declaredProblems, ct);
+
+            await RecordDeclaredProblemsAsync(message, learned, declaredProblems, ct);
 
             // Sozluk tek cagriyla uretilemiyor: cikti kolon sayisiyla dogru
             // orantili buyudugu icin birkac yuz kolonda cevap token butcesine
@@ -178,6 +185,48 @@ public class ConnectionAnalysisConsumer(
             logger.LogError(ex, "Analiz başarısız. Connection: {ConnectionId}", message.ConnectionId);
             await Fail(config, ex.Message, ct);
         }
+    }
+
+    /// <summary>
+    /// Kurulamayan beyanlari kendi kayitlarinin ustune yazar; kurulabilenlerin
+    /// eski uyarisini temizler.
+    ///
+    /// Ikinci yari birincisi kadar onemli: sema duzeldiginde ekranda asili
+    /// kalan bir uyari, kullaniciyi olmayan bir sorunu kovalamaya gonderir.
+    /// </summary>
+    private async Task RecordDeclaredProblemsAsync(
+        AnalyzeConnectionRequested message,
+        IReadOnlyList<LearnedFact> learned,
+        IReadOnlyList<RelationshipDiscovery.DeclaredProblem> problems,
+        CancellationToken ct)
+    {
+        var relationships = learned.Where(f => f.Kind == LearnedFact.Relationship && f.Accepted).ToList();
+        if (relationships.Count == 0) return;
+
+        // Sorunlar cozulmus adlarla geliyor (semadaki yazim), kayitlar ise
+        // kullanicinin yazdigi adlarla. Ikisini ayni anahtar uzerinden
+        // eslestiriyoruz.
+        var failed = problems.ToDictionary(
+            p => LearnedFact.RelationshipKey(
+                p.Link.FromTable, p.Link.FromColumn, p.Link.ToTable, p.Link.ToColumn),
+            p => p.Reason,
+            StringComparer.Ordinal);
+
+        foreach (var fact in relationships)
+        {
+            var reason = failed.GetValueOrDefault(fact.Key);
+
+            // Durumu degismeyen kayda dokunulmuyor: her analizde butun
+            // kayitlari yeniden yazmak gereksiz yazma trafigi.
+            if (reason is null && fact.Problem is null) continue;
+
+            await facts.SetStatusAsync(message.ConnectionId, message.CompanyId, fact.Key, reason, ct);
+        }
+
+        if (failed.Count > 0)
+            logger.LogWarning(
+                "{Count} beyan edilen bağlantı bu analizde kurulamadı; kayıtlarına işlendi.",
+                failed.Count);
     }
 
     /// <summary>

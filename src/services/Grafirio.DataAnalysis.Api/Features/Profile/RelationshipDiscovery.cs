@@ -60,11 +60,18 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// ayni yanlis eslesmeyi her analizde yeniden kurar, her sorguda yeniden
     /// sorar ve kullanicinin verdigi cevabin hicbir agirligi olmaz.
     /// </param>
+    /// <param name="problems">
+    /// Verilirse, kurulamayan beyanlar sebepleriyle buraya yazilir. Cagiran
+    /// taraf bunlari kullaniciya gosteriyor: gecersizlesen bir beyani
+    /// sessizce dusurmek, kullaniciyi kurdugu baglantinin hala calistigina
+    /// inandirmak olur.
+    /// </param>
     public async Task<List<RelationshipProfile>> DiscoverAsync(
         IDataSourceSession session,
         IReadOnlyList<TableProfile> tables,
         IReadOnlyList<DeclaredLink>? declaredByUser = null,
         IReadOnlyList<DeclaredLink>? rejectedByUser = null,
+        ICollection<DeclaredProblem>? problems = null,
         CancellationToken ct = default)
     {
         var usable = tables.Where(t => t.Error is null && t.Columns.Count > 0).ToList();
@@ -87,7 +94,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         // Beyanlar cikarimdan ONCE isleniyor. Ayni kenari cikarim da bulacak
         // olsa bile, kullanicinin soyledigi kazanmali: kaynagi kayitta
         // "declared" kalsin ki denetim izinde neye dayanildigi gorunsun.
-        var declaredEdges = BuildDeclaredCandidates(declaredByUser, usable, uniqueColumns);
+        var declaredEdges = BuildDeclaredCandidates(declaredByUser, usable, uniqueColumns, problems);
         foreach (var candidate in declaredEdges)
         {
             if (!seen.Add(Key(candidate))) continue;
@@ -101,6 +108,9 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 // bilmeden bekler.
                 logger.LogWarning(
                     "Beyan edilen bağlantı ölçülemedi, atlandı: {Edge}", Key(candidate));
+                problems?.Add(new DeclaredProblem(
+                    LinkOf(candidate),
+                    "Bu iki kolon karşılaştırılamadı — tipleri uyuşmuyor olabilir."));
                 continue;
             }
 
@@ -186,6 +196,11 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /// etmek icin degil, tekrar uretimi engellemek icin var. Ret ise kolon
     /// duzeyinde verilmis bir karar ve o duzeyde uygulanmali.
     /// </summary>
+    /// <summary>Cozulmus bir kenari beyan bicimine geri cevirir.</summary>
+    private static DeclaredLink LinkOf(RelationshipProfile r) => new(
+        r.FromTable, r.FromColumns.FirstOrDefault() ?? "",
+        r.ToTable, r.ToColumns.FirstOrDefault() ?? "");
+
     private static string EdgeIdentity(RelationshipProfile r) => Identity(
         r.FromTable, r.FromColumns.FirstOrDefault(),
         r.ToTable, r.ToColumns.FirstOrDefault());
@@ -394,6 +409,19 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         string FromTable, string FromColumn, string ToTable, string ToColumn);
 
     /// <summary>
+    /// Kurulamayan bir beyan ve sebebi.
+    ///
+    /// Sema degisir: kolon kaldirilir, tablo secimden cikar, bir zamanlar
+    /// benzersiz olan anahtar cogullasir. Boyle bir beyani sessizce dusurmek,
+    /// kullaniciyi kurdugu baglantinin hala calistigina inandirmak olur —
+    /// sorgu "bu tablolari birlestiremem" der ve sebebi hicbir yerde yazmaz.
+    ///
+    /// <paramref name="Reason"/> dogrudan kullaniciya gosteriliyor: teknik
+    /// terim degil, ne oldugunu anlatan cumle.
+    /// </summary>
+    public readonly record struct DeclaredProblem(DeclaredLink Link, string Reason);
+
+    /// <summary>
     /// Beyanlari aday kenara cevirir. Cozulemeyen beyan sessizce dusmez —
     /// her eleme sebebiyle birlikte loglanir, cunku kullanici kurdugu
     /// baglantinin calistigini varsayarak bekler.
@@ -405,10 +433,19 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     public List<RelationshipProfile> BuildDeclaredCandidates(
         IReadOnlyList<DeclaredLink>? links,
         IReadOnlyList<TableProfile> tables,
-        IReadOnlyDictionary<string, HashSet<string>> uniqueColumns)
+        IReadOnlyDictionary<string, HashSet<string>> uniqueColumns,
+        ICollection<DeclaredProblem>? problems = null)
     {
         var result = new List<RelationshipProfile>();
         if (links is null || links.Count == 0) return result;
+
+        void Drop(DeclaredLink link, string reason)
+        {
+            logger.LogWarning(
+                "Beyan edilen bağlantı kurulamadı ({From}.{FromColumn} -> {To}.{ToColumn}): {Reason}",
+                link.FromTable, link.FromColumn, link.ToTable, link.ToColumn, reason);
+            problems?.Add(new DeclaredProblem(link, reason));
+        }
 
         TableProfile? Find(string qualified) => tables.FirstOrDefault(
             t => string.Equals(t.Qualified, qualified, StringComparison.OrdinalIgnoreCase));
@@ -425,16 +462,15 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
             if (from is null || to is null)
             {
                 // Tablo secimden cikmis ya da semadan kaldirilmis olabilir.
-                logger.LogWarning(
-                    "Beyan edilen bağlantının tablosu bu analizde yok: {From} -> {To}",
-                    link.FromTable, link.ToTable);
+                Drop(link, $"{(from is null ? link.FromTable : link.ToTable)} tablosu "
+                         + "bu analizde yok. Tablo seçiminden çıkarılmış ya da şemadan "
+                         + "kaldırılmış olabilir.");
                 continue;
             }
 
             if (ReferenceEquals(from, to))
             {
-                logger.LogWarning(
-                    "Beyan edilen bağlantı kendi tablosunu gösteriyor, atlandı: {Table}", from.Qualified);
+                Drop(link, "Bağlantı tablonun kendisini gösteriyor.");
                 continue;
             }
 
@@ -443,18 +479,18 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 
             if (fromColumn is null || toColumn is null)
             {
-                logger.LogWarning(
-                    "Beyan edilen bağlantının kolonu bulunamadı: {From}.{FromColumn} -> {To}.{ToColumn}",
-                    from.Qualified, link.FromColumn, to.Qualified, link.ToColumn);
+                var missing = fromColumn is null
+                    ? $"{from.Qualified}.{link.FromColumn}"
+                    : $"{to.Qualified}.{link.ToColumn}";
+                Drop(link, $"{missing} kolonu artık yok.");
                 continue;
             }
 
             if (!uniqueColumns.TryGetValue(to.Qualified, out var keys) || !keys.Contains(toColumn))
             {
-                logger.LogWarning(
-                    "Beyan edilen bağlantının hedefi benzersiz değil, atlandı: {To}.{ToColumn}. "
-                    + "Benzersiz olmayan hedefe join satırları çoğaltır.",
-                    to.Qualified, toColumn);
+                Drop(link, $"{to.Qualified}.{toColumn} benzersiz değil. Benzersiz olmayan "
+                         + "bir hedefe bağlanmak satırları çoğaltır ve bütün toplamları "
+                         + "şişirir; bu yüzden onayınıza rağmen kurulmuyor.");
                 continue;
             }
 
