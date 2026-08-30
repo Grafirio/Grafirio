@@ -476,3 +476,21 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ── Kanıt notu ───────────────────────────────────────────────────────────
+   Cevabın neye dayandığı, panel açılmadan. Sessiz bir satır: uyarı değil
+   bilgi, o yüzden kırmızı yok. Her grafikte çıkmıyor — bildirilmiş yabancı
+   anahtarla kurulmuş bir cevapta not yok, çünkü her grafiğe not iliştirmek
+   notların okunmamasını sağlar. */
+.bi-evidence {
+  font-size: 10.5px;
+  line-height: 1.45;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-subtle);
+  background: var(--surface-sunken);
+}
+/* Beyan, ölçülmüş çıkarımdan daha zayıf bir dayanak: kullanıcı ilişkinin
+   varlığını bilebilir, veri onu doğrulamamıştır. Ayırt edilebilir olmalı. */
+.bi-evidence--declared { border-left: 3px solid #C08A2E; }
+.bi-evidence--inferred { border-left: 3px solid var(--border); }

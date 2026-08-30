@@ -78,6 +78,9 @@ const buildCanvasNodes = (report, parentId, posRef, queryId, sourceQuestion = ''
         ...chart,
         sourceQuestion,
         pendingConfirmations: i === 0 ? report.pendingConfirmations : undefined,
+        // Cevabın dayandığı en zayıf bağlantı. Panel açılmadan görünmesi
+        // gerekiyor; açılmayan bir panelde duran uyarı, uyarı değildir.
+        evidence: report.evidence,
       },
     });
     edge(id);
@@ -172,7 +175,12 @@ export const restoreFromHistory = (queries = []) => {
 
       posRef.current = { x: qPos.x + 460, y: qPos.y };
       const built = buildCanvasNodes(
-        { answer, charts: result.charts || [], insights: [] },
+        // Kanıt notu yeniden yüklemede de duruyor: neye dayandığı sayfa
+        // yenilenince kaybolan bir uyarı, güvenilmez bir uyarıdır.
+        // Onay soruları taşınmıyor — onlar canlı turun sorusu ve cevaplanmış
+        // olabilirler; sunucudaki bayrak ancak sonraki analizde düşüyor.
+        { answer, charts: result.charts || [], insights: [],
+          evidence: result.audit?.evidence },
         qNodeId, posRef, item.queryId, item.question);
       nodes.push(...built.newNodes);
       edges.push(...built.newEdges);
@@ -668,6 +676,7 @@ export default function CanvasPage() {
           // kullandıysa, sonucun altında sorulacak — daha önce cevaplanmış
           // olanlar hariç.
           pendingConfirmations: unanswered(res.audit?.pendingConfirmations),
+          evidence: res.audit?.evidence,
           insights: (res.failedTasks || []).map(f => ({
             type: 'warning',
             title: `⚠ ${f.title || 'Görev tamamlanamadı'}`,
@@ -1173,6 +1182,22 @@ export default function CanvasPage() {
                                 uygulandığı buradan görülmeli. */}
                             {msg.audit.having && (
                               <div><dt>Eşik</dt><dd>{msg.audit.having}</dd></div>
+                            )}
+                            {/* Kullanıcının kendi öğrettiği bilgi. Yalnızca
+                                kodlar izlenebiliyor: bir eş anlamlının
+                                kullanılıp kullanılmadığını modelin sessiz
+                                kararı belirliyor ve bize söylemiyor.
+                                Bilmediğimizi "kullanıldı" diye yazmak denetim
+                                izinin değerini bitirir. */}
+                            {msg.audit.learnedCodes?.length > 0 && (
+                              <div>
+                                <dt>Sizin öğrettiğiniz</dt>
+                                <dd>
+                                  {msg.audit.learnedCodes.map((note, i) => (
+                                    <div key={i}>{note}</div>
+                                  ))}
+                                </dd>
+                              </div>
                             )}
                             {msg.audit.window && (
                               <div><dt>Kırılım üstü hesap</dt><dd>{msg.audit.window}</dd></div>
