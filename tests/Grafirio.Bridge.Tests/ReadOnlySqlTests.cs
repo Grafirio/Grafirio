@@ -103,8 +103,29 @@ public class SqlTableScannerTests
     private static string[] Scan(string sql) => SqlTableScanner.ReferencedTables(sql).ToArray();
 
     [Fact]
+    public void CteAliasesAreNotPhysicalTables()
+    {
+        var tables = Scan("WITH x AS (SELECT Id FROM dbo.Allowed), y AS (SELECT Id FROM x) SELECT * FROM y");
+        Assert.Equal(new[] { "[dbo].[Allowed]" }, tables);
+    }
+
+    [Fact]
+    public void CommaJoinsAndUnionBranchesAreAllExtracted()
+    {
+        var tables = Scan("SELECT a.Id FROM dbo.Allowed a, dbo.Secret b UNION SELECT Id FROM dbo.Other");
+        Assert.Equal(new[] { "[dbo].[Allowed]", "[dbo].[Secret]", "[dbo].[Other]" }, tables);
+    }
+
+    [Fact]
+    public void SchemaQualifiedTableIsNotHiddenByCteName()
+    {
+        var tables = Scan("WITH Secret AS (SELECT Id FROM dbo.Allowed) SELECT * FROM dbo.Secret");
+        Assert.Contains("[dbo].[Secret]", tables);
+    }
+
+    [Fact]
     public void Basit_from_bulunuyor() =>
-        Assert.Contains("dbo.Shipments", Scan("SELECT * FROM dbo.Shipments"));
+        Assert.Contains("[dbo].[Shipments]", Scan("SELECT * FROM dbo.Shipments"));
 
     [Fact]
     public void Koseli_parantezli_ad_bulunuyor() =>
@@ -118,8 +139,8 @@ public class SqlTableScannerTests
             FROM dbo.Shipments s
             LEFT JOIN dbo.Companies c ON c.Id = s.CompanyId");
 
-        Assert.Contains("dbo.Shipments", tables);
-        Assert.Contains("dbo.Companies", tables);
+        Assert.Contains("[dbo].[Shipments]", tables);
+        Assert.Contains("[dbo].[Companies]", tables);
     }
 
     [Fact]
@@ -130,13 +151,13 @@ public class SqlTableScannerTests
         var tables = Scan(
             "SELECT * FROM dbo.Allowed WHERE Id IN (SELECT Id FROM dbo.Gizli)");
 
-        Assert.Contains("dbo.Allowed", tables);
-        Assert.Contains("dbo.Gizli", tables);
+        Assert.Contains("[dbo].[Allowed]", tables);
+        Assert.Contains("[dbo].[Gizli]", tables);
     }
 
     [Fact]
     public void Semasiz_ad_da_bulunuyor() =>
-        Assert.Contains("Shipments", Scan("SELECT * FROM Shipments"));
+        Assert.Contains("[Shipments]", Scan("SELECT * FROM Shipments"));
 
     /// <summary>
     /// Küçük harfli <c>join</c>, Türkçe kültürde <c>JOIN</c> ile eşleşmiyordu.
@@ -152,7 +173,7 @@ public class SqlTableScannerTests
         try
         {
             var tables = Scan("select * from dbo.Allowed join dbo.Gizli g on g.id = id");
-            Assert.Contains("dbo.Gizli", tables);
+            Assert.Contains("[dbo].[Gizli]", tables);
         }
         finally
         {

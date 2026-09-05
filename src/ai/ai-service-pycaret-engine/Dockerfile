@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
@@ -30,7 +30,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create models directory
-RUN mkdir -p /app/models
+RUN mkdir -p /app/models /app/data
+
+ENV AGENT_JOB_DB_PATH=/app/data/agent-jobs.sqlite3
+VOLUME ["/app/data"]
 
 # Copy application code
 COPY . .
@@ -39,4 +42,4 @@ COPY . .
 EXPOSE 8002
 
 # Run FastAPI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]

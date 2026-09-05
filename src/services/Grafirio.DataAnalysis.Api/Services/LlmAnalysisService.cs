@@ -194,7 +194,7 @@ public class LlmAnalysisService
     {
         if (_model is null) return NotConfigured();
 
-        _logger.LogInformation("Soru çevriliyor: {Question}", question);
+        _logger.LogInformation("Translating analysis question ({Length} characters)", question.Length);
 
         try
         {
@@ -220,9 +220,7 @@ public class LlmAnalysisService
             // gormedigini soylemesi icin bir sebep yok.
             if (!IsParseableObject(json))
             {
-                _logger.LogError(
-                    "Çeviri yanıtı JSON olarak okunamadı. Modelin ham cevabı: {Raw}",
-                    Truncate(text, 2000));
+                _logger.LogError("Translation response is invalid JSON ({Length} characters)", text.Length);
 
                 return new LlmResult
                 {
@@ -542,8 +540,9 @@ public class LlmAnalysisService
            "gidilen ülke" sözlükte hangi kolonun eş anlamlısıysa o kolondur.
         5. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
            yapılacak alan `dimension`, zaman filtresi `date` olmalı.
-        6. `aggregation` seçtiysen `group_by` MUTLAKA dolu olmalı ve kırılım
-           yapılacak `dimension` kolonunu içermeli. Satır sayısı soruluyorsa
+          6. Kırılım isteniyorsa `group_by` ilgili `dimension` kolonlarını içermeli.
+            Genel toplam veya tek toplamın HAVING koşulu isteniyorsa `group_by: []`
+            kullan; sahte kırılım ekleme. Satır sayısı soruluyorsa
            `aggregation: "count"`, `target_column: null` yeterlidir.
         7. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
            Kimlik numarasının ortalaması anlamsızdır; onları yalnızca saymak
@@ -595,18 +594,28 @@ public class LlmAnalysisService
             Bağlantı listede yoksa o join KURULAMAZ ve bu senin kararın
             değil — sunucu onu reddeder. Bu durumda:
 
-            - Kullanıcıdan ONAY İSTEME. "Onaylarsanız birleştiririm",
-              "izin verirseniz bağlarım" gibi bir cümle kurma. Kullanıcı
-              onay verse bile sorgu yine çalışmaz; ona cevaplaması boşa
-              gidecek bir soru sormuş olursun.
-            - Kolon adlarına bakıp bağlantıyı sen ÇIKARMA. `ReferansId` ile
-              `ReferenceId` birbirine benziyor olabilir ama benzerlik kanıt
-              değildir; bağlantılar veritabanından ölçülerek çıkarılıyor ve
-              listede yoksa ölçülememiş demektir.
-            - `target_table`'ı boş bırak ve `description` içinde durumu
-              olduğu gibi yaz: hangi iki tabloyu birleştirmen gerektiğini,
-              aralarında ölçülmüş bir bağlantı bulunmadığını, ve sorunun
-              tek tablo üzerinden nasıl sorulabileceğini söyle.
+            - Sözlükte GERÇEKTEN bulunan iki kolon arasında anlamlı bir
+              eşleşme adayı varsa `relationship_proposals` alanında öner.
+              Bu bir kanıt veya çalışan JOIN değildir. `ReferanceId` ile
+              `ReferenceId` farklı gerçek kolon adları olabilir; adları
+              düzeltme veya uydurma. Adayın kaynak ve hedef kolonunu ayrı yaz.
+            - Öneri biçimi: `"relationship_proposals": [{ "fromTable":
+              "dbo.Hareketler", "fromColumn": "ReferanceId", "toTable":
+              "dbo.Referanslar", "toColumn": "ReferenceId" }]`.
+              Kaynak anahtarı taşıyan, hedef ise anahtarın ait olduğu tablodur.
+              En fazla 8 öneri ver. `rejectedRelationships` içindeki eşleşmeleri
+              tekrar önerme. Birden fazla tablo gerekiyorsa eksik bağlantıları
+              ayrı öner; zincirde zaten bulunanları tekrar önerme.
+            - Öneri varken `target_table`'ı boş bırak. Sunucu somut eşleşmeleri
+              kullanıcıya sunacak; yetkili onaydan sonra canlı şema, hedef
+              benzersizliği ve değer örtüşmesi doğrulanıp aktif sözlüğe işlenecek.
+              Yalnızca metinde onay isteme: yapılandırılmış öneri zorunludur.
+            - Sohbetteki "evet" sözcüğü tek başına yeni ilişki yaratmaz.
+              Onay uygulanmışsa güncel `relationships` listesini kullan ve
+              önceki turdaki öneriyi KOPYALAMA. Önceki soruyu bu listeyle çöz.
+            - Somut kolon çifti belirleyemiyorsan `target_table`'ı boş bırak
+              ve hangi alanların birbirine bağlandığını sor. Yabancı anahtar
+              tanımı veya yeni bir tam analiz zorunluymuş gibi konuşma.
         J2. İki tablo arasında birden fazla bağlantı varsa `via` ile hangisini
             kastettiğini söyle: `"via": "MusteriId"`. Söylemezsen sorgu
             çalışmaz; tahmin edilmez.
@@ -822,7 +831,7 @@ public class LlmAnalysisService
           "sort_by": "kolon_adı",
           "sort_order": "desc",
           "limit": 10,
-          "chart_type": "bar|line|pie|doughnut|scatter|heatmap",
+          "chart_type": "bar|line|pie|doughnut|scatter",
           "chart_title": "Grafik Başlığı",
           "description": "Bu analizin ne yapacağının kısa açıklaması"
         }

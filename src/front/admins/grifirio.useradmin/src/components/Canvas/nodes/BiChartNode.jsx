@@ -6,6 +6,8 @@ import {
   Title, Tooltip, Legend, Filler
 } from 'chart.js';
 import { Bar, Line, Pie, Doughnut, Radar, Scatter } from 'react-chartjs-2';
+import MatchConfirmations from './MatchConfirmations';
+import prepareChartDisplay from '../../../utils/charts/prepareChartDisplay.js';
 import {
   resolveTheme, BAR_RADIUS, BAR_PERCENTAGE, CATEGORY_PERCENTAGE,
 } from './chartTheme';
@@ -78,24 +80,6 @@ function buildDatasets(rawDatasets, chartType, theme) {
   });
 }
 
-/** Tip normalizasyonu: bilinen tüm türleri canonical forma çevir */
-function normalizeType(raw) {
-  const t = (raw || 'bar').toLowerCase().trim();
-  const MAP = {
-    'bar': 'bar', 'column': 'bar', 'sütun': 'bar', 'cubuk': 'bar',
-    'line': 'line', 'çizgi': 'line', 'cizgi': 'line',
-    'area': 'area', 'alan': 'area',
-    'pie': 'pie', 'pasta': 'pie',
-    'doughnut': 'doughnut', 'donut': 'doughnut', 'halka': 'doughnut',
-    'radar': 'radar', 'spider': 'radar',
-    'scatter': 'scatter', 'bubble': 'scatter',
-    'pareto': 'pareto',
-    'histogram': 'bar',
-    'waterfall': 'bar', 'funnel': 'bar',
-  };
-  return MAP[t] || 'bar';
-}
-
 /** Uzun kategori adları ekseni boğmasın. */
 const truncate = (value, max = 18) => {
   const s = String(value);
@@ -154,96 +138,6 @@ function EvidenceNote({ evidence }) {
   );
 }
 
-/**
- * Sonucun altında duran eşleştirme onayı.
- *
- * Sistem iki tabloyu adlarına bakıp tahminle bağladığında sonuç yine de
- * gösteriliyor, ama sorusuyla birlikte. Sıra bilinçli: kullanıcı kolon
- * eşleşmesini değerlendiremez, CEVABI değerlendirebilir — "bu firmalar
- * doğru mu" cevaplanabilir bir soru, "ReferanceId ile ReferenceId aynı mı"
- * değil.
- *
- * Sonucu göstermenin güvenli olmasının şartı ölçüm kapısı: buraya gelen
- * eşleşme hedef benzersizliğini geçmiş durumda, yani join satırları
- * çoğaltmıyor ve gösterilen sayılar şişmiş değil. Geçemeyen aday zaten
- * kurulmuyor.
- *
- * "Hayır" da kaydediliyor. Yoksa aynı yanlış eşleşme her sorguda yeniden
- * kurulur ve aynı soru tekrar tekrar sorulur.
- */
-function MatchConfirmation({ pending, onAnswer }) {
-  const [answered, setAnswered] = useState({});
-  const [busy, setBusy] = useState(null);
-
-  const open = (pending || []).filter(p => !answered[matchKey(p)]);
-  if (!onAnswer || open.length === 0) return null;
-
-  const respond = async (match, accepted) => {
-    const key = matchKey(match);
-    setBusy(key);
-    try {
-      await onAnswer(match, accepted);
-      setAnswered(prev => ({ ...prev, [key]: accepted ? 'kaydedildi' : 'reddedildi' }));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="bi-match-confirm">
-      {open.map((match) => {
-        const key = matchKey(match);
-        const overlap = typeof match.valueOverlap === 'number'
-          ? `${Math.round(match.valueOverlap * 100)}%`
-          : null;
-
-        return (
-          <div className="bi-match-confirm-item" key={key}>
-            <div className="bi-match-confirm-title">Bu sonucu bir varsayımla ürettim</div>
-            <p className="bi-match-confirm-text">
-              Şu iki kolonu eşleştirdim; adları bir harf farklı olduğu için bunu
-              tahmin ettim, veritabanı böyle bir bağ bildirmiyor:
-            </p>
-            <div className="bi-match-confirm-pair">
-              <span>{match.fromTable}.{match.fromColumn}</span>
-              <span>{match.toTable}.{match.toColumn}</span>
-            </div>
-            {overlap && (
-              <div className="bi-match-confirm-metric">
-                Değerlerin <strong>{overlap}</strong>’ı hedef tabloda bulundu.
-              </div>
-            )}
-            <p className="bi-match-confirm-text">
-              Yukarıdaki sonuç doğruysa bunu hafızaya yazayım ve bir daha sormayayım.
-            </p>
-            <div className="bi-match-confirm-actions">
-              <button
-                type="button"
-                className="bi-match-btn bi-match-btn-yes"
-                disabled={busy === key}
-                onClick={() => respond(match, true)}
-              >
-                Doğru, hafızaya yaz
-              </button>
-              <button
-                type="button"
-                className="bi-match-btn bi-match-btn-no"
-                disabled={busy === key}
-                onClick={() => respond(match, false)}
-              >
-                Yanlış, bir daha kurma
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-const matchKey = (m) =>
-  `${m.fromTable}.${m.fromColumn}->${m.toTable}.${m.toColumn}`.toLowerCase();
-
 export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   const rootRef = useRef(null);
 
@@ -262,18 +156,19 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
     return () => clearTimeout(t);
   }, [data?.loading]);
 
-  const rawType = data?.type || data?.chartType || 'bar';
-  const chartType = normalizeType(rawType);
-  const labels = useMemo(() => data?.data?.labels || [], [data]);
-  const rawDatasets = data?.data?.datasets;
+  const prepared = useMemo(() => prepareChartDisplay(data, data?.displayType), [data]);
+  const chartType = prepared.type;
+  const labels = prepared.data?.labels ?? [];
+  const rawDatasets = prepared.data?.datasets;
 
   const finalDatasets = useMemo(() => {
+    if (!prepared.valid) return [];
     // ── Pareto: bar + kümülatif çizgi ──
     if (chartType === 'pareto' && rawDatasets?.length === 1) {
-      const vals = rawDatasets[0].data || [];
-      const total = vals.reduce((s, v) => s + Number(v), 0) || 1;
+      const vals = rawDatasets[0].data;
+      const total = vals.reduce((sum, value) => sum + value, 0);
       let cum = 0;
-      const cumData = vals.map((v) => { cum += Number(v); return +((cum / total) * 100).toFixed(1); });
+      const cumData = vals.map((value) => { cum += value; return +((cum / total) * 100).toFixed(1); });
 
       return [
         {
@@ -296,13 +191,8 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
       ];
     }
 
-    const built = buildDatasets(rawDatasets, chartType, theme);
-    if (built.length) return built;
-
-    // Eski format uyumluluğu: flat values array
-    const values = data?.data?.values || [];
-    return buildDatasets([{ label: 'Veri', data: values }], chartType, theme);
-  }, [chartType, rawDatasets, data, theme]);
+    return buildDatasets(rawDatasets, chartType, theme);
+  }, [chartType, rawDatasets, prepared.valid, theme]);
 
   // ── Loading state ──────────────────────────────────────────────────
   if (data?.loading) {
@@ -445,10 +335,16 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
       case 'scatter': return (
         <Scatter
           data={chartData}
-          options={{ ...options, scales: linearScales }}
+          options={{
+            ...options,
+            scales: { x: { type: 'linear', title: { display: true, text: 'X' } }, y: linearScales.y },
+            plugins: { ...options.plugins, tooltip: { ...options.plugins.tooltip, callbacks: {
+              label: item => `${item.dataset.label}: (${item.parsed.x}, ${item.parsed.y})`,
+            } } },
+          }}
         />
       );
-      default: return <Bar data={chartData} options={options} />;
+      default: return null;
     }
   };
 
@@ -461,13 +357,20 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
         <span className="bi-node-type-badge">Chart</span>
       </div>
       <div className="bi-chart-body">
-        {renderChart()}
+        {prepared.valid ? renderChart() : (
+          <div className="gf-alert gf-alert--danger" role="alert">
+            Grafik gösterilemiyor: {prepared.error}
+          </div>
+        )}
       </div>
 
       <EvidenceNote evidence={data?.evidence} />
 
-      <MatchConfirmation
+      <MatchConfirmations
         pending={data?.pendingConfirmations}
+        states={data?.confirmationStates}
+        busy={data?.confirming || data?.loading}
+        needsClarification={data?.needsRelationshipClarification}
         onAnswer={onConfirmMatch}
       />
 

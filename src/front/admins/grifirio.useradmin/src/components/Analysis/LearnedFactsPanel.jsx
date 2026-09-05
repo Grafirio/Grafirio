@@ -74,9 +74,11 @@ export default function LearnedFactsPanel({ connectionId, tables = [] }) {
 
       <p className="learned-facts-hint">
         Sorularınıza verdiğiniz cevaplar ve onayladığınız eşleştirmeler.
-        Bunlar her “Analiz Et”te sözlüğe işleniyor. Yanlış bir şey
-        öğrettiyseniz silin — silinen bilgi bir sonraki analizden itibaren
-        kullanılmaz.
+        İlişki onayları doğrulandıktan sonra hemen aktif sözlüğe uygulanır;
+        ilişki retleri bağlantıyı aktif sözlükten kaldırır.
+        İlişki dışındaki bilgiler ve bunların silinmesi “Analiz Et” sırasında işlenmeye devam eder.
+        Unut düğmesi öğrenilmiş kaydı siler; ilişkiyi aktif sözlükten kaldırmak
+        için ilişki reddi kullanılır.
       </p>
 
       {tables.length > 0 && (

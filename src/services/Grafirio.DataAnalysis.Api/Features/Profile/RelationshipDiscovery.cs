@@ -25,7 +25,7 @@ namespace Grafirio.DataAnalysis.Api.Features.Profile;
 /// ad kalibi bulamaz, o yuzden bulunamayan baglanti icin kullaniciya sorulur
 /// (bu adim Faz 2'de).
 /// </summary>
-public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
+public partial class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
 {
     /// <summary>Deger ortusmesi olculurken cocuk kolondan alinan deger sayisi.</summary>
     private const int OverlapSampleSize = 200;
@@ -75,64 +75,44 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         CancellationToken ct = default)
     {
         var usable = tables.Where(t => t.Error is null && t.Columns.Count > 0).ToList();
-        if (usable.Count == 0) return [];
+        if (usable.Count == 0)
+        {
+            BuildResolvedDeclaredCandidates(declaredByUser, usable, problems);
+            return [];
+        }
 
         var names = usable.Select(t => t.Qualified).ToList();
 
-        // Tekil anahtarlar once cekiliyor: bir kolonun "arama hedefi"
-        // olabilmesi icin benzersiz olmasi sart. Bu hem dogruluk kosulu
-        // (benzersiz olmayan hedefe join satirlari cogaltir) hem de hiz kosulu
-        // — ortusme olcumu ancak indeksli bir kolonda seek olur.
+        // Inference requires indexed uniqueness; only explicit declarations may request a data check.
         var uniqueColumns = await FetchUniqueColumnsAsync(session, names, ct);
 
         var declared = await FetchDeclaredForeignKeysAsync(session, names, ct);
         logger.LogInformation("Bildirilmiş yabancı anahtar: {Count}", declared.Count);
 
+        var rejected = RejectedKeys(rejectedByUser);
+        declared.RemoveAll(edge => edge.FromColumns.Count == 1 && edge.ToColumns.Count == 1
+            && rejected.Contains(EdgeIdentity(edge)));
         var edges = new List<RelationshipProfile>(declared);
         var seen = declared.Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Beyanlar cikarimdan ONCE isleniyor. Ayni kenari cikarim da bulacak
         // olsa bile, kullanicinin soyledigi kazanmali: kaynagi kayitta
         // "declared" kalsin ki denetim izinde neye dayanildigi gorunsun.
-        var declaredEdges = BuildDeclaredCandidates(declaredByUser, usable, uniqueColumns, problems);
+        var declaredEdges = BuildResolvedDeclaredCandidates(declaredByUser, usable, problems);
         foreach (var candidate in declaredEdges)
         {
             if (!seen.Add(Key(candidate))) continue;
 
-            var overlap = await MeasureOverlapAsync(session, candidate, ct);
-
-            if (overlap is null)
+            var (relationship, problem) = await ValidateResolvedDeclaredAsync(
+                session, usable, candidate, uniqueColumns, ct);
+            if (relationship is null)
             {
-                // Beyan sessizce dusurulmez. Olcum patliyorsa sebebi
-                // neredeyse her zaman tip uyusmazligi ve kullanici bunu
-                // bilmeden bekler.
-                logger.LogWarning(
-                    "Beyan edilen bağlantı ölçülemedi, atlandı: {Edge}", Key(candidate));
-                problems?.Add(new DeclaredProblem(
-                    LinkOf(candidate),
-                    "Bu iki kolon karşılaştırılamadı — tipleri uyuşmuyor olabilir."));
+                problems?.Add(new DeclaredProblem(LinkOf(candidate), problem!));
                 continue;
             }
 
-            candidate.ValueOverlap = Math.Round(overlap.Value, 3);
-
-            // Cikarimdan tek farki burasi: dusuk ortusme adayi ELEMEZ.
-            // Kullanici tabloyu tanidigi icin kismen dolu bir kolonu bilerek
-            // baglayabilir; ona "bu yanlis" demek bizim isimiz degil. Ama
-            // sayinin ne oldugunu soylemek bizim isimiz.
-            candidate.Confidence = overlap >= HighConfidenceOverlap ? "high" : "medium";
-            candidate.Note = overlap < MinOverlap
-                ? $"Sizin kurduğunuz bağlantı. Değerlerin yalnızca %{overlap * 100:F0}'ı "
-                  + "hedef tabloda bulundu — sonuçlar eksik çıkabilir."
-                : $"Sizin kurduğunuz bağlantı. Değerlerin %{overlap * 100:F0}'ı hedef tabloda bulundu.";
-
-            edges.Add(candidate);
-
-            logger.LogInformation(
-                "Beyan edilen bağlantı kullanıldı ({Overlap:P0}): {Edge}", overlap, Key(candidate));
+            edges.Add(relationship);
         }
-
-        var rejected = RejectedKeys(rejectedByUser);
 
         foreach (var candidate in BuildCandidates(usable, uniqueColumns))
         {
@@ -146,7 +126,7 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 continue;
             }
 
-            var overlap = await MeasureOverlapAsync(session, candidate, ct);
+            var overlap = await MeasureOverlapAsync(session, candidate, usable, ct);
             if (overlap is null) continue;
 
             candidate.ValueOverlap = Math.Round(overlap.Value, 3);
@@ -422,18 +402,11 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     public readonly record struct DeclaredProblem(DeclaredLink Link, string Reason);
 
     /// <summary>
-    /// Beyanlari aday kenara cevirir. Cozulemeyen beyan sessizce dusmez —
-    /// her eleme sebebiyle birlikte loglanir, cunku kullanici kurdugu
-    /// baglantinin calistigini varsayarak bekler.
-    ///
-    /// Hedef benzersizligi burada da ZORUNLU. Sebebi dogruluk degil emniyet:
-    /// benzersiz olmayan bir hedefe join satirlari cogaltir ve
-    /// <c>COUNT(*)</c> sessizce baska bir seyi saymaya baslar.
+    /// Resolves declared identifiers against the actual usable profile before any data query.
     /// </summary>
-    public List<RelationshipProfile> BuildDeclaredCandidates(
+    private List<RelationshipProfile> BuildResolvedDeclaredCandidates(
         IReadOnlyList<DeclaredLink>? links,
         IReadOnlyList<TableProfile> tables,
-        IReadOnlyDictionary<string, HashSet<string>> uniqueColumns,
         ICollection<DeclaredProblem>? problems = null)
     {
         var result = new List<RelationshipProfile>();
@@ -442,13 +415,14 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         void Drop(DeclaredLink link, string reason)
         {
             logger.LogWarning(
-                "Beyan edilen bağlantı kurulamadı ({From}.{FromColumn} -> {To}.{ToColumn}): {Reason}",
+                "Declared relationship could not be resolved ({From}.{FromColumn} -> {To}.{ToColumn}): {Reason}",
                 link.FromTable, link.FromColumn, link.ToTable, link.ToColumn, reason);
             problems?.Add(new DeclaredProblem(link, reason));
         }
 
         TableProfile? Find(string qualified) => tables.FirstOrDefault(
-            t => string.Equals(t.Qualified, qualified, StringComparison.OrdinalIgnoreCase));
+            t => t.Error is null && t.Columns.Count > 0
+                && string.Equals(t.Qualified, qualified, StringComparison.OrdinalIgnoreCase));
 
         static string? Resolve(TableProfile table, string column) => table.Columns
             .FirstOrDefault(c => string.Equals(c.ColumnName, column, StringComparison.OrdinalIgnoreCase))
@@ -486,27 +460,13 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 continue;
             }
 
-            if (!uniqueColumns.TryGetValue(to.Qualified, out var keys) || !keys.Contains(toColumn))
-            {
-                Drop(link, $"{to.Qualified}.{toColumn} benzersiz değil. Benzersiz olmayan "
-                         + "bir hedefe bağlanmak satırları çoğaltır ve bütün toplamları "
-                         + "şişirir; bu yüzden onayınıza rağmen kurulmuyor.");
-                continue;
-            }
-
-            var childIsUnique =
-                uniqueColumns.TryGetValue(from.Qualified, out var ownKeys)
-                && ownKeys.Contains(fromColumn);
-
             result.Add(new RelationshipProfile
             {
                 FromTable = from.Qualified,
                 FromColumns = [fromColumn],
                 ToTable = to.Qualified,
                 ToColumns = [toColumn],
-                Cardinality = childIsUnique
-                    ? RelationshipProfile.OneToOne
-                    : RelationshipProfile.ManyToOne,
+                Cardinality = RelationshipProfile.ManyToOne,
                 // Beyanda da referans butunlugu garantisi yok: LEFT JOIN.
                 IsOptional = true,
                 IsTrusted = false,
@@ -539,25 +499,23 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
     /* ── 3. Deger ortusmesi: asil kanit ───────────────────────────────── */
 
     /// <summary>
-    /// Cocuk kolondaki degerlerin kacta kaci gercekten ebeveyn anahtarda var?
-    ///
-    /// Hedef kolon her zaman benzersiz (PK ya da unique index) oldugu icin
-    /// <c>EXISTS</c> indeks aramasina duser; tam tarama olmaz.
+    /// Measures sampled overlap only; target uniqueness is verified separately without sampling.
     /// </summary>
     private async Task<double?> MeasureOverlapAsync(
-        IDataSourceSession session, RelationshipProfile candidate, CancellationToken ct)
+        IDataSourceSession session, RelationshipProfile candidate,
+        IReadOnlyList<TableProfile> tables, CancellationToken ct)
     {
-        var (fromSchema, fromTable) = Split(candidate.FromTable);
-        var (toSchema, toTable) = Split(candidate.ToTable);
+        var from = tables.First(t => t.Qualified == candidate.FromTable);
+        var to = tables.First(t => t.Qualified == candidate.ToTable);
 
         var sql = $"""
             SELECT COUNT(*) AS Total,
                    SUM(CASE WHEN EXISTS (
-                           SELECT 1 FROM {Quote(toSchema)}.{Quote(toTable)} p
+                           SELECT 1 FROM {Quote(to.Schema)}.{Quote(to.TableName)} p
                            WHERE p.{Quote(candidate.ToColumns[0])} = c.v)
                        THEN 1 ELSE 0 END) AS Matched
             FROM (SELECT DISTINCT TOP {OverlapSampleSize} {Quote(candidate.FromColumns[0])} AS v
-                  FROM {Quote(fromSchema)}.{Quote(fromTable)}
+                  FROM {Quote(from.Schema)}.{Quote(from.TableName)}
                   WHERE {Quote(candidate.FromColumns[0])} IS NOT NULL) c
             """;
 
@@ -634,6 +592,9 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
                 JOIN sys.tables t ON t.object_id = i.object_id
                 JOIN sys.schemas s ON s.schema_id = t.schema_id
                 WHERE (i.is_primary_key = 1 OR i.is_unique = 1)
+                                    AND i.has_filter = 0
+                                    AND i.is_disabled = 0
+                                    AND i.is_hypothetical = 0
                   AND s.name + '.' + t.name IN @Names
                 GROUP BY s.name, t.name, i.object_id, i.index_id
                 HAVING COUNT(*) = 1",
@@ -648,12 +609,6 @@ public class RelationshipDiscovery(ILogger<RelationshipDiscovery> logger)
         }
 
         return result;
-    }
-
-    private static (string Schema, string Table) Split(string qualified)
-    {
-        var parts = qualified.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length > 1 ? (parts[0], parts[^1]) : ("dbo", qualified);
     }
 
     private static string Quote(string identifier) => $"[{identifier.Replace("]", "]]")}]";

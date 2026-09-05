@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   testConnection, saveConnection, updateConnection, deleteConnection,
-  getSavedConnections, getConnectionById,
+  getSavedConnections,
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables, getSelectedTables,
   getBridges,
@@ -169,9 +169,6 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         port: conn.port,
         database: conn.database,
         username: conn.username,
-        // Şifre tarayıcıda saklanmıyor ve artık hiçbir uç için gerekmiyor;
-        // düzenleme formu onu açıldığında ayrıca çözüyor.
-        password: '',
         trustServerCertificate: conn.trustServerCertificate,
         createdAt: conn.createdAt,
         updatedAt: conn.updatedAt,
@@ -205,7 +202,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   };
 
   const isFormIncomplete = () =>
-    !formData.name || !formData.host || !formData.database || !formData.username;
+    !formData.name || !formData.host || !formData.database || !formData.username
+    || (!savedConnectionId && !formData.password);
 
   const describeError = (error) =>
     error?.response?.data?.error ?? error?.message ?? 'Bilinmeyen hata';
@@ -240,6 +238,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     }
 
     await loadConnections();
+    setFormData(previous => ({ ...previous, password: '' }));
 
     return connectionId;
   };
@@ -261,7 +260,6 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         ? { type: 'success', message: `✅ ${result.message}` }
         : { type: 'error', message: `❌ ${result.message}` });
     } catch (error) {
-      console.error('Connection test failed:', error);
       setTestStatus({ type: 'error', message: `❌ ${describeError(error)}` });
     } finally {
       setIsTesting(false);
@@ -279,26 +277,12 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       handleCancel();
       setTestStatus({ type: 'success', message: '✅ Bağlantı kaydedildi!' });
     } catch (error) {
-      console.error('Connection save failed:', error);
       setTestStatus({ type: 'error', message: `❌ Bağlantı kaydedilemedi: ${describeError(error)}` });
     }
   };
 
-  const handleEdit = async (connection) => {
+  const handleEdit = (connection) => {
     setEditingConnection(connection);
-    
-    // Şifreyi decrypt edip al
-    let decryptedPassword = '';
-    try {
-      if (connection.savedConnectionId || connection.id) {
-        const result = await getConnectionById(connection.savedConnectionId || connection.id);
-        if (result.success && result.connection && result.connection.password) {
-          decryptedPassword = result.connection.password;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch decrypted password:', error);
-    }
     
     setFormData({
       name: connection.name,
@@ -306,7 +290,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       port: connection.port,
       database: connection.database,
       username: connection.username,
-      password: decryptedPassword, // Decrypt edilmiş şifre
+      password: '',
       trustServerCertificate: connection.trustServerCertificate
     });
     setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
@@ -353,18 +337,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setTestStatus({ type: '', message: '' });
   };
 
-  /**
-   * Tablo seçimi kutusunu açar.
-   *
-   * Şifre ÇÖZÜLMÜYOR. Önceden burada `/decrypt` çağrılıp veritabanı parolası
-   * tarayıcıya indiriliyordu, çünkü tablo listesi ucu ham kimlik bilgisi
-   * istiyordu. Uç artık bağlantı kimliğiyle çalışıyor: parolanın bulutun
-   * dışına çıkması için bir sebep kalmadı ve bridge'e bağlı bağlantılarda
-   * liste ilk kez geliyor.
-   *
-   * Seçim sunucudan okunuyor: liste ucu onu taşımıyor, ve varsayılan olarak
-   * boş bırakmak "hiç tablo seçilmemiş" gibi görünmesine yol açıyordu.
-   */
+  // Read table selections by connection identity, never by stored credentials.
   const handleOpenModal = async (connection) => {
     const connectionId = connection.savedConnectionId || connection.id;
 
@@ -813,7 +786,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
 
               <div className="form-group">
                 <label htmlFor="password">
-                  <i className="ti ti-lock"></i> Password *
+                  <i className="ti ti-lock"></i> {savedConnectionId ? 'Yeni parola (isteğe bağlı)' : 'Parola *'}
                 </label>
                 <input
                   type="password"
@@ -821,9 +794,16 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  placeholder="••••••••"
-                  required
+                  placeholder={savedConnectionId ? 'Boş bırakılırsa mevcut parola korunur' : 'Veritabanı parolası'}
+                  autoComplete="new-password"
+                  aria-describedby="connection-password-hint"
+                  required={!savedConnectionId}
                 />
+                <small id="connection-password-hint" className="gf-hint">
+                  {savedConnectionId
+                    ? 'Kayıtlı parola gösterilmez. Değiştirmek için yeni parolayı girin; boş bırakırsanız kaydetme ve test mevcut parolayı kullanır.'
+                    : 'Bağlantıyı kaydetmek için parolayı girin.'}
+                </small>
               </div>
             </div>
 

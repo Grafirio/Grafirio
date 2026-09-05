@@ -56,7 +56,8 @@ class GatewayDataPort:
     #: Servisler arasi paylasilan anahtarin gittigi baslik.
     API_KEY_HEADER = "X-Grafirio-Internal-Key"
 
-    def __init__(self, connection_id: str, base_url: Optional[str] = None,
+    def __init__(self, connection_id: str, company_id: str, query_id: str,
+                 config_id: str, config_hash: str, base_url: Optional[str] = None,
                  api_key: Optional[str] = None, timeout_seconds: int = 300):
         # requests, modulun kendisi degil burada iceri aliniyor: sahte bir
         # DataPort ile calisan testlerin bu bagimliligi kurmasi gerekmesin.
@@ -64,6 +65,15 @@ class GatewayDataPort:
 
         self._requests = requests
         self._connection_id = connection_id
+        self._context = {
+            "connectionId": connection_id, "companyId": company_id,
+            "queryId": query_id, "configId": config_id, "configHash": config_hash,
+        }
+        if any(not isinstance(value, str) or not value.strip()
+               for value in self._context.values()):
+            raise DataPortError("Complete analysis context is required.")
+        if not re.fullmatch(r"[0-9a-f]{64}", config_hash):
+            raise DataPortError("config_hash must be a lowercase SHA-256 digest.")
         self._base_url = (
             base_url
             or os.getenv("DATA_ANALYSIS_API_URL")
@@ -72,7 +82,7 @@ class GatewayDataPort:
         self._api_key = api_key or os.getenv("INTERNAL_API_KEY") or ""
         self._timeout = timeout_seconds
 
-        if not self._api_key:
+        if not self._api_key.strip():
             raise DataPortError(
                 "INTERNAL_API_KEY tanımlı değil; veri servisine bağlanılamaz.")
 
@@ -127,7 +137,7 @@ class GatewayDataPort:
     def _post(self, sql: str, params: Optional[Dict[str, Any]],
               max_rows: Optional[int]) -> Dict[str, Any]:
         body: Dict[str, Any] = {
-            "connectionId": self._connection_id,
+            **self._context,
             "sql": self._to_tsql_placeholders(sql, params),
         }
         if params:

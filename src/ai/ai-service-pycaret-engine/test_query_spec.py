@@ -394,9 +394,9 @@ _pandas = types.ModuleType("pandas")
 _pandas.DataFrame = type("DataFrame", (), {})
 _pandas.isna = lambda v: v is None
 _pandas.read_sql = lambda *a, **k: None
-sys.modules["pandas"] = _pandas
-
-from agent_analyzer import AgentAnalyzer, ColumnScope  # noqa: E402
+from unittest.mock import patch
+with patch.dict(sys.modules, {"pandas": _pandas}):
+    from agent_analyzer import AgentAnalyzer, ColumnScope
 
 
 class _StubDataPort:
@@ -536,6 +536,18 @@ EDGES = [
 ]
 
 joiner = AgentAnalyzer(_SchemaPort())
+from analysis_scope import AnalysisScope
+
+
+def selected_schema(tables):
+    return AnalysisScope({
+        "tables": [{"name": f"dbo.{table}"} for table in tables],
+        "columns": [{"table": f"dbo.{table}", "column": column}
+                    for table, columns in tables.items() for column in columns],
+    })
+
+
+joiner._selection = selected_schema(_SchemaPort.TABLES)
 
 
 def resolve(requested, edges=EDGES):
@@ -673,6 +685,7 @@ expect_error(
 # ayirt edici kosul ON'a girmeli — WHERE'e konsa LEFT join sessizce INNER'a
 # doner ve eslesmeyen faturalar sonuctan duserdi.
 _SchemaPort.TABLES["Parametreler"] = ["Kod", "Tip", "Ad"]
+joiner._selection = selected_schema(_SchemaPort.TABLES)
 param_edges = [
     edge("dbo.Faturalar", ["ParaBirimiKodu"], "dbo.Parametreler", ["Kod"]),
     edge("dbo.Faturalar", ["Ulke"], "dbo.Parametreler", ["Kod"]),
@@ -794,11 +807,12 @@ check(
     True,
 )
 
-expect_error(
-    "kırılımsız sorguda HAVING olmaz",
-    lambda: render(QuerySpec(base=fatura, aggregate=toplam,
-                             having=[HavingPredicate(toplam, ">", ["h0"])])),
-    "Kırılımı olmayan sorguda HAVING anlamsız", QuerySpecError,
+check(
+    "global aggregate supports HAVING without a fabricated group",
+    render(QuerySpec(base=fatura, aggregate=toplam,
+                     having=[HavingPredicate(toplam, ">", ["h0"])])),
+    "SELECT SUM([t0].[Tutar]) AS [value] FROM [dbo].[Faturalar] AS [t0] "
+    "HAVING SUM([t0].[Tutar]) > :h0",
 )
 
 expect_error(
@@ -1184,7 +1198,9 @@ check(
     _pending_analyzer.audit.get("pendingConfirmations"),
     [{
         "fromTable": "dbo.C_INT_Calc", "fromColumn": "ReferanceId",
+        "fromColumns": ["ReferanceId"],
         "toTable": "dbo.L_INT_ExportReference", "toColumn": "ReferenceId",
+        "toColumns": ["ReferenceId"],
         "valueOverlap": 0.94,
     }],
 )
@@ -1298,6 +1314,7 @@ _union_analyzer = AgentAnalyzer(_UnionPort())
 
 def run_union(**overrides):
     """Birleşimi çalıştırır ve üretilen SQL ile parametreleri döner."""
+    _union_analyzer._selection = selected_schema(_UnionPort.TABLES)
     call = {
         "config": {"relationships": _union_edges},
         "union": {
@@ -1345,7 +1362,9 @@ check("kırılım bağlanan tablonun kolonundan çözülüyor",
 # kümülatif olmayan bir şey gösterir. Sessizce yanlış bir seri üretmektense
 # açıkça reddetmek doğru.
 _window_result = _union_analyzer.run_analysis(
-    {"relationships": _union_edges},
+    {"relationships": _union_edges,
+     "tables": [{"name": "dbo.Ithalat"}, {"name": "dbo.Ihracat"}],
+     "columns": [{"table": table, "column": "Tutar"} for table in ["dbo.Ithalat", "dbo.Ihracat"]]},
     {"analysis_type": "aggregation", "target_table": "dbo.Ithalat",
      "group_by": ["Tutar"], "target_column": "Tutar", "aggregation": "sum",
      "union": {"with": [{"table": "dbo.Ihracat"}]},
@@ -1387,4 +1406,6 @@ check("iki dalın join filtresi farklı değerlere bağlı",
 
 
 print("\n\n".join(FAILS) if FAILS else "TÜM TESTLER GEÇTİ")
-sys.exit(1 if FAILS else 0)
+if __name__ == "__main__":
+    sys.exit(1 if FAILS else 0)
+assert not FAILS, "\n".join(FAILS)

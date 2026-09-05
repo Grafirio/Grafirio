@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(az containerapp secret set:*)",
+      "Bash(az containerapp update:*)"
+    ]
+  }
+}

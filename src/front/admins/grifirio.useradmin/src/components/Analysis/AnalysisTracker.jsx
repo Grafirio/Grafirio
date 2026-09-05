@@ -1,4 +1,5 @@
 import { useAnalysis } from '../../contexts/AnalysisContext';
+import selectAnalysisAnswers from '../../utils/analysis/selectAnalysisAnswers.js';
 // Modal ve bildirim sinifları bu sayfa stilinde tanımlı; tablo seçim modalı
 // da aynı `modal-*` sınıflarını kullandığı için dosya bölünmedi. Vite tüm
 // CSS'i tek pakete derlediği için buradan içe aktarmanın ek maliyeti yok.
@@ -20,13 +21,7 @@ export default function AnalysisTracker() {
 
   if (!analysis.open) return null;
 
-  /* Sayı değil eşleşme: her SORUNUN kendi cevabı var mı.
-
-     Önceden yalnızca cevap sayısı soru sayısıyla karşılaştırılıyordu. Eski
-     turdan kalan üç cevap, yeni turun iki sorusunu "yanıtlanmış" gösteriyor
-     ve kaydet düğmesini açıyordu — kimlikler tutmasa bile. Sıfırlamayı
-     unutan her yol bu deliği yeniden açardı; burada kapatmak sınıfı kapatıyor. */
-  const answeredAll = analysis.questions.every((q) => analysis.answers[q.id]);
+    const hasAnswers = Object.keys(selectAnalysisAnswers(analysis.questions, analysis.answers)).length > 0;
   const hasQuestions = analysis.questions.length > 0 && analysis.status !== 'ready';
 
   if (analysis.minimized) {
@@ -38,7 +33,9 @@ export default function AnalysisTracker() {
             {/* Takip bırakıldıysa tik göstermek yalan olurdu: iş bitmedi,
                 biz izlemeyi bıraktık. */}
             {!analysis.running && analysis.trackingAbandoned && <i className="ti ti-clock"></i>}
-            {!analysis.running && !analysis.trackingAbandoned && <i className="ti ti-check"></i>}
+            {!analysis.running && !analysis.trackingAbandoned && (
+              <i className={analysis.status === 'ready' ? 'ti ti-check' : 'ti ti-help-circle'}></i>
+            )}
           </span>
           <span className="analysis-toast__text">
             <strong>{analysis.connectionName}</strong>
@@ -50,7 +47,8 @@ export default function AnalysisTracker() {
                 ? (analysis.summary || 'Tablolar okunuyor ve anlamlandırılıyor…')
                 : analysis.trackingAbandoned
                   ? 'Takip bırakıldı — arka planda sürüyor olabilir'
-                  : 'Analiz tamamlandı'}
+                  : analysis.status === 'awaiting_answers' ? 'Yanıtlarınızı bekliyor'
+                    : analysis.status === 'ready' ? 'Analiz tamamlandı' : 'Analiz durumunu kontrol edin'}
             </span>
           </span>
         </button>
@@ -105,6 +103,13 @@ export default function AnalysisTracker() {
             </div>
           )}
 
+          {analysis.status === 'awaiting_answers' && !hasQuestions && !analysis.running && (
+            <div className="gf-alert" role="status">
+              Sunucu yanıt bekliyor ancak soru listesi alınamadı.
+              <button className="gf-btn" onClick={resumeTracking}>Soruları yenile</button>
+            </div>
+          )}
+
           {/* Takip bırakıldı: hata değil, bilgi. İşi durduramıyoruz ve
               durdurmadık; yalnızca izlemeyi bıraktık. Bu yüzden burada
               "yeniden başlat" değil "durumu yenile" var — yeni bir analiz
@@ -122,7 +127,7 @@ export default function AnalysisTracker() {
           )}
 
           {!analysis.running && !analysis.trackingAbandoned
-            && analysis.status !== 'ready' && !hasQuestions && (
+            && analysis.status !== 'ready' && analysis.status !== 'awaiting_answers' && !hasQuestions && (
             <>
               <p className="gf-hint" style={{ marginBottom: 16 }}>
                 Seçili tabloların yapısı okunacak, kolonların ne anlama geldiği çıkarılacak.
@@ -181,7 +186,8 @@ export default function AnalysisTracker() {
             <>
               <h3 style={{ marginBottom: 12 }}>Birkaç şeyden emin olamadım</h3>
               <p className="gf-hint" style={{ marginBottom: 16 }}>
-                Bunları bir kez yanıtlamanız yeterli; her soruda tekrar sorulmaz.
+                Bildiklerinizi yanıtlayıp kaydedebilirsiniz; tüm soruları yanıtlamanız gerekmez.
+                Kalan sorular sunucunun döndürdüğü duruma göre gösterilir.
               </p>
 
               {analysis.questions.map((q) => (
@@ -200,6 +206,7 @@ export default function AnalysisTracker() {
                         key={opt}
                         className={`gf-btn gf-btn--sm ${analysis.answers[q.id] === opt ? 'gf-btn--primary' : ''}`}
                         onClick={() => setAnswer(q.id, opt)}
+                        disabled={analysis.running}
                       >
                         {opt}
                       </button>
@@ -225,9 +232,9 @@ export default function AnalysisTracker() {
             <button
               className="gf-btn gf-btn--primary"
               onClick={submit}
-              disabled={analysis.running || !answeredAll}
+              disabled={analysis.running || !hasAnswers}
             >
-              <i className="ti ti-check"></i> Yanıtları kaydet ve bitir
+              <i className="ti ti-check"></i> Seçilen yanıtları kaydet
             </button>
           )}
         </div>

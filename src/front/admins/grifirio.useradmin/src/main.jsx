@@ -35,16 +35,11 @@ const eventLogger = (event, error) => {
   }
 };
 
-const tokenLogger = (tokens) => {
-  console.log('Keycloak tokens updated:', tokens);
-};
-
 // StrictMode'u geçici olarak kaldırıyoruz çünkü Keycloak ile uyumsuzluk yaşıyor
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ReactKeycloakProvider
     authClient={keycloak}
     onEvent={eventLogger}
-    onTokens={tokenLogger}
     initOptions={{
       // Masaustu uygulamasinin devrettigi oturum.
       //
@@ -57,7 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       ...(window.__GRAFIRIO_DESKTOP__?.tokens ?? {}),
       onLoad: window.__GRAFIRIO_DESKTOP__?.tokens ? 'check-sso' : 'login-required',
       checkLoginIframe: false,
-      enableLogging: true,
+      enableLogging: false,
       flow: 'standard',
       responseMode: 'fragment',
       // Deliberately not pinned to the origin: a hardcoded '/' sent every

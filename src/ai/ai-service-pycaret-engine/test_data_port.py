@@ -18,6 +18,7 @@ Ikisi de kirildiginda sorgu calismaya devam eder, yalnizca yanlis calisir.
 
 import sys
 import types
+from unittest.mock import patch
 
 FAILS = []
 
@@ -31,14 +32,12 @@ def check(name, got, want):
 # kuruldugu, DataFrame'in nasil olustugu degil.
 _pandas = types.ModuleType("pandas")
 _pandas.DataFrame = lambda rows, columns=None: {"rows": rows, "columns": columns}
-sys.modules["pandas"] = _pandas
 
 # `requests` de sahteleniyor: kurucu onu iceri aliyor, ama her ornekte
 # asagidaki sahte istemciyle degistiriliyor. Dosyanin bagimliliksiz
 # calisabilmesi icin.
-sys.modules["requests"] = types.ModuleType("requests")
-
-from data_port import GatewayDataPort  # noqa: E402
+with patch.dict(sys.modules, {"pandas": _pandas}):
+    from data_port import GatewayDataPort
 
 
 class _FakeResponse:
@@ -66,6 +65,7 @@ class _FakeRequests:
 
 def port(payload=None):
     p = GatewayDataPort("11111111-2222-3333-4444-555555555555",
+                        "company", "query", "config", "a" * 64,
                         base_url="http://api", api_key="anahtar")
     p._requests = _FakeRequests(payload)
     return p
@@ -106,6 +106,8 @@ sent = p._requests.last
 
 check("uc adresi", sent["url"], "http://api/internal/data/query")
 check("anahtar basligi", sent["headers"][GatewayDataPort.API_KEY_HEADER], "anahtar")
+for key, value in {"companyId": "company", "queryId": "query", "configId": "config", "configHash": "a" * 64}.items():
+    check(f"required context {key}", sent["json"][key], value)
 check("sorgu cevrilmis halde gidiyor",
       sent["json"]["sql"],
       "SELECT TOP 10 * FROM [dbo].[Shipments] WHERE [Ulke] = @p0")

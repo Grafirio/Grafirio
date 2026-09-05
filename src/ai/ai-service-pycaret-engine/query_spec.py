@@ -29,9 +29,8 @@ Bes degismez kural burada zorlanir:
      uretirdi.
   5. Ayni tabloya birden fazla kez baglanmak serbest, ama her join'in kendi
      takma adi olmali ve onlari birbirinden ayiran sabit kosullar ON'a girmeli.
-  6. HAVING gruplamasi olmayan sorguda kullanilamaz. Kirilim yokken kosul
-     tablonun tek toplamina uygulanir ve sonuc ya her sey ya hicbir sey olur;
-     kullanicinin istedigi hicbir zaman bu degil.
+  6. HAVING supports global aggregates without GROUP BY: the implicit group
+      produces one aggregate row or no row, never ungrouped source columns.
   7. Sirali bir birikim penceresinde cerceve acikca yazilmali. SQL'in ortuk
      varsayilani esit siralama degerlerini tek satirda toplar ve grafikte bu
      fark edilmez.
@@ -41,7 +40,7 @@ Bes degismez kural burada zorlanir:
      degeriyle calistirarak.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Optional, Union
 
 
@@ -538,14 +537,7 @@ def _validate_derived(join: "Join") -> None:
 
 
 def _validate_having(spec: QuerySpec, check, visible: set) -> None:
-    """
-    Toplulastirma sonrasi kosullarin denetimi.
-
-    Tek kritik kural gruplama sarti: HAVING gruplamasi olmayan bir sorguda
-    calisir ama butun tabloyu tek gruba indirir ve "hicbir satir" ya da
-    "her satir" doner. Kullanicinin istedigi bu degildir; sessizce bos sonuc
-    donen bir sorgu, hata verenden zor fark edilir.
-    """
+    """Validate aggregate predicates, including the implicit global group."""
     if not spec.having:
         return
 
@@ -554,13 +546,11 @@ def _validate_having(spec: QuerySpec, check, visible: set) -> None:
             "Toplulaştırması olmayan sorguda HAVING kullanılamaz; "
             "koşul satır bazlıysa WHERE'e girmesi gerekir.")
 
-    if not spec.group_by:
-        raise QuerySpecError(
-            "Kırılımı olmayan sorguda HAVING anlamsız: koşul tablonun "
-            "tamamının tek toplamına uygulanır ve sonuç ya her şey ya hiçbir "
-            "şey olur.")
-
     for predicate in spec.having:
+        if not isinstance(predicate, HavingPredicate):
+            raise QuerySpecError(
+                "HAVING koşulu bir toplulaştırmaya uygulanmalı; "
+                "ham kolon koşulları WHERE'e girmeli.")
         if predicate.aggregate.column is not None:
             check(predicate.aggregate.column, "HAVING", visible)
 
@@ -679,9 +669,20 @@ def validate(spec: QuerySpec) -> None:
         check(column, "GROUP BY", visible)
     for predicate in spec.where:
         check(predicate.column, "WHERE", visible)
+    grouped = {(column.alias, column.name) for column in spec.group_by}
     for item in spec.order_by:
         if isinstance(item.target, ColumnRef):
             check(item.target, "ORDER BY", visible)
+            if spec.aggregate is not None and (item.target.alias, item.target.name) not in grouped:
+                raise QuerySpecError(
+                    f"ORDER BY: '{item.target.name}' kolonu kırılımda yok; "
+                    "toplulaştırmalı sorguda ham kolonla sıralama yapılamaz.")
+        elif isinstance(item.target, Aggregate):
+            if item.target.column is not None:
+                check(item.target.column, "ORDER BY", visible)
+        elif spec.aggregate is not None and item.target not in spec.output_names():
+            raise QuerySpecError(
+                f"ORDER BY: '{item.target}' sorgunun çıktı adları arasında yok.")
     if spec.aggregate is not None and spec.aggregate.column is not None:
         check(spec.aggregate.column, "toplulaştırma", visible)
 
@@ -705,14 +706,15 @@ def validate(spec: QuerySpec) -> None:
                     "doğrudan birleştirmek satırları çoğaltır ve sayılar yanlış "
                     "çıkar. Bu tablonun ön toplanmış hâliyle bağlanması gerekiyor.")
 
-    if spec.select_all and spec.aggregate is not None:
+    if spec.select_all and (spec.aggregate is not None or spec.group_by):
         raise QuerySpecError("Toplulaştırmalı sorguda tüm kolonlar seçilemez.")
 
     if spec.aggregate is None and not spec.select_all:
         raise QuerySpecError("Sorgunun ne döndüreceği belirtilmemiş.")
 
     # 2. Degismez: TOP + benzersiz olmayan siralama = ayni soruya farkli cevap.
-    if spec.limit is not None and not spec.unordered_sample:
+    is_global_aggregate = spec.aggregate is not None and not spec.group_by
+    if spec.limit is not None and not spec.unordered_sample and not is_global_aggregate:
         if not spec.order_by:
             raise QuerySpecError(
                 "Sıralaması olmayan bir sorguda TOP kullanılamaz; sonuç "
@@ -937,7 +939,11 @@ def render_group_count(spec: QuerySpec) -> str:
     validate(spec)
 
     if not spec.group_by:
-        raise QuerySpecError("Gruplaması olmayan sorguda grup sayısı istenemez.")
+        if spec.aggregate is None:
+            raise QuerySpecError("Toplulaştırması olmayan sorguda grup sayısı istenemez.")
+        # HAVING can suppress the implicit group, including on empty input.
+        scalar_spec = replace(spec, order_by=[], limit=None, windows=[])
+        return "SELECT COUNT(*) FROM (" + _render_select(scalar_spec) + ") AS g"
 
     group_sql = ", ".join(c.sql() for c in spec.group_by)
     body = [f"SELECT {group_sql}", f"FROM {spec.base.sql()}"]

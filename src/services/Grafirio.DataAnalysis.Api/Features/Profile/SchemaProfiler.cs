@@ -39,7 +39,8 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         IReadOnlyList<RelationshipDiscovery.DeclaredLink>? declaredLinks = null,
         IReadOnlyList<RelationshipDiscovery.DeclaredLink>? rejectedLinks = null,
         ICollection<RelationshipDiscovery.DeclaredProblem>? declaredProblems = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<Task>? ensureCurrent = null)
     {
         if (selectedTables.Count == 0)
             throw new InvalidOperationException("Tablo seçimi boş; profil çıkarılamaz.");
@@ -52,13 +53,14 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
         foreach (var qualified in selectedTables)
         {
+            if (ensureCurrent is not null) await ensureCurrent();
             var (schema, table) = SplitTableName(qualified);
             try
             {
                 profile.Tables.Add(await ProfileTableAsync(
                     session, schema, table, samplingConsentGiven, ct));
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(ex, "Tablo profillenemedi: {Schema}.{Table}", schema, table);
                 profile.Tables.Add(new TableProfile
@@ -72,8 +74,10 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
 
         // Iliskiler kolon profillerinden SONRA cikariliyor: cikarim adimi
         // kolon adlarina, tiplerine ve benzersizligine bakiyor.
-        profile.Relationships = await relationships.DiscoverAsync(
-            session, profile.Tables, declaredLinks, rejectedLinks, declaredProblems, ct);
+        if (ensureCurrent is not null) await ensureCurrent();
+        profile.Relationships = samplingConsentGiven
+            ? await relationships.DiscoverAsync(session, profile.Tables, declaredLinks, rejectedLinks, declaredProblems, ct)
+            : await MetadataRelationships.ReadAsync(session, profile.Tables, ct);
         return profile;
     }
 
@@ -117,8 +121,17 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         // ornek sorgusu calistiriyordu: 30 kolonlu bir tabloda 60'tan fazla tam
         // tarama demekti ve gateway zaman asimina ugruyordu. Profil icin kesin
         // sayilara ihtiyac yok; amac kolonun ne oldugunu anlamak.
-        var sampleRows = await FetchSampleRowsAsync(
-            session, schema, table, result.ApproximateRowCount, ct);
+        if (columns.Count == 0)
+            throw new InvalidOperationException("Selected table has no readable metadata.");
+
+        // Consent is required before reading values, not merely before sending them.
+        var projectedColumns = columns
+            .Where(column => SensitiveColumnPolicy.MayReadValues(column.ColumnName, column.DataType, consent))
+            .Select(column => column.ColumnName).ToList();
+        var sampleRows = projectedColumns.Count == 0
+            ? (IReadOnlyList<QueryRow>)[]
+            : await FetchSampleRowsAsync(
+                session, schema, table, projectedColumns, result.ApproximateRowCount, ct);
         result.SampledRowCount = sampleRows.Count;
 
         foreach (var column in columns)
@@ -137,21 +150,22 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
                 IsPrimaryKey = primaryKeys.Contains(column.ColumnName),
                 DistinctCount = stats.DistinctCount,
                 NullCount = stats.NullCount,
-                MinValue = stats.MinValue,
-                MaxValue = stats.MaxValue,
-                StatsFromSample = true,
+                StatsFromSample = projectedColumns.Contains(column.ColumnName),
                 SamplingDecision = decision.Decision.ToString(),
                 SamplingNote = decision.Reason
             };
 
-            var maySample = decision.Decision == SensitiveColumnPolicy.Decision.Allowed
-                            || (decision.Decision == SensitiveColumnPolicy.Decision.NeedsConsent && consent);
+            var maySample = SensitiveColumnPolicy.MayExposeValues(profile, consent);
 
             if (maySample)
+            {
+                profile.MinValue = SensitiveColumnPolicy.IsValueSafe(stats.MinValue) ? stats.MinValue : null;
+                profile.MaxValue = SensitiveColumnPolicy.IsValueSafe(stats.MaxValue) ? stats.MaxValue : null;
                 profile.SampleValues = stats.DistinctValues
                     .Where(SensitiveColumnPolicy.IsValueSafe)
                     .Take(SampleSize)
                     .ToList();
+            }
 
             result.Columns.Add(profile);
         }
@@ -177,9 +191,11 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
     /// iyidir.
     /// </remarks>
     private async Task<IReadOnlyList<QueryRow>> FetchSampleRowsAsync(
-        IDataSourceSession session, string schema, string table, long approximateRowCount, CancellationToken ct)
+        IDataSourceSession session, string schema, string table, IReadOnlyList<string> columns,
+        long approximateRowCount, CancellationToken ct)
     {
         var qualified = $"{Quote(schema)}.{Quote(table)}";
+        var projection = string.Join(", ", columns.Select(Quote));
 
         if (approximateRowCount > SampleRowCount)
         {
@@ -191,7 +207,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
             try
             {
                 var sampled = await session.QueryRowsAsync(
-                    $"SELECT TOP {SampleRowCount} * FROM {qualified} TABLESAMPLE SYSTEM ({percent} PERCENT)",
+                    $"SELECT TOP {SampleRowCount} {projection} FROM {qualified} TABLESAMPLE SYSTEM ({percent} PERCENT)",
                     timeoutSeconds: SampleTimeoutSeconds, ct: ct);
 
                 if (sampled.Count > 0) return sampled;
@@ -207,7 +223,7 @@ public class SchemaProfiler(ILogger<SchemaProfiler> logger, RelationshipDiscover
         }
 
         return await session.QueryRowsAsync(
-            $"SELECT TOP {SampleRowCount} * FROM {qualified}",
+            $"SELECT TOP {SampleRowCount} {projection} FROM {qualified}",
             timeoutSeconds: SampleTimeoutSeconds, ct: ct);
     }
 

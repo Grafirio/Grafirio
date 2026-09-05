@@ -6,205 +6,15 @@ import { loadLayout, saveLayout, applyLayout, emptyLayout } from '../components/
 import { nodeIds } from '../components/Canvas/canvasGraph';
 import { DEFAULT_CHART_TYPE } from '../components/Canvas/chartTypes';
 import DeleteConfirmDialog from '../components/Canvas/DeleteConfirmDialog';
+import useRelationshipConfirmations from '../hooks/useRelationshipConfirmations';
+import restoreFromHistory from '../utils/restoreFromHistory';
+import getPendingConfirmations from '../utils/relationships/getPendingConfirmations';
+import askViaAgent from '../services/askViaAgent';
 import {
   getConnectionSummary, getSelectedTables,
-  submitAgentQuery, getAgentQueryStatus, getAgentQueryResult, getAgentQueryHistory,
-  learnFact, listLearnedFacts,
+  getAgentQueryHistory,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
-
-
-/* Bir eşleştirmenin kimliği. Sunucudaki `LearnedFact.RelationshipKey` ile
-   BİREBİR aynı olmak zorunda: aynı şeyi iki kez sormamak, iki tarafın aynı
-   kimliği üretmesine bağlı. Yön korunuyor — a→b ile b→a aynı iddia değil.
-
-   Köşeli parantezler baştan sona atılıyor, uçtan kırpılmıyor:
-   `[dbo].[Musteriler]` ortadakileri de taşıyor ve kırpma onu
-   `dbo].[musteriler` yapar. */
-const normalizeName = (value) =>
-  String(value ?? '').replace(/[[\]]/g, '').trim().toLowerCase();
-
-const relationshipKey = (m) =>
-  `rel:${normalizeName(m.fromTable)}.${normalizeName(m.fromColumn)}`
-  + `->${normalizeName(m.toTable)}.${normalizeName(m.toColumn)}`;
-
-const RESTORE_BASE_X = 80;
-/* Kartlar alt alta diziliyor; kullanıcı sürüklerse yerleşim kaydediliyor. */
-
-const CARD_GAP = 60;
-const CARD_HEIGHT = 420;
-
-/**
- * Sunucudan gelen sorgu geçmişini tuval durumuna çevirir.
- *
- * Saf fonksiyon: ağ çağrısı yapmaz, state'e dokunmaz. Ayrı durmasının sebebi
- * test edilebilirlik — kanvasın geri yüklenmesi gözle kolay doğrulanan bir
- * şey değil ve yanlış çalıştığında kullanıcı geçmişini kaybetmiş sanıyor.
- *
- * Bir KONUŞMA ZİNCİRİ = bir kart. Eskiden her tur tuvale ayrı düğümler
- * bırakıyordu (soru kutusu, cevap kutusu, grafik, uyarı) ve üç soru sonra
- * ekran okunmaz hale geliyordu. Zincirin tamamı artık tek kartın içinde:
- * konuşma solda, o konuşmanın ürettiği grafik sağda.
- *
- * Kartın kimliği zincirin KÖK sorgusundan geliyor; devam soruları yeni kart
- * açmıyor, var olanın konuşmasına ekleniyor.
- */
-export const restoreFromHistory = (queries = []) => {
-  const nodes = [];
-
-  // Sorgu kimliği → ait olduğu kartın kök kimliği. Zincir tek yönlü
-  // yazıldığı için ebeveyn her zaman çocuktan önce geliyor.
-  const rootOf = new Map();
-  const cards = new Map();  // kök kimliği → kart verisi
-
-  for (const item of queries) {
-    const root = (item.parentQueryId && rootOf.get(item.parentQueryId)) || item.queryId;
-    rootOf.set(item.queryId, root);
-
-    if (!cards.has(root)) {
-      cards.set(root, { root, turns: [], chart: null, chartType: null, evidence: null, audit: null });
-    }
-    const card = cards.get(root);
-
-    const ts = new Date(item.createdAt).getTime();
-    card.turns.push({ role: 'user', content: item.question, ts });
-
-    const result = item.result ?? {};
-
-    if (item.status === 'completed') {
-      card.turns.push({
-        role: 'ai',
-        content: result.summary || result.answer || 'Analiz tamamlandı.',
-        ts,
-      });
-
-      // Zincirin SON grafiği kalıyor: devam soruları bir öncekini
-      // düzeltiyor, iki cevabı yan yana bırakmak hangisinin geçerli
-      // olduğunu belirsizleştirir.
-      const chart = (result.charts || [])[0];
-      if (chart) {
-        card.chart = chart;
-        card.chartType = chart.type || card.chartType;
-      }
-      // Kanıt notu yeniden yüklemede de duruyor: sayfa yenilenince kaybolan
-      // bir uyarı, güvenilmez bir uyarıdır.
-      card.evidence = result.audit?.evidence ?? null;
-      card.audit = { ...(result.audit || {}), llmParameters: item.llmParameters };
-    } else if (item.status === 'clarification') {
-      card.turns.push({
-        role: 'ai',
-        content: item.clarificationQuestion
-          || 'Bu soruyu çözemedim; biraz daha açık yazar mısınız?',
-        ts,
-      });
-    } else {
-      // Yarım kalmış sorgu da gösteriliyor: sessizce yutmak, kullanıcının
-      // sorduğu bir soruyu hiç sorulmamış gibi göstermek olurdu.
-      card.turns.push({
-        role: 'ai', error: true, ts,
-        content: result.error || 'Bu analiz tamamlanmadı.',
-      });
-    }
-
-    // Zincirin ucu: devam sorusu buraya bağlanacak.
-    card.queryId = item.queryId;
-  }
-
-  let y = 80;
-  for (const card of cards.values()) {
-    nodes.push({
-      id: nodeIds.card(card.root),
-      type: 'biAnalysisCard',
-      position: { x: RESTORE_BASE_X, y },
-      data: {
-        turns: card.turns,
-        chart: card.chart,
-        chartType: card.chartType || DEFAULT_CHART_TYPE,
-        evidence: card.evidence,
-        audit: card.audit,
-        queryId: card.queryId,
-      },
-    });
-    y += CARD_HEIGHT + CARD_GAP;
-  }
-
-  return { nodes, nextPos: { x: RESTORE_BASE_X, y } };
-};
-
-/**
- * Soruyu ajan hattina gonderir ve sonucu bekler.
- *
- * Hat asenkron: gonder -> kuyruga girer -> durum sorulur -> sonuc alinir.
- * Cagiran taraf tek bir Promise gorsun diye yoklama burada kapsulleniyor.
- */
-const AGENT_POLL_MS = 3000;
-const AGENT_MAX_ATTEMPTS = 100; // ~5 dakika
-
-const askViaAgent = async (question, { connectionId, parentQueryId = null, onProgress }) => {
-  if (!connectionId) {
-    return { success: false, error: 'Bu kanvas bir bağlantıya bağlı değil.' };
-  }
-
-  // Sunucu 400 dondugunde sebebi govdede yaziyor ("Önce tabloları seçip Ön
-  // Analiz çalıştırın" gibi). Axios bunu exception'a cevirdigi icin, yakalanip
-  // acilmazsa kullaniciya yalnizca "Request failed with status code 400"
-  // gorunuyordu — yani sunucu sebebi biliyor, ekran soylemiyordu.
-  let submitted;
-  try {
-    submitted = await submitAgentQuery(connectionId, question, parentQueryId);
-  } catch (err) {
-    const body = err.response?.data;
-    return {
-      success: false,
-      error: body?.error || body?.detail || body?.title || err.message,
-      status: body?.status,
-      // Sunucu soruyu cozemedigini soyluyor ve ne sormasi gerektigini
-      // yaziyor. Bu bir hata degil, karsi soru — ekranda da oyle gorunmeli.
-      needsClarification: Boolean(body?.needsClarification),
-      // Netlestirme turu artik sunucuda kayitli ve kendi kimligi var.
-      // Kullanicinin cevabi bu kimlige baglanacak; zincirin halkasi bu.
-      queryId: body?.queryId,
-    };
-  }
-
-  if (!submitted?.success) {
-    return { success: false, error: submitted?.error || 'Sorgu gönderilemedi.' };
-  }
-
-  const queryId = submitted.queryId;
-  onProgress?.('Sorgu kuyruğa alındı…');
-
-  for (let attempt = 0; attempt < AGENT_MAX_ATTEMPTS; attempt++) {
-    await new Promise(r => setTimeout(r, AGENT_POLL_MS));
-
-    const status = await getAgentQueryStatus(queryId);
-
-    if (status.status === 'completed') {
-      const payload = await getAgentQueryResult(queryId);
-      const result = payload?.result ?? {};
-      return {
-        success: true,
-        // Kimlik disari veriliyor: tuvaldeki gecici dugum kimlikleri bununla
-        // kalicilariyla degistiriliyor, yerlesim de o kimliklere yazilıyor.
-        queryId,
-        answer: result.summary || result.answer || 'Analiz tamamlandı.',
-        charts: result.charts || [],
-        failedTasks: [],
-        // Denetim izi: hangi tablo/kolon secildi, hangi SQL calisti.
-        audit: { ...(result.audit || {}), llmParameters: payload?.llmParameters },
-      };
-    }
-
-    if (status.status === 'failed') {
-      return { success: false, queryId, error: status.message || status.error || 'Analiz başarısız oldu.' };
-    }
-
-    onProgress?.('Analiz ediliyor…');
-  }
-
-  return { success: false, queryId, error: 'Zaman aşımı — analiz 5 dakikada tamamlanmadı.' };
-};
-
 
 
 /* ─────────────────────────────────────────────────────────────
@@ -225,16 +35,6 @@ export default function CanvasPage() {
 
   // Canvas state
   const [canvasNodes, setCanvasNodes] = useState([]);
-
-  /* Hakkında karar verilmiş eşleştirmelerin anahtarları. Sunucudaki kayıtla
-     aynı biçimde tutuluyor (bkz. LearnedFact.RelationshipKey) — aynı şeyi
-     iki kez sormamanın tek yolu iki tarafın aynı kimliği üretmesi. */
-  const answeredMatchesRef = useRef(new Set());
-
-  /* Henüz cevaplanmamış eşleştirmeler. Ref okuduğu için useCallback'e gerek
-     yok ve bağımlılık zinciri de kurmuyor. */
-  const unanswered = (matches) =>
-    (matches || []).filter(m => !answeredMatchesRef.current.has(relationshipKey(m)));
 
   // Silme onayı bekleyen düğüm
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -330,35 +130,13 @@ export default function CanvasPage() {
       const layout = loadLayout(connectionId);
       layoutRef.current = layout;
 
-      // Hakkında zaten karar verilmiş eşleşmeler. Sözlükteki
-      // `needsConfirmation` bayrağı ancak bir sonraki "Analiz Et"te
-      // güncelleniyor; o zamana kadar aynı bağ her sorguda soru olarak
-      // gelirdi. Üçüncü kez sorulan bir onay, okunmadan kapatılan bir
-      // onaydır.
       try {
-        const { items = [] } = await listLearnedFacts(connectionId);
-        if (!cancelled) {
-          answeredMatchesRef.current = new Set(
-            items.filter(i => i.kind === 'relationship').map(i => i.key));
-        }
-      } catch {
-        // Okunamazsa en kötüsü aynı soru bir kez daha sorulur; kanvasın
-        // açılmasını engellememeli.
-      }
-
-      try {
-        const { queries = [] } = await getAgentQueryHistory(connectionId);
+        const { queries = [], relationshipDecisions = {} } = await getAgentQueryHistory(connectionId);
         if (cancelled || queries.length === 0) return;
 
-        const restored = restoreFromHistory(queries);
+        const restored = restoreFromHistory(queries, relationshipDecisions);
         const laidOut = applyLayout(restored, layout);
-
-
         setCanvasNodes(laidOut.nodes);
-
-
-
-
       } catch {
         // Geçmiş okunamazsa kanvas boş açılır ve yeni soru sorulabilir.
         // Eski sohbeti gösterememek, ekranı tamamen kilitlemekten iyidir.
@@ -420,7 +198,7 @@ export default function CanvasPage() {
      ve hata da bu kartın konuşmasına düşüyor. Eskiden her tur tuvale ayrı
      kutular bırakıyordu ve üç soru sonra hangisinin hangisine ait olduğu
      okunmuyordu. */
-  const handleCardAsk = useCallback(async (node, text) => {
+  const askQuestion = useCallback(async (node, text) => {
     const connId = analysis?.connectionId || analysis?.requestId;
     if (!connId) return;
 
@@ -430,6 +208,11 @@ export default function CanvasPage() {
     patchCard(cardId, d => ({
       turns: [...(d.turns || []), { role: 'user', content: text, ts: stamp }],
       loading: true,
+      pendingConfirmations: [],
+      needsRelationshipClarification: false,
+      clarificationQuestion: null,
+      confirmationStates: {},
+      confirmationRejected: false,
     }));
     setQueryCount(c => c + 1);
 
@@ -472,6 +255,11 @@ export default function CanvasPage() {
           // Netleştirmede zincir SÜRÜYOR: kullanıcının cevabı bu tura
           // bağlanacak.
           queryId: res.queryId ?? d.queryId,
+          pendingConfirmations: getPendingConfirmations(res),
+          needsRelationshipClarification: Boolean(res.needsClarification && getPendingConfirmations(res).length),
+          clarificationQuestion: res.needsClarification ? text : null,
+          confirmationStates: {},
+          confirmationRejected: false,
         }));
         return;
       }
@@ -487,7 +275,11 @@ export default function CanvasPage() {
         // üretmeyen bir devam sorusu, ekrandaki grafiği silmemeli.
         chart: chart ?? d.chart,
         chartType: d.chartType || chart?.type || DEFAULT_CHART_TYPE,
-        pendingConfirmations: unanswered(res.audit?.pendingConfirmations),
+        pendingConfirmations: getPendingConfirmations(res),
+        needsRelationshipClarification: false,
+        clarificationQuestion: null,
+        confirmationStates: {},
+        confirmationRejected: false,
         evidence: res.audit?.evidence ?? null,
         audit: res.audit ?? null,
         queryId: res.queryId ?? d.queryId,
@@ -507,77 +299,11 @@ export default function CanvasPage() {
     patchCard(node.id, { chartType });
   }, [patchCard]);
 
-  /* ── Eşleştirme onayı ──
-
-     Kullanıcı sonuca bakıp "bu doğru" ya da "bu yanlış" diyor; ikisi de
-     kaydediliyor. Hayır cevabını saklamak evet kadar önemli: unutulursa
-     sistem aynı yanlış eşleşmeyi her analizde yeniden kurar ve aynı soruyu
-     tekrar tekrar sorar.
-
-     Kayıt bu sorguyu değiştirmiyor — ekrandaki grafik ne ise o kalıyor.
-     Öğrenilen bilgi bir sonraki "Analiz Et"te sözlüğe işleniyor, çünkü bir
-     ilişkinin geçerli olup olmadığı ancak veritabanına bakılarak, ölçüm
-     kapısından geçirilerek bilinebilir. */
-  const handleNodeConfirmMatch = useCallback(async (node, match, accepted) => {
-    const connId = analysis?.connectionId || analysis?.requestId;
-    if (!connId) return;
-
-    try {
-      await learnFact(connId, {
-        kind: 'relationship',
-        accepted,
-        fromTable: match.fromTable,
-        fromColumn: match.fromColumn,
-        toTable: match.toTable,
-        toColumn: match.toColumn,
-        // Kartın konuşmasındaki son soru: bu eşleşme hangi soruya cevaben
-        // kuruldu, kayıtta yazsın.
-        question: [...(node.data?.turns || [])].reverse()
-          .find(t => t.role === 'user')?.content ?? null,
-      });
-
-      // Bu tur boyunca ve sonraki sorgularda bir daha sorulmasın. Sunucudaki
-      // `needsConfirmation` ancak bir sonraki "Analiz Et"te düşüyor.
-      answeredMatchesRef.current.add(relationshipKey(match));
-
-      // Soru cevaplandı: aynı düğümde bir daha görünmesin.
-      setCanvasNodes(p => p.map(n => (
-        n.id === node.id
-          ? {
-              ...n,
-              data: {
-                ...n.data,
-                pendingConfirmations: (n.data?.pendingConfirmations || []).filter(
-                  m => !(m.fromTable === match.fromTable && m.fromColumn === match.fromColumn
-                      && m.toTable === match.toTable && m.toColumn === match.toColumn)),
-              },
-            }
-          : n
-      )));
-
-      // Onayın sonucu kartın kendi konuşmasına yazılıyor: eskiden yan
-      // paneldeki ortak akışa düşüyordu ve hangi grafiğin onayı olduğu
-      // okunmuyordu.
-      patchCard(node.id, d => ({
-        turns: [...(d.turns || []), {
-          role: 'ai',
-          ts: Date.now(),
-          content: accepted
-            ? `${match.fromColumn} → ${match.toColumn} eşleşmesi hafızaya yazıldı. `
-              + 'Bir sonraki "Analiz Et"ten itibaren bu bağlantı hazır olacak.'
-            : `${match.fromColumn} → ${match.toColumn} eşleşmesi reddedildi olarak `
-              + 'kaydedildi; bu bağlantı bir daha kurulmayacak.',
-        }],
-      }));
-    } catch (e) {
-      patchCard(node.id, d => ({
-        turns: [...(d.turns || []), {
-          role: 'ai', error: true, ts: Date.now(),
-          content: `Kaydedilemedi: ${e.response?.data?.error || e.message}`,
-        }],
-      }));
-    }
-  }, [analysis, patchCard]);
+  const { handleAsk: handleCardAsk, handleConfirmMatch: handleNodeConfirmMatch } = useRelationshipConfirmations({
+    connectionId: analysis?.connectionId,
+    patchCard,
+    askQuestion,
+  });
 
   /* ── Silme ── */
   const handleNodeDelete = useCallback((node) => setPendingDelete(node), []);

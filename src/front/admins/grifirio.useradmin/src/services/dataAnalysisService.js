@@ -1,5 +1,6 @@
 import axios from 'axios';
 import keycloak from '../keycloak';
+import buildConnectionUpdate from '../utils/connections/buildConnectionUpdate.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/data-analysis`
@@ -71,29 +72,20 @@ export const testConnection = async (connectionId) => {
  * 'user-123' gibi uydurma değerler koyuyordu.
  */
 export const saveConnection = async (name, connectionInfo) => {
-  try {
-    const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
-    const payload = {
-      name,
-      host,
-      port,
-      database: connectionInfo.database,
-      username: connectionInfo.username,
-      password: connectionInfo.password,
-      trustServerCertificate: connectionInfo.trustServerCertificate
-    };
-    
-    const response = await axios.post(`${API_BASE_URL}/api/connections`, payload, {
-      timeout: 10000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Save connection failed:', error);    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-      console.error('Response headers:', error.response.headers);
-    }    throw error;
-  }
+  const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
+  const payload = {
+    name,
+    host,
+    port,
+    database: connectionInfo.database,
+    username: connectionInfo.username,
+    password: connectionInfo.password,
+    trustServerCertificate: connectionInfo.trustServerCertificate
+  };
+  const response = await axios.post(`${API_BASE_URL}/api/connections`, payload, {
+    timeout: 10000
+  });
+  return response.data;
 };
 
 /**
@@ -106,8 +98,6 @@ export const getSavedConnections = async () => {
     const response = await axios.get(`${API_BASE_URL}/api/connections`, {
       timeout: 10000
     });
-    console.log('📡 API Response:', response.data);
-    console.log('📡 Response keys:', Object.keys(response.data || {}));
     return response.data;
   } catch (error) {
     console.error('Get connections failed:', error);
@@ -115,33 +105,7 @@ export const getSavedConnections = async () => {
   }
 };
 
-/**
- * Bağlantı, şifresi çözülmüş halde. Tek kullanım yeri düzenleme formu:
- * kullanıcı şifreyi yeniden yazmak zorunda kalmasın diye. Tablo listesi ve
- * ön analiz artık bunu ÇAĞIRMIYOR — o uçlar bağlantı kimliğiyle çalıştığı
- * için parolanın tarayıcıya inmesi gerekmiyor.
- */
-export const getConnectionById = async (connectionId) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/api/connections/${connectionId}/decrypt`, {
-      timeout: 10000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Get connection failed:', error);
-    throw error;
-  }
-};
-
-/**
- * Bağlantının şifresiz özeti (ad, host, veritabanı).
- *
- * Kanvas gibi yalnızca adı gösteren yerler bunu kullanmalı. Önceden oralar da
- * `getConnectionById` çağırıyordu; o uç şifre çözdüğü için DATA_SOURCES.UPDATE
- * yetkisi istiyor — yani "analizleri görsün ama veri kaynağını değiştirmesin"
- * denen bir kullanıcıda kanvas, sebebi görünmeyen bir yetki hatasıyla boş
- * açılıyordu.
- */
+/** Reads connection metadata without requesting stored credentials. */
 export const getConnectionSummary = async (connectionId) => {
   try {
     const response = await axios.get(
@@ -159,18 +123,13 @@ export const getConnectionSummary = async (connectionId) => {
  * kalır; şifre alanı boşsa mevcut şifre korunur.
  */
 export const updateConnection = async (connectionId, changes) => {
-  try {
-    const { host, port } = normalizeHostAndPort(changes.host, changes.port);
-    const response = await axios.put(
-      `${API_BASE_URL}/api/connections/${connectionId}`,
-      { ...changes, host, port },
-      { timeout: 10000 }
-    );
-    return response.data;
-  } catch (error) {
-    console.error('Update connection failed:', error);
-    throw error;
-  }
+  const { host, port } = normalizeHostAndPort(changes.host, changes.port);
+  const response = await axios.put(
+    `${API_BASE_URL}/api/connections/${connectionId}`,
+    buildConnectionUpdate({ ...changes, host, port }),
+    { timeout: 10000 }
+  );
+  return response.data;
 };
 
 /**
@@ -287,7 +246,7 @@ export const getAnalysisStatus = async (connectionId) => {
   }
 };
 
-/** Soru yanıtlarını sözlüğe işler; bağlantı `ready` olur. */
+/** Saves answers; the returned status determines whether more answers are needed. */
 export const submitAnalysisAnswers = async (connectionId, answers) => {
   const response = await axios.post(
     `${API_BASE_URL}/api/agent/config/${connectionId}/answers`,

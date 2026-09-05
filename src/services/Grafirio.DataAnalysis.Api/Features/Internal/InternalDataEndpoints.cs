@@ -1,7 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Grafirio.QueryPolicy;
 using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.DataAnalysis.Api.Features.Internal;
@@ -55,6 +58,7 @@ public static class InternalDataEndpoints
         HttpContext http,
         DataAnalysisDbContext db,
         IDataSourceFactory dataSources,
+        ConnectionProfileStore profiles,
         IConfiguration configuration,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
@@ -63,33 +67,44 @@ public static class InternalDataEndpoints
 
         if (!IsAuthorized(http, configuration))
         {
-            logger.LogWarning("İç veri ucuna geçersiz anahtarla istek geldi.");
+            logger.LogWarning("Internal query rejected: invalid API key.");
             return Results.Unauthorized();
         }
 
         if (string.IsNullOrWhiteSpace(request.Sql))
             return Results.BadRequest(new { error = "sql boş olamaz." });
 
-        // Yalnizca okuma. Bu uc bir sorgu motoru degil; yazma yetkisi
-        // gerektiren hicbir isi yok. Ayni kontrol Faz 2'de bridge tarafinda da
-        // yapilacak — bridge buluta guvenmemeli.
-        if (!ReadOnlySqlPolicy.IsReadOnly(request.Sql))
+        var query = await db.QueryHistories.AsNoTracking()
+            .FirstOrDefaultAsync(q => q.Id == request.QueryId && q.ConfigId == request.ConfigId, ct);
+        var config = await db.AnalysisConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == request.ConfigId && c.CompanyId == request.CompanyId &&
+                c.ConnectionId == request.ConnectionId, ct);
+        var connection = await db.SavedConnections.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == request.ConnectionId && c.CompanyId == request.CompanyId, ct);
+
+        IReadOnlyList<string> allowedTables;
+        try
         {
-            logger.LogWarning("İç veri ucunda okuma dışı sorgu reddedildi.");
-            return Results.BadRequest(new { error = "Yalnızca SELECT/WITH sorguları çalıştırılabilir." });
+            var selectedTables = config is null ? [] : await profiles.GetSelectedTablesAsync(
+                config.ConnectionId, config.CompanyId, ct);
+            allowedTables = InternalQueryScope.Validate(
+                request.CompanyId, request.QueryId, request.ConfigId, request.ConnectionId, request.ConfigHash,
+                query, config, connection, selectedTables);
         }
-
-        var connection = await db.SavedConnections
-            .FirstOrDefaultAsync(c => c.Id == request.ConnectionId, ct);
-
-        if (connection is null)
-            return Results.NotFound(new { error = "Bağlantı bulunamadı." });
+        catch (QueryPolicyException)
+        {
+            logger.LogWarning("Internal query rejected: invalid scope for query {QueryId}.", request.QueryId);
+            return Results.Json(new { error = "Query execution scope is invalid or stale." },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
 
         var rowLimit = Math.Clamp(request.MaxRows ?? DefaultRowLimit, 1, MaxRowLimit);
 
         try
         {
-            await using var session = await dataSources.OpenAsync(connection, ct);
+            // Runtime queries use the canonical dictionary; catalog access is reserved for profiling.
+                ReadOnlySqlPolicy.Validate(request.Sql, allowedTables, allowMetadata: false);
+            await using var session = await dataSources.OpenAsync(connection!, ct);
 
             // Tavani bir fazlasiyla isteyip kesiyoruz: sonucun kirpilip
             // kirpilmadigini boyle anlayabiliyoruz. Kirpildigini soylememek,
@@ -114,11 +129,16 @@ public static class InternalDataEndpoints
                 truncated
             });
         }
+        catch (QueryPolicyException ex)
+        {
+            logger.LogWarning(ex, "Internal query rejected by SQL policy for query {QueryId}.", request.QueryId);
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (DataSourceException ex)
         {
             // Hata metni musteri veritabanindan geliyor; sifre icermez ama
             // yine de disari verilen tek sey mesajin kendisi.
-            logger.LogWarning(ex, "İç veri sorgusu başarısız. Bağlantı: {ConnectionId}", request.ConnectionId);
+            logger.LogWarning(ex, "Internal query failed for connection {ConnectionId}.", request.ConnectionId);
             return Results.Problem(detail: ex.Message, title: "Sorgu çalıştırılamadı",
                 statusCode: StatusCodes.Status502BadGateway);
         }
@@ -165,6 +185,10 @@ public static class InternalDataEndpoints
 
 public record InternalQueryRequest(
     Guid ConnectionId,
+    string CompanyId,
+    Guid QueryId,
+    Guid ConfigId,
+    string ConfigHash,
     string Sql,
     Dictionary<string, JsonElement>? Parameters = null,
     int? MaxRows = null);

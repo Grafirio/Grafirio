@@ -2,7 +2,9 @@ using System.Data;
 using System.Data.Common;
 using Dapper;
 using Grafirio.Bridge.Contracts;
+using Grafirio.QueryPolicy;
 using Microsoft.Data.SqlClient;
+using SqlPolicy = Grafirio.QueryPolicy.QueryPolicy;
 
 namespace Grafirio.Bridge;
 
@@ -60,7 +62,7 @@ public class QueryExecutor(
         {
             // Bu satir loglaniyor: buluttan okuma disi bir sorgu gelmesi
             // normal bir durum degil ve musterinin gormesi gereken bir sey.
-            logger.LogWarning("Okuma dışı sorgu reddedildi. İstek: {RequestId}", request.RequestId);
+            logger.LogWarning("Non-read-only SQL rejected for request {RequestId}", request.RequestId);
             audit.Rejected(request, "okuma dışı sorgu");
 
             yield return new QueryFailure(request.RequestId, QueryFailure.NotReadOnly,
@@ -68,24 +70,36 @@ public class QueryExecutor(
             yield break;
         }
 
-        if (DisallowedTable(connection, request.Sql) is { } blocked)
+        QueryValidationResult? validation = null;
+        QueryFailure? policyFailure = null;
+        try
         {
-            logger.LogWarning(
-                "İzin listesinde olmayan tabloya sorgu reddedildi: {Table}", blocked);
-            audit.Rejected(request, $"izin listesinde olmayan tablo: {blocked}");
+            validation = SqlPolicy.Validate(request.Sql, connection.AllowedTables, allowMetadata: true);
+        }
+        catch (QueryPolicyException exception)
+        {
+            logger.LogWarning("SQL policy rejected request {RequestId}: {Reason}",
+                request.RequestId, exception.Message);
+            audit.Rejected(request, exception.Message);
+            policyFailure = new QueryFailure(request.RequestId,
+                exception.TableNotAllowed ? QueryFailure.TableNotAllowed : QueryFailure.NotReadOnly,
+                exception.Message);
+        }
 
-            yield return new QueryFailure(request.RequestId, QueryFailure.TableNotAllowed,
-                $"'{blocked}' tablosu bu bağlantı için izin listesinde değil.");
+        if (policyFailure is not null)
+        {
+            yield return policyFailure;
             yield break;
         }
 
-        await foreach (var message in RunAsync(request, connection, ct))
+        await foreach (var message in RunAsync(request, connection, validation!, ct))
             yield return message;
     }
 
     private async IAsyncEnumerable<object> RunAsync(
         ExecuteQueryRequest request,
         BridgeConnection connection,
+        QueryValidationResult validation,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         var rowLimit = Math.Clamp(request.MaxRows, 1, HardRowLimit);
@@ -105,6 +119,8 @@ public class QueryExecutor(
         try
         {
             await sql.OpenAsync(ct);
+            await ReadOnlyPrincipalGuard.VerifyAsync(sql, ct);
+            await ReadOnlyPrincipalGuard.VerifyTablesAsync(sql, validation, ct);
 
             var command = new CommandDefinition(
                 request.Sql, ToDapperParameters(request.Parameters),
@@ -115,7 +131,7 @@ public class QueryExecutor(
         catch (Exception ex)
         {
             var (code, message) = Classify(ex);
-            logger.LogWarning(ex, "Sorgu çalıştırılamadı. İstek: {RequestId}", request.RequestId);
+            logger.LogWarning(ex, "SQL execution failed for request {RequestId}", request.RequestId);
             audit.Failed(request, message);
 
             openFailure = new QueryFailure(request.RequestId, code, message);
@@ -180,43 +196,6 @@ public class QueryExecutor(
         }
 
         return columns;
-    }
-
-    /// <summary>
-    /// Izin listesindeki tablolardan biri olmayan bir tabloya dokunuluyor mu.
-    ///
-    /// Kontrol kaba: sorgu metninde gecen tablo benzeri adlar taraniyor. Amac
-    /// bir SQL ayristiricisi yazmak degil, yanlislikla ya da kotu niyetle
-    /// baska bir tabloya gidilmesini engellemek. Suphede kalirsa REDDEDIYOR.
-    /// </summary>
-    private static string? DisallowedTable(BridgeConnection connection, string sql)
-    {
-        if (connection.AllowedTables.Count == 0) return null;
-
-        var allowed = connection.AllowedTables
-            .Select(Normalize)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var referenced in SqlTableScanner.ReferencedTables(sql))
-        {
-            var normalized = Normalize(referenced);
-
-            // Sistem katalogu sorgulari (sys.*, INFORMATION_SCHEMA.*) sema
-            // okumak icin gerekli ve musteri verisi icermiyor.
-            if (normalized.StartsWith("sys.", StringComparison.OrdinalIgnoreCase)
-                || normalized.StartsWith("information_schema.", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (!allowed.Contains(normalized)) return referenced;
-        }
-
-        return null;
-    }
-
-    private static string Normalize(string table)
-    {
-        var cleaned = table.Replace("[", "").Replace("]", "").Trim();
-        return cleaned.Contains('.') ? cleaned : $"dbo.{cleaned}";
     }
 
     private static (string Code, string Message) Classify(Exception ex) => ex switch

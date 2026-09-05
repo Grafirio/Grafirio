@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Grafirio.QueryPolicy\Grafirio.QueryPolicy.csproj" />
   </ItemGroup>
 
 </Project>

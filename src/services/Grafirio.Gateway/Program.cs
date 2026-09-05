@@ -40,6 +40,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.Use(Program.RejectInternalRequestsAsync);
+
 // Global Exception Handling
 app.UseCorrelationId();
 app.UseGlobalExceptionHandler();
@@ -71,3 +73,29 @@ app.MapGet("/metrics", (RequestMetrics m) => Results.Ok(m.GetAll()));
 app.MapPost("/metrics/reset", (RequestMetrics m) => { m.Reset(); return Results.NoContent(); });
 
 app.Run();
+
+public partial class Program
+{
+    private const string InternalDataAnalysisPath = "/data-analysis/internal";
+
+    public static Task RejectInternalRequestsAsync(HttpContext context, RequestDelegate next)
+    {
+        var path = context.Request.Path;
+        if (path.StartsWithSegments(InternalDataAnalysisPath, StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return Task.CompletedTask;
+        }
+
+        // Reject ambiguous paths before a downstream URI parser can reinterpret them.
+        var value = path.Value ?? string.Empty;
+        if (value.Contains('%') || value.Contains('\\') || value.Contains("//", StringComparison.Ordinal)
+            || value.Split('/').Any(segment => segment is "." or ".."))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return Task.CompletedTask;
+        }
+
+        return next(context);
+    }
+}

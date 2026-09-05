@@ -58,6 +58,18 @@ public static class SensitiveColumnPolicy
 
     public sealed record Result(Decision Decision, string? Reason);
 
+    public static bool MayReadValues(string columnName, string dataType, bool consent) =>
+        consent && IsSupportedType(dataType)
+        && Evaluate(columnName, dataType, null).Decision != Decision.Denied;
+
+    public static bool MayExposeValues(ColumnProfile column, bool consent) =>
+        MayReadValues(column.ColumnName, column.DataType, consent)
+        && column.SamplingDecision is nameof(Decision.Allowed) or nameof(Decision.NeedsConsent);
+
+    private static bool IsSupportedType(string dataType) =>
+        IsNumericOrDate(dataType) || dataType.ToLowerInvariant() is
+            "char" or "nchar" or "varchar" or "nvarchar" or "uniqueidentifier";
+
     /// <summary>
     /// Kolon adi ve kardinaliteye gore karar verir.
     /// </summary>
