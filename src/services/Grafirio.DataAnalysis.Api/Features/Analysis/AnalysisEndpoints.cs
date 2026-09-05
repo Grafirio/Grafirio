@@ -1,6 +1,9 @@
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.QueryPolicy;
 using Grafirio.Shared.Identity.Extensions;
 using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
@@ -52,6 +55,7 @@ public static class AnalysisEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IIdentityService identity,
         [FromServices] IDataSourceFactory dataSources,
+        [FromServices] ConnectionProfileStore profiles,
         CancellationToken ct)
     {
         var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
@@ -59,11 +63,13 @@ public static class AnalysisEndpoints
 
         try
         {
+            var tables = QueryTableScope.RequireSelected(request.Tables,
+                await profiles.GetSelectedTablesAsync(connectionId, connection!.CompanyId, ct));
             await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<TableQualityInfo>();
 
-            foreach (var table in request.Tables)
+            foreach (var table in tables)
             {
                 var (schema, tableName) = SplitTableName(table);
                 var qualified = $"{Quote(schema)}.{Quote(tableName)}";
@@ -120,6 +126,10 @@ public static class AnalysisEndpoints
                 }
             });
         }
+        catch (QueryPolicyException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             return Results.Ok(new { 
@@ -135,6 +145,7 @@ public static class AnalysisEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IIdentityService identity,
         [FromServices] IDataSourceFactory dataSources,
+        [FromServices] ConnectionProfileStore profiles,
         CancellationToken ct)
     {
         var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
@@ -142,11 +153,13 @@ public static class AnalysisEndpoints
 
         try
         {
+            var tables = QueryTableScope.RequireSelected(request.Tables,
+                await profiles.GetSelectedTablesAsync(connectionId, connection!.CompanyId, ct));
             await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<TableStatistics>();
 
-            foreach (var table in request.Tables)
+            foreach (var table in tables)
             {
                 var (schema, tableName) = SplitTableName(table);
                 var qualified = $"{Quote(schema)}.{Quote(tableName)}";
@@ -215,6 +228,10 @@ public static class AnalysisEndpoints
                 data = results
             });
         }
+        catch (QueryPolicyException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             return Results.Ok(new { 
@@ -230,6 +247,7 @@ public static class AnalysisEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IIdentityService identity,
         [FromServices] IDataSourceFactory dataSources,
+        [FromServices] ConnectionProfileStore profiles,
         CancellationToken ct)
     {
         var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
@@ -237,11 +255,13 @@ public static class AnalysisEndpoints
 
         try
         {
+            var tables = QueryTableScope.RequireSelected(request.Tables,
+                await profiles.GetSelectedTablesAsync(connectionId, connection!.CompanyId, ct));
             await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var results = new List<MissingDataInfo>();
 
-            foreach (var table in request.Tables)
+            foreach (var table in tables)
             {
                 var (schema, tableName) = SplitTableName(table);
                 var qualified = $"{Quote(schema)}.{Quote(tableName)}";
@@ -293,6 +313,10 @@ public static class AnalysisEndpoints
                 data = results
             });
         }
+        catch (QueryPolicyException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             return Results.Ok(new { 
@@ -308,6 +332,7 @@ public static class AnalysisEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] IIdentityService identity,
         [FromServices] IDataSourceFactory dataSources,
+        [FromServices] ConnectionProfileStore profiles,
         CancellationToken ct)
     {
         var (connection, error) = await ConnectionScope.ResolveAsync(db, identity, connectionId, ct);
@@ -315,6 +340,9 @@ public static class AnalysisEndpoints
 
         try
         {
+            var tables = QueryTableScope.RequireSelected(request.Tables,
+                await profiles.GetSelectedTablesAsync(connectionId, connection!.CompanyId, ct));
+            var requestedIdentities = tables.Select(Grafirio.QueryPolicy.QueryPolicy.ParseTableIdentity).ToHashSet();
             await using var session = await dataSources.OpenAsync(connection!, ct);
 
             var relationshipsQuery = @"
@@ -336,15 +364,18 @@ public static class AnalysisEndpoints
                 INNER JOIN sys.tables AS tr 
                     ON fkc.referenced_object_id = tr.object_id
                 INNER JOIN sys.columns AS cr 
-                    ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id";
+                        ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+                    WHERE OBJECT_SCHEMA_NAME(fk.parent_object_id) + '.' + tp.name IN @Names
+                      AND OBJECT_SCHEMA_NAME(fk.referenced_object_id) + '.' + tr.name IN @Names";
 
-            var allRelationships = await session.QueryRowsAsync(relationshipsQuery, ct: ct);
+                    var allRelationships = await session.QueryRowsAsync(relationshipsQuery, new { Names = tables }, ct: ct);
 
-            // Sadece seçili tabloları filtrele
+            // Both ends must be in scope; substring matching can expose unrelated tables.
             var relevantRelationships = allRelationships
-                .Where(r => request.Tables.Any(t =>
-                    t.Contains(r.GetRequiredString("ParentTable"))
-                    || t.Contains(r.GetRequiredString("ReferencedTable"))))
+                .Where(r => requestedIdentities.Contains(new SqlTableIdentity(
+                        r.GetRequiredString("ParentSchema"), r.GetRequiredString("ParentTable")))
+                    && requestedIdentities.Contains(new SqlTableIdentity(
+                        r.GetRequiredString("ReferencedSchema"), r.GetRequiredString("ReferencedTable"))))
                 .Select(r => new RelationshipInfo
                 {
                     ConstraintName = r.GetRequiredString("ConstraintName"),
@@ -361,6 +392,10 @@ public static class AnalysisEndpoints
                 count = relevantRelationships.Count
             });
         }
+        catch (QueryPolicyException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             return Results.Ok(new { 
@@ -372,8 +407,8 @@ public static class AnalysisEndpoints
 
     private static (string Schema, string Table) SplitTableName(string qualified)
     {
-        var parts = qualified.Split('.');
-        return parts.Length > 1 ? (parts[0], parts[1]) : ("dbo", qualified);
+        var identity = Grafirio.QueryPolicy.QueryPolicy.ParseTableIdentity(qualified);
+        return (identity.Schema!, identity.Name);
     }
 
     /// <summary>

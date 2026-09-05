@@ -313,6 +313,8 @@
 .bi-match-confirm {
   border-top: 1px solid var(--border);
   background: var(--surface-sunken);
+  flex-shrink: 0;
+  padding: 10px 12px;
 }
 .bi-match-confirm-item {
   padding: 10px 12px;

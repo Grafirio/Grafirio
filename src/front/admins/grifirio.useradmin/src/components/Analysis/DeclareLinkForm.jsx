@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { getTableColumns, learnFact } from '../../services/dataAnalysisService';
+import { getTableColumns } from '../../services/dataAnalysisService';
+import learnRelationship from '../../services/learnRelationship';
 
 /**
  * İki kolonu elle eşleştirme formu.
@@ -13,11 +14,7 @@ import { getTableColumns, learnFact } from '../../services/dataAnalysisService';
  * anlayabildiği kolonları yazıyor; elle bağlanması gereken kolonlar tam
  * olarak anlayamadıkları.
  *
- * Kayıt anında geçerli olmuyor: bir bağlantının işe yarayıp yaramadığı ancak
- * veritabanına bakılarak — hedef benzersiz mi, değerler örtüşüyor mu —
- * bilinebilir ve o ölçüm "Analiz Et" adımında yapılıyor. Form bunu açıkça
- * söylüyor; "kaydettim" deyip sonucun bir sonraki analize kalması, sessizce
- * çalışmayan bir düğmeden iyidir.
+ * Relationship saves must validate and update the active dictionary before success.
  */
 export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
   const [fromTable, setFromTable] = useState('');
@@ -27,6 +24,7 @@ export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
   const [columns, setColumns] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
 
   // Seçilen tablonun kolonları tembel yükleniyor: yirmi tablolu bir şemada
   // hepsini baştan çekmek gereksiz yirmi sorgu demek.
@@ -59,17 +57,17 @@ export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
   const save = async () => {
     setSaving(true);
     setError(null);
+    setSaved(false);
     try {
-      await learnFact(connectionId, {
-        kind: 'relationship',
-        accepted: true,
+      await learnRelationship(connectionId, {
         fromTable,
         fromColumn,
         toTable,
         toColumn,
-      });
+      }, true);
       setFromColumn('');
       setToColumn('');
+      setSaved(true);
       onSaved?.();
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -96,8 +94,7 @@ export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
     <div className="declare-link">
       <p className="declare-link-hint">
         Adları birbirine benzemeyen kolonları buradan eşleştirebilirsiniz.
-        Eşleştirme bir sonraki <strong>“Analiz Et”</strong>te ölçülür ve
-        ondan sonra kullanılmaya başlar.
+        Eşleştirme şimdi doğrulanır; başarılıysa hemen aktif sözlüğe uygulanır.
       </p>
 
       <div className="declare-link-row">
@@ -133,8 +130,7 @@ export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
       <p className="declare-link-note">
         İkinci tablo <strong>hedef</strong>: seçtiğiniz kolonun orada her
         değerden yalnızca bir satır olması gerekiyor (birincil anahtar ya da
-        benzersiz kolon). Değilse eşleştirme ölçümde reddedilir ve sebebi
-        listede yazar.
+        benzersiz kolon). Değilse eşleştirme reddedilir ve sebebi burada gösterilir.
       </p>
 
       {sameTable && (
@@ -143,6 +139,7 @@ export default function DeclareLinkForm({ connectionId, tables, onSaved }) {
         </div>
       )}
       {error && <div className="declare-link-error">{error}</div>}
+      {saved && <p role="status">İlişki doğrulandı ve aktif sözlüğe uygulandı.</p>}
 
       <button
         type="button"

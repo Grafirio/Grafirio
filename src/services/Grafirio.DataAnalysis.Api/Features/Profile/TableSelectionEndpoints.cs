@@ -1,6 +1,11 @@
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 using Grafirio.DataAnalysis.Api.Data;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
+using Grafirio.QueryPolicy;
+using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -26,10 +31,12 @@ public static class TableSelectionEndpoints
             .WithOpenApi();
 
         group.MapPut("/", SaveSelection)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
             .WithName("SaveSelectedTables")
             .WithDescription("Bağlantı için analiz edilecek tabloları kaydeder");
 
         group.MapGet("/", GetSelection)
+            .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("GetSelectedTables")
             .WithDescription("Bağlantı için kayıtlı tablo seçimini döndürür");
     }
@@ -39,6 +46,7 @@ public static class TableSelectionEndpoints
         SelectedTablesRequest request,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ConnectionProfileStore store,
+        [FromServices] IDataSourceFactory dataSources,
         [FromServices] IIdentityService identity,
         [FromServices] BridgeConnectionSync sync,
         [FromServices] BridgeRegistry registry,
@@ -51,21 +59,32 @@ public static class TableSelectionEndpoints
 
         // Baglanti gercekten bu sirkete mi ait — kimligi istekten degil
         // token'dan aliyoruz ve kaydi da onunla suzuyoruz.
-        var exists = await db.SavedConnections.AnyAsync(
+        var connection = await db.SavedConnections.AsNoTracking().FirstOrDefaultAsync(
             c => c.Id == connectionId && c.CompanyId == scopedCompanyId && c.IsActive, ct);
 
         // Bulunamadi icin 404: 403 "bu kayit var ama senin degil" bilgisini sizdirir.
-        if (!exists) return Results.NotFound(new { error = "Bağlantı bulunamadı" });
+        if (connection is null) return Results.NotFound(new { error = "Bağlantı bulunamadı" });
 
-        var tables = (request.Tables ?? [])
-            .Select(t => t?.Trim())
-            .Where(t => !string.IsNullOrWhiteSpace(t))
-            .Select(t => t!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (tables.Count == 0)
-            return Results.BadRequest(new { error = "En az bir tablo seçilmeli." });
+        IReadOnlyList<string> tables;
+        try
+        {
+            tables = QueryTableScope.Normalize(request.Tables);
+            // Catalog-only bootstrap works before the connection has any selected customer tables.
+            await using var session = await dataSources.OpenAsync(connection, ct);
+            var baseTables = await session.QueryRowsAsync(QueryTableScope.BaseTablesSql, ct: ct);
+            QueryTableScope.RequireBaseTables(tables, baseTables.Select(row => new SqlTableIdentity(
+                row.GetRequiredString("SchemaName"), row.GetRequiredString("TableName"))));
+        }
+        catch (QueryPolicyException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (DataSourceException ex)
+        {
+            logger.LogWarning(ex, "Base table verification failed for connection {ConnectionId}.", connectionId);
+            return Results.Problem(title: "Table selection could not be verified.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
 
         await store.SaveSelectedTablesAsync(connectionId, scopedCompanyId, tables, ct);
 
@@ -94,8 +113,8 @@ public static class TableSelectionEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(ex,
-                "Tablo seçimi bridge'e gönderilemedi: {ConnectionId}. " +
-                "Bridge bağlandığında yeniden gönderilecek.", connectionId);
+                "Table selection could not be sent to bridge for {ConnectionId}. It will be retried on reconnect.",
+                connectionId);
         }
 
         return Results.Ok(new

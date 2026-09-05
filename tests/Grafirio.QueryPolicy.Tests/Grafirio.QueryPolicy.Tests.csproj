@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="..\..\src\shared\Grafirio.QueryPolicy\Grafirio.QueryPolicy.csproj" />
+    <Compile Include="..\Grafirio.DataAnalysis.Tests\ReadOnlySqlPolicyTests.cs" Link="ReadOnlySqlPolicyTests.cs" />
+    <Compile Include="..\Grafirio.DataAnalysis.Tests\InternalQueryGuardTests.cs" Link="InternalQueryGuardTests.cs" />
+    <Compile Include="..\Grafirio.DataAnalysis.Tests\DirectDataSourceSessionSecurityTests.cs" Link="DirectDataSourceSessionSecurityTests.cs" />
+    <Compile Include="..\Grafirio.Bridge.Tests\ReadOnlySqlTests.cs" Link="ReadOnlySqlTests.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\ReadOnlySqlPolicy.cs" Link="ReadOnlySqlPolicy.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\DirectDataSourceSession.cs" Link="DirectDataSourceSession.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\DataSourceTarget.cs" Link="DataSourceTarget.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\IDataSourceSession.cs" Link="IDataSourceSession.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Entities\SavedConnection.cs" Link="SavedConnection.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\EncryptionHelper.cs" Link="EncryptionHelper.cs" />
+    <Compile Include="..\..\src\bridge\Grafirio.Bridge\ReadOnlySql.cs" Link="ReadOnlySql.cs" />
+    <Compile Include="..\..\src\bridge\Grafirio.Bridge\SqlTableScanner.cs" Link="SqlTableScanner.cs" />
+  </ItemGroup>
+</Project>

@@ -1,5 +1,5 @@
-using System.Data;
 using Dapper;
+using Grafirio.QueryPolicy;
 using Microsoft.Data.SqlClient;
 
 namespace Grafirio.DataAnalysis.Api.Data.Access;
@@ -14,8 +14,13 @@ namespace Grafirio.DataAnalysis.Api.Data.Access;
 public sealed class DirectDataSourceSession : IDataSourceSession
 {
     private readonly SqlConnection _connection;
+    private readonly IReadOnlyList<string> _allowedTables;
 
-    private DirectDataSourceSession(SqlConnection connection) => _connection = connection;
+    private DirectDataSourceSession(SqlConnection connection, IReadOnlyList<string> allowedTables)
+    {
+        _connection = connection;
+        _allowedTables = allowedTables.ToArray();
+    }
 
     /// <summary>
     /// Uretimde <see cref="DataSourceFactory"/> cagiriyor. Public olmasinin
@@ -29,6 +34,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
         try
         {
             await connection.OpenAsync(ct);
+            await ReadOnlyPrincipalGuard.VerifyAsync(connection, ct);
         }
         catch
         {
@@ -36,7 +42,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
             throw;
         }
 
-        return new DirectDataSourceSession(connection);
+        return new DirectDataSourceSession(connection, target.AllowedTables);
     }
 
     public async Task<IReadOnlyList<T>> QueryAsync<T>(
@@ -44,6 +50,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
     {
         try
         {
+            await ValidateAsync(sql, ct);
             var rows = await _connection.QueryAsync<T>(Command(sql, parameters, timeoutSeconds, ct));
             return rows.AsList();
         }
@@ -58,6 +65,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
     {
         try
         {
+            await ValidateAsync(sql, ct);
             var rows = await _connection.QueryAsync(Command(sql, parameters, timeoutSeconds, ct));
 
             // Dapper'in satiri zaten IDictionary; DBNull'lari null'a cevirmis
@@ -80,6 +88,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
     {
         try
         {
+            await ValidateAsync(sql, ct);
             return await _connection.ExecuteScalarAsync<T>(Command(sql, parameters, timeoutSeconds, ct));
         }
         catch (SqlException ex)
@@ -98,6 +107,7 @@ public sealed class DirectDataSourceSession : IDataSourceSession
         IEnumerable<dynamic> rows;
         try
         {
+            await ValidateAsync(sql, ct);
             // CommandFlags.None = tamponsuz: Dapper satirlari okuyucudan
             // tembelce cekiyor, hepsini birden listeye almiyor.
             rows = await _connection.QueryAsync(new CommandDefinition(
@@ -123,6 +133,12 @@ public sealed class DirectDataSourceSession : IDataSourceSession
     private static CommandDefinition Command(
         string sql, object? parameters, int? timeoutSeconds, CancellationToken ct) =>
         new(sql, parameters, commandTimeout: timeoutSeconds, cancellationToken: ct);
+
+    private async Task ValidateAsync(string sql, CancellationToken ct)
+    {
+        var validation = ReadOnlySqlPolicy.Validate(sql, _allowedTables, allowMetadata: true);
+        await ReadOnlyPrincipalGuard.VerifyTablesAsync(_connection, validation, ct);
+    }
 
     /// <summary>
     /// SQL hatasi tasiyicidan bagimsiz tipe sariliyor. Hata numarasi mesajda

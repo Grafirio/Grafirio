@@ -36,13 +36,13 @@ public class SchemaDictionaryMergeTests
             .ToList();
 
     [Fact]
-    public void Tek_parca_oldugu_gibi_donuyor()
+    public void SingleChunkIsValidatedAndPreservesItsTable()
     {
         // Bolunmemis semada uretilen sozluk bit bit ayni kalmali; bu yol
         // bugune kadarki davranisin ta kendisi.
         var only = Part(tables: """[{"name":"dbo.A"}]""");
 
-        Assert.Equal(only, SchemaDictionaryMerge.Combine([only]));
+        Assert.Equal(["dbo.A"], Names(Merge(only), "tables", "name"));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class SchemaDictionaryMergeTests
     }
 
     [Fact]
-    public void Soru_sayisi_toplamda_tavana_takiliyor()
+    public void MergeRetainsQuestionsUntilCanonicalValidation()
     {
         // Yedi parca ucer soru sorsa yirmi bir soruluk bir form cikardi.
         var part = Part(questions: "[" + string.Join(",",
@@ -116,8 +116,7 @@ public class SchemaDictionaryMergeTests
 
         var merged = Merge(part, part, part, part);
 
-        Assert.Equal(SchemaDictionaryMerge.MaxQuestions,
-                     merged.GetProperty("questions").GetArrayLength());
+        Assert.Equal(12, merged.GetProperty("questions").GetArrayLength());
     }
 
     [Fact]
@@ -146,13 +145,11 @@ public class SchemaDictionaryMergeTests
     }
 
     [Fact]
-    public void Bozuk_parca_digerlerini_dusurmuyor()
+    public void MalformedChunkFailsTheWholeAnalysis()
     {
-        var merged = Merge(
+        Assert.Throws<InvalidOperationException>(() => Merge(
             "bu json değil",
-            Part(tables: """[{"name":"dbo.A"}]"""));
-
-        Assert.Equal(["dbo.A"], Names(merged, "tables", "name"));
+            Part(tables: """[{"name":"dbo.A"}]""")));
     }
 
     [Fact]
@@ -163,7 +160,7 @@ public class SchemaDictionaryMergeTests
         var error = Assert.Throws<InvalidOperationException>(
             () => SchemaDictionaryMerge.Combine(["bozuk", "{}"]));
 
-        Assert.Contains("okunabilir bir sonuç üretmedi", error.Message);
+        Assert.Contains("malformed", error.Message);
     }
 
     [Fact]
@@ -171,14 +168,12 @@ public class SchemaDictionaryMergeTests
         Assert.Throws<InvalidOperationException>(() => SchemaDictionaryMerge.Combine([]));
 
     [Fact]
-    public void Sema_disi_alan_tipi_birlesmeyi_dusurmuyor()
+    public void InvalidColumnShapeFailsInsteadOfDroppingColumn()
     {
         // Model her zaman semaya uymuyor: "column" alani nesne gelirse burasi
         // patlamak yerine o kaydi atlamali.
-        var merged = Merge(
+        Assert.Throws<InvalidOperationException>(() => Merge(
             Part(columns: """[{"table":"dbo.A","column":{"tuhaf":1}}]"""),
-            Part(columns: """[{"table":"dbo.A","column":"Ad"}]"""));
-
-        Assert.Equal(["Ad"], Names(merged, "columns", "column"));
+            Part(columns: """[{"table":"dbo.A","column":"Ad"}]""")));
     }
 }

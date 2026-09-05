@@ -9,6 +9,8 @@ import pandas as pd
 from typing import Dict, Any, List, Optional
 
 from data_port import DataPort
+from analysis_scope import AnalysisScope, table_parts
+from chart_validation import validate_charts, validate_chart_type
 from query_spec import (
     AliasFactory, Aggregate, ColumnRef, DerivedTable, FRAME_CUMULATIVE,
     FRAME_MOVING, HavingPredicate, Join, JoinCondition, MANY_TO_ONE, OrderBy,
@@ -130,11 +132,21 @@ class AgentAnalyzer:
         # verilebilmesi icin tutuluyor. Kullanicinin "hangi sorgu calisti,
         # dogru kolonu mu secti" sorusunu cevaplayabilmesi buna bagli.
         self.audit: Dict[str, Any] = {}
+        self._selection = None
 
     def run_analysis(self, config: Dict, params: Dict) -> Dict[str, Any]:
         """
         Config ve parametrelere göre analiz yap, grafik verileri ve insights döndür.
         """
+        self.audit = {}
+        try:
+            if not isinstance(config, dict) or not isinstance(params, dict):
+                raise ValueError("Config and analysis parameters must be objects.")
+            self._selection = AnalysisScope(config)
+            validate_chart_type(params.get("chart_type", "bar"))
+        except ValueError as error:
+            return self._error_result(str(error))
+
         # Varsayilan `aggregation`: ceviri prompt'unun da varsayilani bu.
         # Onceden burada "statistics" yaziyordu, yani tipi bos gelen her soru
         # sessizce kolon ortalamalarina dusuyordu.
@@ -199,9 +211,18 @@ class AgentAnalyzer:
             "limit": limit,
         }
 
-        # Birlesim kendi hattini kuruyor: dallar ayri tablolar ve join
-        # kurmuyorlar, dolayisiyla asagidaki tek tabloli zincirden gecmeleri
-        # gerekmiyor.
+        try:
+            self._selection.preflight(self, config, params, target_table)
+        except ValueError as error:
+            return self._with_audit(self._error_result(str(error)))
+        if self.audit.get("pendingConfirmations"):
+            message = "Relationship confirmation is required before analysis can execute."
+            return self._with_audit({
+                **self._error_result(message), "needsClarification": True,
+                "pendingConfirmations": self.audit["pendingConfirmations"],
+            })
+
+        # Each UNION branch resolves its own joins and column scope.
         if union:
             if analysis_type != "aggregation":
                 return self._with_audit(self._error_result(
@@ -290,6 +311,9 @@ class AgentAnalyzer:
                     "Bu analiz türü tek tablo üzerinde çalışıyor; tabloları "
                     "birleştirerek yapılamıyor."))
 
+            for raw in ([target_column] if target_column else []) + feature_columns:
+                if scope.resolve(raw) is None:
+                    raise ValueError(self._column_missing(raw, scope))
             df = self._load_table_data(base, predicates, where_params, self.MAX_ROWS)
 
             if df.empty:
@@ -325,6 +349,11 @@ class AgentAnalyzer:
         eklenir: kalite olcumunde asil ihtiyac duyulan an, sonucun yanlis
         goründügü andir.
         """
+        if result.get("success"):
+            try:
+                validate_charts(result.get("charts"))
+            except ValueError as error:
+                result = self._error_result(str(error))
         result["audit"] = dict(self.audit)
 
         # Okuma tavanina degildiyse sonuc tablonun tamamini temsil etmiyor.
@@ -365,11 +394,7 @@ class AgentAnalyzer:
 
     @staticmethod
     def _split_table(table_name: str) -> tuple:
-        cleaned = table_name.replace("[", "").replace("]", "").strip()
-        parts = [p for p in cleaned.split(".") if p]
-        if not parts:
-            raise ValueError("Tablo adı boş.")
-        return (parts[0], parts[-1]) if len(parts) > 1 else ("dbo", parts[0])
+        return table_parts(table_name)
 
     #: Zincirde en fazla kac adim. Finans sorgulari 7-8 tabloya kadar
     #: cikabiliyor; ustu neredeyse her zaman modelin yolunu kaybettigine isaret.
@@ -393,8 +418,10 @@ class AgentAnalyzer:
         if requested and not edges:
             raise ValueError(
                 "Bu soru birden fazla tablo gerektiriyor ama bağlantılar "
-                "çıkarılmamış. Bağlantı ayarlarından 'Analiz Et' adımını "
-                "yeniden çalıştırmanız gerekiyor.")
+                "çıkarılmamış. 'Analiz Et' ile bağlantıları keşfedebilir veya "
+                "eşleşen tablo ve kolonların tam adlarını belirtip ilişkiyi "
+                "onaylayabilirsiniz. Beyan edilen ilişki, doğrulamayı geçip "
+                "analiz sözlüğüne eklendiğinde kullanılabilir.")
 
         if len(requested) > self.MAX_JOINS:
             raise ValueError(
@@ -431,10 +458,8 @@ class AgentAnalyzer:
             edge, reversed_edge = self._find_edge(
                 edges, source_table, target, step.get("via"))
 
-            # Bu kenar tahminle kuruldu ve kullanici henuz onaylamadi.
-            # Sonuc gosterilecek — ama yanina "su iki kolonu esledim, dogru
-            # mu" sorusuyla. Kayit burada toplaniyor cunku iki dal da
-            # (dogrudan ve on toplanmis) ayni kenari kullaniyor.
+            if edge.get("needsConfirmation"):
+                raise ValueError("Relationship confirmation is required before execution.")
             self._record_pending(edge)
             self._record_evidence(edge)
 
@@ -651,17 +676,7 @@ class AgentAnalyzer:
             self.audit["learnedCodes"] = used
 
     def _record_pending(self, edge: Dict) -> None:
-        """
-        Onay bekleyen bir eslesme kullanildiysa denetim izine yaziyor.
-
-        Sonuc yine de gosteriliyor. Sebep: kullanici kolon eslesmesini
-        degerlendiremez ama CEVABI degerlendirebilir — "bu firmalar dogru mu"
-        cevaplanabilir bir soru, "ReferanceId ile ReferenceId ayni mi" degil.
-
-        Sonucu gostermenin guvenli olmasinin sarti olcum kapisi: kenar zaten
-        hedef benzersizligini ve %60 ortusmeyi gecmis durumda, yani join
-        satirlari cogaltmiyor. Gecemeyen aday buraya hic gelmiyor.
-        """
+        """Collect proposals during preflight; never execute pending edges."""
         if not edge.get("needsConfirmation"):
             return
 
@@ -675,8 +690,10 @@ class AgentAnalyzer:
         record = {
             "fromTable": edge.get("fromTable"),
             "fromColumn": from_columns[0],
+            "fromColumns": from_columns,
             "toTable": edge.get("toTable"),
             "toColumn": to_columns[0],
+            "toColumns": to_columns,
             "valueOverlap": edge.get("valueOverlap"),
         }
 
@@ -715,21 +732,17 @@ class AgentAnalyzer:
 
         total = len(forward) + len(backward)
         if total == 0:
-            # Cikmaz sokak birakmiyoruz. Onceki mesaj yalnizca "birlestiremem,
-            # tek tablodan sorun" diyordu; kullanicinin iki tablonun gercekten
-            # ilgili oldugunu BILDIGI durumda bu, yapacak bir sey birakmiyor.
-            # Sebebini ve neyin duzeltecegini soylemek gerekiyor: baglanti
-            # cikarimi kolon ve tablo ADLARINA bakiyor, adlar tutmuyorsa
-            # (farkli yazim, kisaltma) kenar hic uretilmiyor.
+            # A declaration still needs validation; spelling alone proves no edge.
             raise ValueError(
                 f"'{source_table}' ile '{target_table}' arasında ölçülmüş bir "
-                "bağlantı yok, bu yüzden bu iki tabloyu birleştiremiyorum. "
-                "Bağlantılar veritabanındaki yabancı anahtarlardan ve kolon "
-                "adlarından çıkarılıyor; adlar birbirini tutmuyorsa bağlantı "
-                "görünmez oluyor. Veritabanında bu iki tabloyu bağlayan bir "
-                "yabancı anahtar varsa 'Analiz Et'i yeniden çalıştırmak "
-                "yeterli. Yoksa şimdilik soruyu tek tablo üzerinden sormanız "
-                "gerekiyor.")
+                "bağlantı yok veya belirtilen bağlantı kolonu kayıtla eşleşmiyor. "
+                "Eşleşen kolonları tablo adlarıyla ve gerçek yazımlarıyla "
+                "belirtip ilişkiyi onaylayabilirsiniz; örneğin ReferenceId "
+                "ve ReferanceId farklı kolon adlarıdır, birbirinin yerine "
+                "kullanılmaz. Beyan edilen ilişki, doğrulamayı geçip analiz "
+                "sözlüğüne eklendiğinde kullanılabilir; yabancı anahtar "
+                "zorunlu değildir. Mevcut bağlantıları keşfetmek için "
+                "'Analiz Et'i de kullanabilirsiniz.")
         if total > 1:
             candidates = ", ".join(
                 ", ".join(e.get("fromColumns") or []) for e in forward + backward)
@@ -744,11 +757,7 @@ class AgentAnalyzer:
     def _qualified(name: Optional[str]) -> str:
         if not name:
             return ""
-        cleaned = str(name).replace("[", "").replace("]", "").strip().lower()
-        parts = [p for p in cleaned.split(".") if p]
-        if not parts:
-            return ""
-        return f"{parts[0]}.{parts[-1]}" if len(parts) > 1 else f"dbo.{parts[0]}"
+        return ".".join(table_parts(name)).casefold()
 
     @staticmethod
     def _build_direct(edge: Dict, schema: str, table: str,
@@ -849,19 +858,9 @@ class AgentAnalyzer:
         Kucuk harfli anahtar kasitli: LLM kolon adini farkli buyuk/kucuk
         harfle yazdiginda sorgu bunun yuzunden dusmesin.
         """
-        frame = self.data.read_sql("""
-            SELECT COLUMN_NAME
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
-            ORDER BY ORDINAL_POSITION
-        """, {"schema": schema, "table": table})
-
-        if frame.empty:
-            raise ValueError(
-                f"'{schema}.{table}' tablosu veritabanında bulunamadı.")
-
-        names = frame.iloc[:, 0].tolist()
-        return {str(name).lower(): str(name) for name in names}
+        if self._selection is None:
+            raise ValueError("Analysis selection has not been validated.")
+        return self._selection.columns(f"{schema}.{table}")
 
     @staticmethod
     def _resolve_column(name: Optional[str], columns: Dict[str, str]) -> Optional[str]:
@@ -1159,6 +1158,8 @@ class AgentAnalyzer:
     # SQL gruplama
     # ------------------------------------------------------------------
 
+    GLOBAL_RESULT_LABEL = "Genel sonuç"
+
     def _sql_aggregation(self, base: TableRef, joins: List[Join],
                          scope: ColumnScope,
                          target_col: Optional[str], group_by: List[str],
@@ -1175,11 +1176,6 @@ class AgentAnalyzer:
         sorusunun cevabi, tablonun siralamasi bile garanti olmayan keyfi bir
         kesitinin siralamasi oluyordu — ve hicbir yerde bu yazmiyordu.
         """
-        if not group_by:
-            return self._error_result(
-                "Sonucun hangi alana göre kırılacağı anlaşılamadı. Örneğin "
-                "\"ülkeye göre\", \"müşteriye göre\" diye belirtebilirsiniz.")
-
         try:
             group_refs: List[ColumnRef] = []
             for col in group_by:
@@ -1235,7 +1231,11 @@ class AgentAnalyzer:
         # ustune ekleniyor.
         where_params = {**where_params, **having_params}
 
-        if is_series:
+        if not group_refs:
+            # A global aggregate has at most one row; no fabricated grouping or TOP.
+            order: List[OrderBy] = []
+            effective_limit = None
+        elif is_series:
             # Birikim ve hareketli ortalama satirlarin KENDI sirasinda okunur.
             # Sonucu olcuye gore siralamak, dogru hesaplanmis bir birikimi
             # okunamaz hale getirir: kolon dogru cikar, grafik anlamsiz.
@@ -1248,7 +1248,7 @@ class AgentAnalyzer:
             # Siralamada eksen SONA aliniyor: pencere ikinci ve sonraki
             # kirilimlara gore bolunuyor, dolayisiyla her bolumun satirlari
             # ard arda ve kendi zaman sirasinda okunmali.
-            order: List[OrderBy] = [OrderBy(ref, "asc") for ref in group_refs[1:]]
+            order = [OrderBy(ref, "asc") for ref in group_refs[1:]]
             order.append(OrderBy(group_refs[0], "asc"))
             effective_limit = self.SERIES_LIMIT
         else:
@@ -1275,14 +1275,17 @@ class AgentAnalyzer:
 
         try:
             sql = render(spec)
-            count_sql = render_group_count(spec)
+            count_sql = render_group_count(spec) if group_refs else None
         except QuerySpecError as e:
             return self._error_result(str(e))
 
         logger.info(f"SQL: {sql}")
 
         grouped = self.data.read_sql(sql, where_params)
-        total_groups = self.data.scalar(count_sql, where_params)
+        total_groups = (
+            self.data.scalar(count_sql, where_params)
+            if count_sql is not None else len(grouped)
+        )
 
         self.audit["executedSql"] = sql
         self.audit["aggregationPerformedIn"] = "sql"
@@ -1299,13 +1302,20 @@ class AgentAnalyzer:
             # Kosul yuzunden bosaldiysa bunu soylemek sart: "kayit bulunamadi"
             # kullaniciyi filtrelere bakmaya gonderir, oysa eleyen sey esik.
             return self._error_result(
-                f"Hiçbir grup '{having_note}' koşulunu karşılamadı; eşiği "
-                "düşürmeyi deneyin."
+                f"Toplulaştırma sonucu '{having_note}' koşulunu karşılamadı. "
+                "Koşulu ve filtreleri kontrol edin."
                 if having_note else
                 "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
 
-        labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
-        values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
+        if group_refs:
+            labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
+            values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
+            result_label = f"{group_refs[0].name} bazında {value_label}"
+        else:
+            labels = [self.GLOBAL_RESULT_LABEL]
+            # An empty SUM/AVG is NULL, not a measured zero.
+            values = [self._number_or_none(v) for v in grouped[alias].tolist()]
+            result_label = f"{self.GLOBAL_RESULT_LABEL}: {value_label}"
 
         # Pencere kolonlari ayri seri olarak giriyor: "aylik ciro" ile
         # "birikimli ciro" ayni grafikte yan yana okunmali, ikisi ayri
@@ -1314,12 +1324,14 @@ class AgentAnalyzer:
         for expr in windows:
             datasets.append({
                 "label": expr.label,
-                "data": [round(float(v), 2) for v in grouped[expr.label].fillna(0).tolist()],
+                "data": ([round(float(v), 2) for v in grouped[expr.label].fillna(0).tolist()]
+                         if group_refs else
+                         [self._number_or_none(v) for v in grouped[expr.label].tolist()]),
             })
 
         charts = [{
             "type": chart_type,
-            "title": title or f"{group_refs[0].name} bazında {value_label}",
+            "title": title or result_label,
             "data": {"labels": labels, "datasets": datasets}
         }]
 
@@ -1328,15 +1340,26 @@ class AgentAnalyzer:
         # karsilastirmasi vardi; `direction` kucuk harfli uretildigi icin
         # hicbir zaman tutmuyor ve en yuksek deger "En Düşük" diye
         # etiketleniyordu.
-        if is_series:
+        if not group_refs:
+            displayed_value = values[0] if values[0] is not None else "Veri yok (NULL)"
+            headline = (self.GLOBAL_RESULT_LABEL, f"{value_label}: {displayed_value}")
+        elif is_series:
             headline = ("İlk Dönem", f"{labels[0]}: {values[0]}")
         else:
             headline = ("En Yüksek" if direction == "desc" else "En Düşük",
                         f"{labels[0]}: {values[0]}")
 
+        scope_insight = {
+            "type": "info",
+            "title": "Grup Sayısı" if group_refs else "Kapsam",
+            "description": (
+                f"{len(grouped)} grup gösteriliyor (toplam {total_groups})"
+                if group_refs else
+                "Koşullara uyan kayıtların tamamı üzerinde hesaplandı."
+            ),
+        }
         insights = [
-            {"type": "info", "title": "Grup Sayısı",
-             "description": f"{len(grouped)} grup gösteriliyor (toplam {total_groups})"},
+            scope_insight,
             {"type": "success", "title": headline[0], "description": headline[1]},
         ]
 
@@ -1354,7 +1377,7 @@ class AgentAnalyzer:
             "success": True,
             "charts": charts,
             "insights": insights,
-            "summary": desc or f"{group_refs[0].name} bazında {value_label} hesaplandı.",
+            "summary": desc or f"{result_label} hesaplandı.",
         }
 
     # ------------------------------------------------------------------
@@ -1671,6 +1694,13 @@ class AgentAnalyzer:
             unordered_sample=True,
         )
         query = render(spec)
+
+        # Row analyses must not read columns outside the dictionary whitelist.
+        from query_spec import quote_identifier
+        projection = ", ".join(
+            f"{quote_identifier(base.alias)}.{quote_identifier(column)}"
+            for column in self._table_columns(base.schema, base.name).values())
+        query = query.replace(f"{quote_identifier(base.alias)}.*", projection, 1)
 
         logger.info(f"SQL: {query}")
 

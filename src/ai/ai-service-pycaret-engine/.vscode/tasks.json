@@ -1,0 +1,23 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Verify Python agent audit",
+			"type": "shell",
+			"command": "${command:python.interpreterPath}",
+			"options": {
+				"cwd": "${workspaceFolder}/src/ai/ai-service-pycaret-engine"
+			},
+			"args": [
+				"-m",
+				"pytest",
+				"test_agent_security.py",
+				"test_agent_jobs.py",
+				"test_sql_aggregation.py",
+				"-q"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

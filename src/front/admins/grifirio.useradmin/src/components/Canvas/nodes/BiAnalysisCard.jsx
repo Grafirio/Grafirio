@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import BiChartNode from './BiChartNode';
 import NodeComposer from './NodeComposer';
 import CardAudit from './CardAudit';
+import MatchConfirmations from './MatchConfirmations';
 import { CHART_TYPES } from '../chartTypes';
 
 /**
@@ -24,12 +25,13 @@ import { CHART_TYPES } from '../chartTypes';
 export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onConfirmMatch }) {
   const turns = data?.turns || [];
   const streamRef = useRef(null);
+  const handleSubmit = (text) => onAsk?.(text);
 
   // Yeni tur geldiğinde konuşma dibe kayıyor: cevabı görmek için kaydırmak
   // gerekmemeli.
   useEffect(() => {
     streamRef.current?.scrollTo({ top: streamRef.current.scrollHeight, behavior: 'smooth' });
-  }, [turns.length, data?.loading]);
+  }, [turns.length, data?.loading, data?.pendingConfirmations?.length]);
 
   return (
     <div className="bi-card">
@@ -71,6 +73,13 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
                 <span /><span /><span />
               </div>
             )}
+            <MatchConfirmations
+              pending={data?.pendingConfirmations}
+              states={data?.confirmationStates}
+              busy={data?.confirming || data?.loading}
+              needsClarification={data?.needsRelationshipClarification && !data?.confirmationRejected}
+              onAnswer={onConfirmMatch}
+            />
           </div>
 
           <CardAudit audit={data?.audit} />
@@ -79,7 +88,8 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
             placeholder={turns.length === 0
               ? 'Örn. en çok gelir getiren 5 firma'
               : 'Bu grafiği değiştir…'}
-            onSubmit={(text) => onAsk?.(text)}
+            busy={data?.loading || data?.confirming}
+            onSubmit={handleSubmit}
           />
         </div>
 
@@ -88,12 +98,10 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
             <BiChartNode
               data={{
                 ...data.chart,
-                // Kullanıcının seçtiği tür modelinkini eziyor.
-                type: data.chartType || data.chart.type,
-                pendingConfirmations: data.pendingConfirmations,
+                // Keep the source type available for validation before conversion.
+                displayType: data.chartType,
                 evidence: data.evidence,
               }}
-              onConfirmMatch={onConfirmMatch}
             />
           ) : (
             <div className="bi-card-empty">
@@ -113,7 +121,7 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
  */
 function ChartTypePicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
-  const current = CHART_TYPES.find(t => t.id === value) ?? CHART_TYPES[0];
+  const current = CHART_TYPES.find(t => t.id === value);
 
   return (
     <div className="bi-card-types">
@@ -123,7 +131,7 @@ function ChartTypePicker({ value, onChange }) {
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
       >
-        {current.label} <span className="bi-card-caret">▾</span>
+        {current?.label ?? 'Grafik türünü seçin'} <span className="bi-card-caret">▾</span>
       </button>
 
       {open && (
@@ -132,7 +140,7 @@ function ChartTypePicker({ value, onChange }) {
             <button
               key={type.id}
               type="button"
-              className={`bi-card-type-option${type.id === current.id ? ' is-active' : ''}`}
+              className={`bi-card-type-option${type.id === current?.id ? ' is-active' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
                 setOpen(false);

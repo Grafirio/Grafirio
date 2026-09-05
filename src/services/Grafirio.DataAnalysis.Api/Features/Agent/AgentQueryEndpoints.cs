@@ -1,6 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Grafirio.DataAnalysis.Api.Application.Analysis;
+using Grafirio.DataAnalysis.Api.Application.Interfaces;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
+using Grafirio.QueryPolicy;
 using Grafirio.DataAnalysis.Api.Services;
 using Grafirio.Shared.Identity.Extensions;
 using Grafirio.Shared.Identity.Permissions;
@@ -41,6 +46,11 @@ public static class AgentQueryEndpoints
             .WithName("GetQueryResult")
             .WithDescription("Sorgu sonucunu getirir");
 
+        group.MapPost("/query/{queryId:guid}/cancel", CancelQuery)
+            .RequirePermission(AppPermissions.AnalysisCreate)
+            .WithName("CancelAgentQuery")
+            .WithDescription("Cancels an owned analysis and blocks further SQL callbacks.");
+
         group.MapGet("/queries/{connectionId:guid}", GetQueryHistory)
             .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryHistory")
@@ -62,14 +72,21 @@ public static class AgentQueryEndpoints
         [FromBody] QueryRequest request,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] LlmAnalysisService llm,
-        [FromServices] IHttpClientFactory httpClientFactory,
-        [FromServices] IConfiguration configuration,
+        [FromServices] IPyCaretQueryService pycaret,
+        [FromServices] ConnectionProfileStore profiles,
         [FromServices] IIdentityService identity,
-        [FromServices] ILogger<LlmAnalysisService> logger)
+        [FromServices] ILogger<LlmAnalysisService> logger,
+        CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
         var scopedCompanyId = companyId.Value.ToString();
+
+        if (!pycaret.IsConfigured)
+            return Results.Problem(detail: "Internal PyCaret authentication is not configured.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        if (string.IsNullOrWhiteSpace(request.Question) || request.Question.Length > MaxQuestionLength)
+            return Results.BadRequest(new { error = "Question must contain between 1 and 2000 characters." });
 
         // Bekletici kapi. Onceden iki kapi vardi — Mongo'daki on analiz profili
         // ve Postgres'teki config — ve ikisi ayri ayri kontrol ediliyordu.
@@ -79,7 +96,7 @@ public static class AgentQueryEndpoints
                      && c.CompanyId == scopedCompanyId
                      && c.IsActive)
             .OrderByDescending(c => c.CreatedAt)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(ct);
 
         if (config is null || config.Status != AgentAnalyzeEndpoints.AnalysisStatus.Ready)
         {
@@ -105,10 +122,33 @@ public static class AgentQueryEndpoints
         var savedConn = await db.SavedConnections
             .FirstOrDefaultAsync(c => c.Id == request.ConnectionId
                                    && c.CompanyId == scopedCompanyId
-                                   && c.IsActive);
+                                   && c.IsActive, ct);
 
         if (savedConn is null)
             return Results.NotFound(new { error = "Bağlantı bulunamadı" });
+
+        IReadOnlyList<string> selectedTables;
+        try
+        {
+            selectedTables = QueryTableScope.RequireCurrentConfig(config.TablesJson,
+                await profiles.GetSelectedTablesAsync(request.ConnectionId, scopedCompanyId, ct));
+        }
+        catch (QueryPolicyException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+
+        try
+        {
+            if (AnalysisAnswers.CountPending(config.ConfigJson) != 0)
+                return Results.Conflict(new { error = "Analiz soruları tamamlanmadan sorgu çalıştırılamaz." });
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            return Results.Conflict(new { error = "Analiz sözlüğü eski veya eksik. Seçili tablolar için 'Analiz Et'i yeniden çalıştırın." });
+        }
+
+        var originalConfigJson = config.ConfigJson;
 
         // 3. Konusmanin gecmisi. Zincirin kapsami BAGLANTI: "Analiz Et" her
         // calistiginda yeni bir config uretiliyor, dolayisiyla bir onceki tur
@@ -120,10 +160,10 @@ public static class AgentQueryEndpoints
         var connectionConfigIds = await db.AnalysisConfigs
             .Where(c => c.ConnectionId == request.ConnectionId && c.CompanyId == scopedCompanyId)
             .Select(c => c.Id)
-            .ToListAsync();
+            .ToListAsync(ct);
 
         var conversation = await ConversationContext.LoadAsync(
-            db, request.ParentQueryId, connectionConfigIds);
+            db, request.ParentQueryId, connectionConfigIds, ct);
 
         // Zincir kurulamadiysa bag da yazilmiyor. Istemci herhangi bir kimlik
         // gonderebilir; kapsam disi bir kimligi kayda gecirmek, hicbir zaman
@@ -135,7 +175,7 @@ public static class AgentQueryEndpoints
         // geldikleri ve kullanicinin onlara ne diyebilecegi burada yaziyor.
         var translation = await llm.TranslateQuestionAsync(
             request.Question, config.ConfigJson, config.SchemaSummary,
-            ConversationContext.Render(conversation));
+            ConversationContext.Render(conversation), ct);
 
         // Eksik yapilandirma bir cokme degil; 500 yerine 503 donuluyor ki
         // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
@@ -158,15 +198,56 @@ public static class AgentQueryEndpoints
         // ediliyordu. Yani sistem "anlamadim" dedigi anda kullaniciya rastgele
         // bir tablodan cikmis, dogru gorunen bir grafik gosteriyordu. Sorunun
         // neresinin anlasilmadigini sormak, uydurma cevaptan iyidir.
-        if (!HasTargetTable(translation.Json, out var clarification))
+        List<RelationshipProposal> proposals;
+        try
+        {
+            AgentQueryTableScope.Validate(translation.Json, config.ConfigJson, selectedTables);
+            proposals = RelationshipDictionary.ReadProposals(translation.Json, config.ConfigJson);
+        }
+        catch (QueryPolicyException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+
+        // Translation can outlive a selection or dictionary edit; reject stale authority before persisting any turn.
+        await db.Entry(config).ReloadAsync(ct);
+        if (!config.IsActive || config.Status != AgentAnalyzeEndpoints.AnalysisStatus.Ready || config.ConfigJson != originalConfigJson)
+            return Results.Conflict(new { error = "Analysis dictionary changed during translation; retry the question." });
+        try
+        {
+            var currentTables = await profiles.GetSelectedTablesAsync(request.ConnectionId, scopedCompanyId, ct);
+            QueryTableScope.RequireCurrentConfig(JsonSerializer.Serialize(selectedTables), currentTables);
+            QueryTableScope.RequireCurrentConfig(config.TablesJson, currentTables);
+        }
+        catch (QueryPolicyException exception)
+        {
+            return Results.Conflict(new { error = exception.Message });
+        }
+
+        var hasTargetTable = HasTargetTable(translation.Json, out var clarification);
+        if (proposals.Count > 0)
+        {
+            // A model proposal is never authority to execute a join; the permission-protected learn endpoint applies it.
+            clarification = "Şu eşleşmeleri öneriyorum: "
+                + string.Join("; ", proposals.Select(p => $"{p.FromTable}.{p.FromColumn} → {p.ToTable}.{p.ToColumn}"))
+                + ". Onayladığınız eşleşmeler doğrulanıp mevcut analize uygulanacak. "
+                + (proposals.Count == 1 ? "Onaylıyor musunuz?" : "Her birini ayrı seçebilir veya ‘hepsini onaylıyorum’ yazabilirsiniz.");
+        }
+
+        if (!hasTargetTable || proposals.Count > 0)
         {
             logger.LogInformation(
-                "Soru çözümlenemedi, kullanıcıya soruluyor: {Question}", request.Question);
+                "Query translation requires clarification for connection {ConnectionId}", request.ConnectionId);
 
             var asked = string.IsNullOrWhiteSpace(clarification)
                 ? "Sorunuzun hangi alanla ilgili olduğunu çözemedim. Hangi tabloyu "
                   + "ya da alanı kastettiğinizi yazar mısınız?"
                 : clarification;
+            asked = asked[..Math.Min(asked.Length, MaxQuestionLength)];
 
             // Netlestirme turu da yaziliyor. Onceden bu dönüş, QueryHistory
             // kaydinin olusturuldugu satirdan ONCE geliyordu: sistem soruyu
@@ -188,20 +269,29 @@ public static class AgentQueryEndpoints
                 CompletedAt = DateTime.UtcNow
             };
 
+            clarificationRow.ResultJson = new JsonObject
+            {
+                [PyCaretExecutionContext.PropertyName] = PyCaretExecutionContext.Create(clarificationRow, config).ToJson(),
+                ["needsClarification"] = true,
+                ["clarificationQuestion"] = asked,
+                ["pendingConfirmations"] = JsonSerializer.SerializeToNode(proposals, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            }.ToJsonString();
+
             db.QueryHistories.Add(clarificationRow);
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(ct);
 
             return Results.BadRequest(new
             {
                 error = asked,
                 needsClarification = true,
+                pendingConfirmations = proposals,
                 // Kimlik disari veriliyor ki kullanicinin cevabi bu tura
                 // baglanabilsin; zincirin halkasi bu.
                 queryId = clarificationRow.Id
             });
         }
 
-        // 5. QueryHistory kaydet
+        // Persist authority before the worker can make its first callback.
         var queryHistory = new QueryHistory
         {
             Id = Guid.NewGuid(),
@@ -214,65 +304,25 @@ public static class AgentQueryEndpoints
             CreatedAt = DateTime.UtcNow
         };
 
+        queryHistory.ResultJson = new JsonObject
+        {
+            [PyCaretExecutionContext.PropertyName] = PyCaretExecutionContext.Create(queryHistory, config).ToJson()
+        }.ToJsonString();
+
         db.QueryHistories.Add(queryHistory);
-        await db.SaveChangesAsync();
-
-        // 6. PyCaret Engine'e HTTP ile gönder
-        try
-        {
-            // Kimlik bilgisi gonderilmiyor: PyCaret veriyi /internal/data/query
-            // uzerinden okuyor. Onceden host/kullanici/sifre burada JSON
-            // govdesine konuyordu; sifre boylece ikinci bir servise, oradan da
-            // SQLAlchemy hata metinlerine yayiliyordu. Ayrica agent uzerinden
-            // giden yolda gonderilecek bir sifre zaten olmayacak.
-            var pycaretRequest = new
-            {
-                request_id = Guid.NewGuid().ToString(),
-                query_id = queryHistory.Id.ToString(),
-                company_id = savedConn.CompanyId,
-                connection_id = savedConn.Id.ToString(),
-                config_json = config.ConfigJson,
-                analysis_params_json = translation.Json,
-                user_question = request.Question
-            };
-
-            var pycaretUrl = configuration["PyCaret:BaseUrl"] ?? "http://pycaret-engine:8002";
-            var client = httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromMinutes(5);
-
-            var response = await client.PostAsJsonAsync($"{pycaretUrl}/agent/analyze", pycaretRequest);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorBody = await response.Content.ReadAsStringAsync();
-                logger.LogError("PyCaret Engine hata döndü: {StatusCode} - {Body}", response.StatusCode, errorBody);
-
-                queryHistory.Status = "failed";
-                queryHistory.ResultJson = JsonSerializer.Serialize(new { error = $"PyCaret hatası: {response.StatusCode}" });
-                await db.SaveChangesAsync();
-
-                return Results.Problem($"PyCaret Engine hatası: {response.StatusCode}");
-            }
-
-            logger.LogInformation("Sorgu PyCaret'e gönderildi: {QueryId}", queryHistory.Id);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "PyCaret Engine'e bağlanılamadı");
-            queryHistory.Status = "failed";
-            queryHistory.ResultJson = JsonSerializer.Serialize(new { error = ex.Message });
-            await db.SaveChangesAsync();
-
-            return Results.Problem($"PyCaret Engine'e bağlanılamadı: {ex.Message}");
-        }
+        await db.SaveChangesAsync(ct);
+        await pycaret.SubmitAsync(queryHistory, config, ct);
 
         return Results.Ok(new
         {
-            success = true,
+            success = queryHistory.Status != "failed",
             queryId = queryHistory.Id,
-            status = "processing",
+            status = queryHistory.Status,
+            error = StoredField(queryHistory, "error"),
+            clarificationQuestion = queryHistory.ClarificationQuestion,
+            pendingConfirmations = StoredField(queryHistory, "pendingConfirmations"),
             explanation = translation.Explanation,
-            message = "Sorgunuz analiz edilmeye başlandı"
+            message = StoredField(queryHistory, "message")
         });
     }
 
@@ -336,10 +386,9 @@ public static class AgentQueryEndpoints
     private static async Task<IResult> GetQueryStatus(
         Guid queryId,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] IHttpClientFactory httpClientFactory,
-        [FromServices] IConfiguration configuration,
+        [FromServices] IPyCaretQueryService pycaret,
         [FromServices] IIdentityService identity,
-        [FromServices] ILogger<LlmAnalysisService> logger)
+        CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
@@ -351,90 +400,43 @@ public static class AgentQueryEndpoints
         if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
             return Results.NotFound(new { error = "Sorgu bulunamadı" });
 
-        // Eğer processing ise PyCaret'ten durumu kontrol et
-        if (query.Status == "processing")
-        {
-            try
-            {
-                var pycaretUrl = configuration["PyCaret:BaseUrl"] ?? "http://pycaret-engine:8002";
-                var client = httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromSeconds(10);
-
-                var response = await client.GetAsync($"{pycaretUrl}/agent/analyze/status/{queryId}");
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var statusResult = await response.Content.ReadFromJsonAsync<JsonElement>();
-
-                    if (statusResult.TryGetProperty("status", out var statusProp))
-                    {
-                        var pyStatus = statusProp.GetString();
-
-                        if (pyStatus == "completed")
-                        {
-                            // Sonucu al
-                            var resultResponse = await client.GetAsync($"{pycaretUrl}/agent/analyze/result/{queryId}");
-                            if (resultResponse.IsSuccessStatusCode)
-                            {
-                                var resultJson = await resultResponse.Content.ReadAsStringAsync();
-                                query.Status = "completed";
-                                query.ResultJson = resultJson;
-                                query.CompletedAt = DateTime.UtcNow;
-                                await db.SaveChangesAsync();
-                            }
-                        }
-                        else if (pyStatus == "failed")
-                        {
-                            var msg = statusResult.TryGetProperty("message", out var msgProp)
-                                ? msgProp.GetString() : "Analiz başarısız";
-                            query.Status = "failed";
-                            query.ResultJson = JsonSerializer.Serialize(new { error = msg });
-                            await db.SaveChangesAsync();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "PyCaret status kontrolü başarısız");
-            }
-        }
-
-        // Basarisiz sorgunun sebebi ResultJson'a yaziliyordu ama cevapta hic
-        // yer almiyordu; arayuz de mecburen "Analiz basarisiz oldu" gibi sabit
-        // bir cumle gosteriyordu. Sunucu sebebi biliyorken kullanicinin
-        // bilmemesi icin bir neden yok — ornegin "Invalid column name 'X'"
-        // hatasini goren kullanici sorusunu duzeltebilir.
-        string? failureReason = null;
-        if (query.Status == "failed" && !string.IsNullOrWhiteSpace(query.ResultJson))
-        {
-            try
-            {
-                var stored = JsonSerializer.Deserialize<JsonElement>(query.ResultJson);
-                if (stored.TryGetProperty("error", out var errorProp))
-                    failureReason = errorProp.GetString();
-            }
-            catch (JsonException)
-            {
-                // Bozuk kayit durumu bildirmeyi engellemesin.
-            }
-        }
-
-        return Results.Ok(new
-        {
-            queryId = query.Id,
-            status = query.Status,
-            question = query.Question,
-            createdAt = query.CreatedAt,
-            completedAt = query.CompletedAt,
-            error = failureReason
-        });
+        await pycaret.RefreshAsync(query, ct);
+        return QueryState(query);
     }
+
+    private static async Task<IResult> CancelQuery(
+        Guid queryId, DataAnalysisDbContext db, IPyCaretQueryService pycaret,
+        IIdentityService identity, CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+        var query = await db.QueryHistories.FindAsync([queryId], ct);
+        if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
+            return Results.NotFound(new { error = "Sorgu bulunamadı" });
+        await pycaret.CancelAsync(query, ct);
+        return QueryState(query);
+    }
+
+    private static IResult QueryState(QueryHistory query) => Results.Ok(new
+    {
+        queryId = query.Id,
+        status = query.Status,
+        question = query.Question,
+        createdAt = query.CreatedAt,
+        completedAt = query.CompletedAt,
+        error = StoredField(query, "error"),
+        message = StoredField(query, "message"),
+        clarificationQuestion = query.ClarificationQuestion,
+        needsClarification = query.Status == ConversationContext.ClarificationStatus,
+        pendingConfirmations = StoredField(query, "pendingConfirmations")
+    });
 
     private static async Task<IResult> GetQueryResult(
         Guid queryId,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] IIdentityService identity)
+        [FromServices] IIdentityService identity,
+        [FromServices] IPyCaretQueryService pycaret,
+        CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
@@ -443,17 +445,8 @@ public static class AgentQueryEndpoints
         if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
             return Results.NotFound(new { error = "Sorgu bulunamadı" });
 
-        if (query.Status != "completed")
-        {
-            return Results.Ok(new
-            {
-                queryId = query.Id,
-                status = query.Status,
-                message = query.Status == "processing"
-                    ? "Analiz devam ediyor..."
-                    : "Analiz henüz tamamlanmadı"
-            });
-        }
+        await pycaret.RefreshAsync(query, ct);
+        if (query.Status != "completed") return QueryState(query);
 
         // Denetim izi: sonucun dogrulugunu degerlendirebilmek icin LLM'in
         // verdigi kararlar da doner. Grafigin dogru gorunmesi yeterli degil —
@@ -538,14 +531,30 @@ public static class AgentQueryEndpoints
                 // yoksa konusma bagimsiz sorular yiginina donusuyor.
                 parentQueryId = q.ParentQueryId,
                 clarificationQuestion = q.ClarificationQuestion,
+                error = StoredField(q, "error"),
+                message = StoredField(q, "message"),
+                pendingConfirmations = StoredField(q, "pendingConfirmations"),
             })
             .ToList();
 
-        return Results.Ok(new { queries });
+        var activeDictionary = await db.AnalysisConfigs.AsNoTracking()
+            .Where(c => c.ConnectionId == connectionId && c.CompanyId == scopedCompanyId && c.IsActive)
+            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => c.ConfigJson).FirstOrDefaultAsync();
+        var relationshipDecisions = RelationshipDictionary.AppliedDecisions(activeDictionary ?? "{}");
+        return Results.Ok(new { queries, relationshipDecisions });
     }
 
     /// <summary>Kanvasa geri yuklenecek en fazla soru sayisi.</summary>
     private const int HistoryLimit = 50;
+    private const int MaxQuestionLength = 2000;
+
+    private static JsonElement? StoredField(QueryHistory query, string name)
+    {
+        var result = TryParse(query.ResultJson);
+        return result is { ValueKind: JsonValueKind.Object } && result.Value.TryGetProperty(name, out var value)
+            ? value : null;
+    }
 
     private static JsonElement? TryParse(string? json)
     {

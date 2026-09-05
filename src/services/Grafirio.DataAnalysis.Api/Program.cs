@@ -1,4 +1,7 @@
 using System.Text.Json;
+using Grafirio.DataAnalysis.Api.Application.Interfaces;
+using Grafirio.DataAnalysis.Api.Infrastructure.Services;
+using Grafirio.DataAnalysis.Api.Api.Extensions;
 using Grafirio.Bridge.Contracts;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
@@ -52,10 +55,14 @@ builder.Services.AddHttpClient(nameof(LlmClient), client =>
     client.Timeout = TimeSpan.FromMinutes(10);
 });
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient<IPyCaretClient, PyCaretClient>();
+builder.Services.AddScoped<IPyCaretQueryService, PyCaretQueryService>();
+builder.Services.AddAnalysisRequestLimits();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<LlmAnalysisService>();
 builder.Services.AddSingleton<RelationshipDiscovery>();
 builder.Services.AddSingleton<SchemaProfiler>();
+builder.Services.AddScoped<IRelationshipApprovalService, RelationshipApprovalService>();
 
 // Musteri veritabanina giden tek kapi. Iki yol var: buluttan dogrudan TCP,
 // ya da musteri agindaki bridge uzerinden. Secimi fabrika yapiyor; cagri
@@ -293,6 +300,7 @@ app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 // Map endpoints
 app.MapConnectionTestEndpoints();  // Baglanti denemesi

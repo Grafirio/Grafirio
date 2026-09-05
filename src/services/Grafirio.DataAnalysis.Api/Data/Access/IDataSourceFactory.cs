@@ -49,7 +49,8 @@ public sealed class DataSourceFactory(
     BridgeStore bridges,
     BridgeRegistry registry,
     IHubContext<BridgeHub> hub,
-    ILoggerFactory loggerFactory) : IDataSourceFactory
+    ILoggerFactory loggerFactory,
+    ConnectionProfileStore profiles) : IDataSourceFactory
 {
     private readonly ILogger<DataSourceFactory> _logger =
         loggerFactory.CreateLogger<DataSourceFactory>();
@@ -116,7 +117,8 @@ public sealed class DataSourceFactory(
 
         try
         {
-            return await OpenAsync(DataSourceTarget.From(connection), ct);
+            var allowedTables = await profiles.GetSelectedTablesAsync(connection.Id, connection.CompanyId, ct);
+            return await OpenAsync(DataSourceTarget.From(connection) with { AllowedTables = allowedTables }, ct);
         }
         catch (DataSourceException ex) when (route.HasOfflineBridge)
         {

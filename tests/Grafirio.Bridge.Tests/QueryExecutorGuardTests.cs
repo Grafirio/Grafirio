@@ -81,15 +81,12 @@ public class QueryExecutorGuardTests : IDisposable
     }
 
     [Fact]
-    public async Task Izin_listesi_bossa_tablo_kisiti_yok()
+    public async Task EmptyAllowlistDeniesCustomerTables()
     {
-        // Liste boşken kısıt uygulanmıyor; reddedilseydi varsayılan kurulum
-        // hiç çalışmazdı. Burada beklenen şey TableNotAllowed OLMAMASI —
-        // sorgu veritabanına gidiyor ve bağlantı hatası veriyor.
         var failure = await FailureOf(
             Executor(), Request("SELECT * FROM dbo.HerhangiBirTablo"));
 
-        Assert.NotEqual(QueryFailure.TableNotAllowed, failure.Code);
+        Assert.Equal(QueryFailure.TableNotAllowed, failure.Code);
     }
 
     [Fact]
@@ -124,14 +121,34 @@ public class QueryExecutorGuardTests : IDisposable
     }
 
     [Fact]
-    public async Task Semasiz_yazilan_tablo_dbo_sayiliyor()
+    public async Task UnqualifiedTablesAreRejected()
     {
-        // İzin listesinde "dbo.Shipments" varken sorguda "Shipments" yazılması
-        // reddedilmemeli; ikisi aynı tablo.
         var failure = await FailureOf(
             Executor("dbo.Shipments"), Request("SELECT * FROM Shipments"));
 
-        Assert.NotEqual(QueryFailure.TableNotAllowed, failure.Code);
+        Assert.Equal(QueryFailure.TableNotAllowed, failure.Code);
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM dbo.Shipments, dbo.Gizli")]
+    [InlineData("WITH x AS (SELECT * FROM dbo.Gizli) SELECT * FROM x")]
+    [InlineData("SELECT * FROM dbo.Shipments UNION SELECT * FROM dbo.Gizli")]
+    [InlineData("SELECT * FROM sys.sql_logins")]
+    public async Task UnauthorizedSourcesAreRejectedBeforeConnecting(string sql)
+    {
+        var failure = await FailureOf(Executor("dbo.Shipments"), Request(sql));
+        Assert.Equal(QueryFailure.TableNotAllowed, failure.Code);
+    }
+
+    [Theory]
+    [InlineData("SELECT NEXT VALUE FOR dbo.Sequence")]
+    [InlineData("WITH x AS (SELECT * FROM dbo.Shipments) DELETE FROM x")]
+    [InlineData("SELECT * FROM Remote.Db.dbo.Shipments")]
+    [InlineData("SELECT dbo.FunctionWithSideEffects()")]
+    public async Task DangerousAstIsRejectedBeforeConnecting(string sql)
+    {
+        var failure = await FailureOf(Executor("dbo.Shipments"), Request(sql));
+        Assert.Equal(QueryFailure.NotReadOnly, failure.Code);
     }
 
     [Fact]

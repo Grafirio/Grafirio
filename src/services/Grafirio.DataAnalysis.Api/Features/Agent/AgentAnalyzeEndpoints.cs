@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
@@ -30,14 +31,6 @@ namespace Grafirio.DataAnalysis.Api.Features.Agent;
 /// </summary>
 public static class AgentAnalyzeEndpoints
 {
-    /// <summary>
-    /// Kurulumda sorulacak en fazla soru sayisi. Ilk surumde model bir kolona
-    /// bagli olmayan, "raporda neyi gormek istersiniz" turunden uzun tercih
-    /// sorulari uretiyordu; kullanici sorularin ne dedigini anlayamiyordu.
-    /// Ust sinir ve kolon sarti, bunun tekrarlamamasi icin.
-    /// </summary>
-    private const int MaxQuestions = 8;
-
     public static void MapAgentAnalyzeEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/agent")
@@ -68,6 +61,7 @@ public static class AgentAnalyzeEndpoints
             .WithDescription("Analiz durumunu ve varsa soruları döndürür");
 
         group.MapPost("/config/{connectionId:guid}/answers", SubmitAnswers)
+            .RequirePermission(AppPermissions.DataSourcesUpdate)
             .WithName("SubmitAnalysisAnswers")
             .WithDescription("Kullanıcının soru yanıtlarını sözlüğe işler ve bağlantıyı hazır hale getirir");
 
@@ -109,6 +103,7 @@ public static class AgentAnalyzeEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] ConnectionProfileStore profileStore,
         [FromServices] IPublishEndpoint publishEndpoint,
+        [FromServices] ILoggerFactory loggerFactory,
         [FromServices] IIdentityService identity,
         CancellationToken ct)
     {
@@ -164,13 +159,36 @@ public static class AgentAnalyzeEndpoints
         // Bir sonraki denemede is `Task.Run`'a alindi; bu da yeterli degildi:
         // container yeniden baslarsa is kayboluyor ve kayit sonsuza kadar
         // "analyzing" kaliyordu. Kuyruk her ikisini de cozuyor.
-        await publishEndpoint.Publish(new AnalyzeConnectionRequested
+        try
         {
-            ConfigId = config.Id,
-            ConnectionId = connectionId,
-            CompanyId = scopedCompanyId,
-            SamplingConsentGiven = request?.SamplingConsentGiven ?? false
-        }, ct);
+            var currentTables = await profileStore.GetSelectedTablesAsync(connectionId, scopedCompanyId, ct);
+            if (!AnalysisJobGuard.MatchesSelection(config.TablesJson, currentTables)
+                || !await db.SavedConnections.AnyAsync(c => c.Id == connectionId
+                    && c.CompanyId == scopedCompanyId && c.IsActive, ct)
+                || !await db.AnalysisConfigs.AnyAsync(c => c.Id == config.Id && c.IsActive
+                    && c.Status == AnalysisStatus.Analyzing, ct))
+                throw new InvalidOperationException("Analysis selection or connection changed before publishing.");
+
+            await publishEndpoint.Publish(new AnalyzeConnectionRequested
+            {
+                ConfigId = config.Id,
+                ConnectionId = connectionId,
+                CompanyId = scopedCompanyId,
+                SamplingConsentGiven = request?.SamplingConsentGiven ?? false
+            }, ct);
+        }
+        catch (Exception exception)
+        {
+            loggerFactory.CreateLogger(nameof(AgentAnalyzeEndpoints))
+                .LogError(exception, "Analysis publish failed for config {ConfigId}", config.Id);
+            // Request cancellation must not prevent persisting the queue failure.
+            await db.AnalysisConfigs.Where(c => c.Id == config.Id && c.IsActive && c.Status == AnalysisStatus.Analyzing)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(c => c.Status, AnalysisStatus.Failed)
+                    .SetProperty(c => c.SchemaSummary, "Analysis could not be queued. Please retry.")
+                    .SetProperty(c => c.UpdatedAt, DateTime.UtcNow), CancellationToken.None);
+            return Results.Problem("Analiz kuyruğa alınamadı. Yeniden deneyin.", statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
 
         // 202: is kabul edildi, sonuc icin durumu sorgula.
         return Results.Accepted(value: new
@@ -203,7 +221,8 @@ public static class AgentAnalyzeEndpoints
         {
             status = config.Status,
             configId = config.Id,
-            questions = ExtractQuestions(config.ConfigJson),
+            questions = config.Status == AnalysisStatus.AwaitingAnswers ? ExtractQuestions(config.ConfigJson) : [],
+            questionCount = config.Status == AnalysisStatus.AwaitingAnswers ? AnalysisAnswers.CountPending(config.ConfigJson) : 0,
             summary = config.SchemaSummary,
             tableCount = stats?.TableCount,
             columnCount = stats?.ColumnCount,
@@ -301,6 +320,7 @@ public static class AgentAnalyzeEndpoints
         AnswersRequest request,
         [FromServices] DataAnalysisDbContext db,
         [FromServices] LearnedFactStore facts,
+        [FromServices] ConnectionProfileStore profileStore,
         [FromServices] IIdentityService identity,
         CancellationToken ct)
     {
@@ -312,10 +332,38 @@ public static class AgentAnalyzeEndpoints
         if (config is null)
             return Results.BadRequest(new { error = "Önce 'Analiz Et' çalıştırın." });
 
-        config.ConfigJson = ApplyAnswers(config.ConfigJson, request.Answers ?? [], out var learned);
-        config.Status = AnalysisStatus.Ready;
-        config.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        if (config.Status != AnalysisStatus.AwaitingAnswers)
+            return Results.Conflict(new { error = "Bu analiz yanıt beklemiyor." });
+        var scopedCompanyId = companyId.Value.ToString();
+        if (!await db.SavedConnections.AnyAsync(connection => connection.Id == connectionId
+            && connection.CompanyId == scopedCompanyId && connection.IsActive, ct)) return Results.NotFound();
+        if (!AnalysisJobGuard.MatchesSelection(config.TablesJson,
+            await profileStore.GetSelectedTablesAsync(connectionId, scopedCompanyId, ct)))
+            return Results.Conflict(new { error = "Tablo seçimi değişti. Yeniden analiz edin." });
+
+        string updatedDictionary;
+        List<LearnedFact> learned;
+        int remainingCount;
+        try
+        {
+            updatedDictionary = AnalysisAnswers.Apply(config.ConfigJson, request.Answers, out learned, out remainingCount);
+        }
+        catch (Exception exception) when (exception is JsonException or ArgumentException or InvalidOperationException)
+        {
+            return Results.BadRequest(new { error = "Yanıtlar veya sözlük geçersiz. Analiz durumunu yenileyin." });
+        }
+
+        var status = remainingCount == 0 ? AnalysisStatus.Ready : AnalysisStatus.AwaitingAnswers;
+        var updated = await db.AnalysisConfigs.Where(current => current.Id == config.Id && current.IsActive
+                && current.CompanyId == scopedCompanyId && current.ConnectionId == connectionId
+                && current.Status == AnalysisStatus.AwaitingAnswers && current.ConfigJson == config.ConfigJson
+                && current.TablesJson == config.TablesJson
+                && db.SavedConnections.Any(connection => connection.Id == connectionId
+                    && connection.CompanyId == scopedCompanyId && connection.IsActive))
+            .ExecuteUpdateAsync(update => update.SetProperty(current => current.ConfigJson, updatedDictionary)
+                .SetProperty(current => current.Status, status)
+                .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+        if (updated != 1) return Results.Conflict(new { error = "Analiz değişti. Durumu yenileyin." });
 
         // Sozluge yazmak bu turu kurtariyor, kalici depo bir sonrakini.
         // Ikisi birden yaziliyor: kullanici cevabinin bu analizde de gecerli
@@ -323,7 +371,7 @@ public static class AgentAnalyzeEndpoints
         foreach (var fact in learned)
             await facts.SaveAsync(connectionId, companyId.Value.ToString(), fact, ct);
 
-        return Results.Ok(new { success = true, status = config.Status, learned = learned.Count });
+        return Results.Ok(new { success = true, status, learned = learned.Count, questionCount = remainingCount });
     }
 
     private static Task<AnalysisConfig?> ActiveConfig(
@@ -335,142 +383,17 @@ public static class AgentAnalyzeEndpoints
 
     /* ── Sozluk uzerinde islemler ─────────────────────────────────────── */
 
-    /// <param name="learned">
-    /// Ayni yanitlarin KALICI karsiligi. Sozluge yazmak tek basina yetmiyor:
-    /// sozluk <c>ConfigJson</c> icinde ve her "Analiz Et" yeni bir config
-    /// uretip eskisini pasiflestiriyor — yani buradaki emek bir sonraki
-    /// analizde siliniyordu. Ayni bilgi bir de baglantiya bagli olarak
-    /// yaziliyor ve her analizde geri isleniyor.
-    /// </param>
-    private static string ApplyAnswers(
-        string dictionaryJson, Dictionary<string, string> answers, out List<LearnedFact> learned)
-    {
-        learned = [];
-        if (answers.Count == 0) return dictionaryJson;
-
-        try
-        {
-            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) return dictionaryJson;
-
-            var questions = root["questions"] as JsonArray;
-            if (questions is null) return dictionaryJson;
-
-            var columns = root["columns"] as JsonArray;
-            if (columns is null)
-            {
-                columns = [];
-                root["columns"] = columns;
-            }
-
-            var tables = root["tables"] as JsonArray;
-            if (tables is null)
-            {
-                tables = [];
-                root["tables"] = tables;
-            }
-
-            var remaining = new JsonArray();
-
-            foreach (var node in questions)
-            {
-                if (node is not JsonObject question) continue;
-
-                var id = question["id"]?.GetValue<string>();
-                if (id is null || !answers.TryGetValue(id, out var answer) || string.IsNullOrWhiteSpace(answer))
-                {
-                    // Yanitlanmayan soru duruyor; kullanici sonra tamamlayabilir.
-                    remaining.Add(question.DeepClone());
-                    continue;
-                }
-
-                var table = question["table"]?.GetValue<string>();
-                var column = question["column"]?.GetValue<string>();
-
-                // Kolonu olmayan soru, tablonun kendisi hakkindadir: "bu tablo
-                // ne tutuyor?". Yaniti tablonun `purpose` alanina yaziliyor —
-                // sorgu aninda tabloyu secen kural once oraya bakiyor.
-                if (column is null)
-                {
-                    if (table is null) continue;
-
-                    learned.Add(LearnedFact.ForMeaning(
-                        table, null, answer, question: question["question"]?.GetValue<string>()));
-
-                    var tableEntry = tables.OfType<JsonObject>().FirstOrDefault(t =>
-                        string.Equals(t["name"]?.GetValue<string>(), table, StringComparison.OrdinalIgnoreCase));
-
-                    if (tableEntry is null)
-                    {
-                        tables.Add(new JsonObject
-                        {
-                            ["name"] = table,
-                            ["purpose"] = answer,
-                            ["confidence"] = "high",
-                            ["source"] = "user"
-                        });
-                    }
-                    else
-                    {
-                        tableEntry["purpose"] = answer;
-                        tableEntry["confidence"] = "high";
-                        tableEntry["source"] = "user";
-                    }
-
-                    continue;
-                }
-
-                learned.Add(LearnedFact.ForMeaning(
-                    table ?? "", column, answer, question: question["question"]?.GetValue<string>()));
-
-                var existing = columns.OfType<JsonObject>().FirstOrDefault(c =>
-                    string.Equals(c["column"]?.GetValue<string>(), column, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(c["table"]?.GetValue<string>(), table, StringComparison.OrdinalIgnoreCase));
-
-                if (existing is null)
-                {
-                    columns.Add(new JsonObject
-                    {
-                        ["table"] = table,
-                        ["column"] = column,
-                        ["meaning"] = answer,
-                        ["role"] = "other",
-                        ["confidence"] = "high",
-                        ["source"] = "user"
-                    });
-                }
-                else
-                {
-                    existing["meaning"] = answer;
-                    existing["confidence"] = "high";
-                    existing["source"] = "user";
-                }
-            }
-
-            root["questions"] = remaining;
-            return root.ToJsonString(JsonOptions);
-        }
-        catch (JsonException)
-        {
-            // Bozuk sozluk yanit kaydini engellemesin; durum yine ready olur.
-            return dictionaryJson;
-        }
-    }
-
     /* ── "Ogrendiklerim" ──────────────────────────────────────────────── */
 
     /// <summary>
-    /// Onay penceresinin yazdigi yer.
-    ///
-    /// Kayit ANINDA gecerli olmuyor: sozluk bir sonraki "Analiz Et"te
-    /// yeniden uretilirken isleniyor. Bunun tek istisnasi olamaz, cunku
-    /// ogrenilen bilginin (ozellikle bir iliskinin) gecerli olup olmadigi
-    /// ancak veritabanina bakilarak — olcum kapisindan gecirilerek —
-    /// bilinebilir ve o kapi profil cikarma adiminda kuruluyor.
+    /// Applies validated relationship decisions immediately; other facts are used during reanalysis.
     /// </summary>
     private static async Task<IResult> Learn(
         Guid connectionId,
         LearnRequest request,
+        [FromServices] DataAnalysisDbContext db,
         [FromServices] LearnedFactStore facts,
+        [FromServices] IRelationshipApprovalService relationships,
         [FromServices] IIdentityService identity,
         CancellationToken ct)
     {
@@ -485,9 +408,21 @@ public static class AgentAnalyzeEndpoints
                       + string.Join(", ", LearnedFact.AllKinds)
             });
 
-        await facts.SaveAsync(connectionId, companyId.Value.ToString(), fact, ct);
+        if (fact.Kind == LearnedFact.Relationship)
+        {
+            var result = await relationships.ApplyAsync(connectionId, companyId.Value.ToString(), fact, ct);
+            if (!result.Applied)
+                return Results.Json(new { error = result.Error, applied = false }, statusCode: result.StatusCode);
+            return Results.Ok(new { success = true, applied = true, key = fact.Key, description = fact.Describe() });
+        }
 
-        return Results.Ok(new { success = true, key = fact.Key, description = fact.Describe() });
+        var scopedCompanyId = companyId.Value.ToString();
+        if (!await db.SavedConnections.AnyAsync(connection => connection.Id == connectionId
+            && connection.CompanyId == scopedCompanyId && connection.IsActive, ct))
+            return Results.NotFound(new { error = "Bağlantı bulunamadı." });
+
+        await facts.SaveAsync(connectionId, scopedCompanyId, fact, ct);
+        return Results.Ok(new { success = true, applied = false, key = fact.Key, description = fact.Describe() });
     }
 
     /// <summary>
@@ -575,18 +510,18 @@ public static class AgentAnalyzeEndpoints
     private static async Task<IResult> ForgetLearned(
         Guid connectionId,
         string key,
-        [FromServices] LearnedFactStore facts,
+        [FromServices] IRelationshipApprovalService relationships,
         [FromServices] IIdentityService identity,
         CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
         if (companyId is null) return Results.Forbid();
 
-        var removed = await facts.DeleteAsync(connectionId, companyId.Value.ToString(), key, ct);
+        var result = await relationships.ForgetAsync(connectionId, companyId.Value.ToString(), key, ct);
 
-        return removed
+        return result.Applied
             ? Results.Ok(new { success = true })
-            : Results.NotFound(new { error = "Böyle bir kayıt yok" });
+            : Results.Json(new { error = result.Error, applied = false }, statusCode: result.StatusCode);
     }
 
     private static ProfileStats? ExtractProfileStats(string dictionaryJson)
@@ -609,51 +544,16 @@ public static class AgentAnalyzeEndpoints
 
     internal static List<QuestionDto> ExtractQuestions(string? dictionaryJson)
     {
-        if (string.IsNullOrWhiteSpace(dictionaryJson)) return [];
-        try
-        {
-            using var doc = JsonDocument.Parse(dictionaryJson);
-            if (!doc.RootElement.TryGetProperty("questions", out var questions)
-                || questions.ValueKind != JsonValueKind.Array)
-                return [];
-
-            return questions.EnumerateArray()
-                .Select(q => new QuestionDto(
-                    ReadString(q, "id") ?? Guid.NewGuid().ToString("N")[..8],
-                    ReadString(q, "table"),
-                    ReadString(q, "column"),
-                    ReadString(q, "question") ?? "",
-                    q.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array
-                        ? o.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToList()
-                        : []))
-                .Where(q => q.Question.Length > 0)
-                // Kolonu bos olan soru tablonun kendisi hakkindadir ("bu tablo
-                // ne tutuyor?") ve sorulmasi gerekir; yanlis tablo secmek
-                // yanlis kolon secmekten pahali. Ne tabloya ne kolona bagli
-                // olan soru ise bir tercih sorusudur — "raporda neyi gormek
-                // istersiniz" turunden — ve sorgu aninin isi.
-                .Where(q => !string.IsNullOrWhiteSpace(q.Table))
-                // Ayni tablo/kolon icin birden fazla soru sorulmasin.
-                .GroupBy(q => $"{q.Table}.{q.Column}", StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.First())
-                // Tablo sorulari once: kolon anlamini bilmek, yanlis tablodan
-                // okundugunda ise yaramiyor. Tavana dayanilirsa kirpilanlar
-                // kolon sorulari olsun.
-                .OrderBy(q => string.IsNullOrWhiteSpace(q.Column) ? 0 : 1)
-                // Kurulum adimi bir ankete donusmesin.
-                .Take(MaxQuestions)
-                .ToList();
-        }
-        catch (JsonException)
-        {
-            // Model bozuk JSON dondurduyse sorular kaybolur ama akis durmaz;
-            // durum yine de kaydedilmis olur.
-            return [];
-        }
+        var root = AnalysisAnswers.Read(dictionaryJson ?? "");
+        return CanonicalSchemaDictionary.Objects(root, "questions")
+            .Select(question => new QuestionDto(
+                CanonicalSchemaDictionary.Text(question, "id"),
+                CanonicalSchemaDictionary.Text(question, "table"),
+                CanonicalSchemaDictionary.OptionalText(question, "column"),
+                CanonicalSchemaDictionary.Text(question, "question"),
+                (question["options"] as JsonArray)?.Select(option => option!.GetValue<string>()).ToList() ?? []))
+            .ToList();
     }
-
-    private static string? ReadString(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     private static JsonElement? SafeParse(string json)
     {
@@ -661,11 +561,6 @@ public static class AgentAnalyzeEndpoints
         catch (JsonException) { return null; }
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-    };
 }
 
 public record AnalyzeRequest(bool SamplingConsentGiven);

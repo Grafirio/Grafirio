@@ -56,11 +56,9 @@ public class DeclaredRelationshipTests
     }
 
     [Fact]
-    public void Benzersiz_olmayan_hedef_beyanda_da_reddedilir()
+    public void Metadata_olmayan_hedef_veri_dogrulamasi_olmadan_kabul_edilmez()
     {
-        // Emniyet kilidi. Kullanici ne kadar emin olursa olsun, benzersiz
-        // olmayan bir hedefe baglanmak satirlari cogaltir ve butun toplamlar
-        // sessizce sisir. Bu, kullanicinin bilebilecegi bir sey degil.
+        // The synchronous candidate builder cannot establish uniqueness from data.
         var hareket = Table("Hareketler", ("Id", "int", true), ("CariKodu", "nvarchar", false));
         var cari = Table("Cariler", ("Kod", "nvarchar", false), ("Ad", "nvarchar", false));
 
@@ -125,7 +123,7 @@ public class DeclaredRelationshipTests
     public void Kurulamayan_beyanin_sebebi_disari_veriliyor()
     {
         var hareket = Table("Hareketler", ("Id", "int", true), ("CariKodu", "nvarchar", false));
-        var cari = Table("Cariler", ("Kod", "nvarchar", false));   // benzersiz değil
+        var cari = Table("Cariler", ("Kod", "nvarchar", false));
         var problems = new List<RelationshipDiscovery.DeclaredProblem>();
 
         Discovery.BuildDeclaredCandidates(
@@ -134,10 +132,8 @@ public class DeclaredRelationshipTests
 
         var problem = Assert.Single(problems);
         Assert.Equal("dbo.Hareketler", problem.Link.FromTable);
-        // Sebep doğrudan kullanıcıya gösteriliyor: teknik terim değil, ne
-        // olduğunu ve neden böyle olduğunu anlatan cümle.
-        Assert.Contains("benzersiz değil", problem.Reason);
-        Assert.Contains("çoğaltır", problem.Reason);
+        Assert.Contains("benzersizliği doğrulanamadı", problem.Reason);
+        Assert.DoesNotContain("benzersiz değil", problem.Reason);
     }
 
     [Theory]

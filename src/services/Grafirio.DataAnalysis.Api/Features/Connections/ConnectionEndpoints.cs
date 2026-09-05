@@ -13,10 +13,7 @@ public static class SavedConnectionEndpoints
 {
     public static void MapSavedConnectionEndpoints(this IEndpointRouteBuilder app)
     {
-        // Tum grup yetki istiyor. Onceden hicbiri istemiyordu ve kullanici
-        // kimligi sorgu dizesinden geliyordu; ?userId=<baskasi> yazan herkes
-        // o kisinin kayitli baglantilarini, /decrypt ile de veritabani
-        // parolasini okuyabiliyordu.
+        // Connection access is scoped to the authenticated company.
         // Politika adi bilerek veriliyor. Ciplak RequireAuthorization() burada
         // calismiyordu: paylasilan kurulum AddAuthentication()'i varsayilan sema
         // vermeden cagiriyor, dolayisiyla "No authenticationScheme was specified"
@@ -53,13 +50,6 @@ public static class SavedConnectionEndpoints
             .WithName("DeleteConnection")
             .WithTags("Saved Connections");
 
-        // Cozulmus parola okumak READ degil UPDATE: baglanti bilgisini
-        // gormek ile veritabani parolasini almak ayni agirlikta isler degil,
-        // ve bu ucun tek kullanim yeri baglantiyi duzenleme formu.
-        group.MapGet("/{id:guid}/decrypt", GetDecryptedConnection)
-            .RequirePermission(AppPermissions.DataSourcesUpdate)
-            .WithName("GetDecryptedConnection")
-            .WithTags("Saved Connections");
     }
 
     private static async Task<IResult> SaveConnection(
@@ -110,7 +100,10 @@ public static class SavedConnectionEndpoints
                 existingConnection.Port = request.Port;
                 existingConnection.Database = request.Database;
                 existingConnection.Username = request.Username;
-                existingConnection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
+                if (!string.IsNullOrWhiteSpace(request.Password))
+                {
+                    existingConnection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
+                }
                 existingConnection.TrustServerCertificate = request.TrustServerCertificate;
                 existingConnection.UpdatedAt = DateTime.UtcNow;
                 
@@ -127,7 +120,11 @@ public static class SavedConnectionEndpoints
                 });
             }
 
-            // Encrypt password
+            if (string.IsNullOrWhiteSpace(request.Password))
+            {
+                return Results.BadRequest(new { error = "Password is required for a new connection" });
+            }
+
             var encryptedPassword = EncryptionHelper.Encrypt(request.Password);
 
             var connection = new SavedConnection
@@ -295,64 +292,6 @@ public static class SavedConnectionEndpoints
         }
     }
     
-    private static async Task<IResult> GetDecryptedConnection(
-        Guid id,
-        [FromServices] IIdentityService identity,
-        [FromServices] DataAnalysisDbContext db,
-        [FromServices] ILogger<SaveConnectionRequest> logger)
-    {
-        try
-        {
-            // Kayit id ile isteniyor ama id tahmin edilebilir bir sey degilse
-            // bile baska firmanin kaydina denk gelebilir; firma kontrolu
-            // sorgunun kendisinde.
-            var scopedCompany = identity.CurrentCompanyId;
-            if (scopedCompany is null)
-            {
-                return Results.BadRequest(new { error = "Hesabınız bir firmaya bağlı değil" });
-            }
-            var scopedCompanyId = scopedCompany.Value.ToString();
-
-            var connection = await db.SavedConnections
-                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive);
-
-            if (connection == null)
-            {
-                return Results.NotFound(new { error = "Bağlantı bulunamadı" });
-            }
-
-            // Decrypt password
-            var decryptedPassword = EncryptionHelper.Decrypt(connection.EncryptedPassword);
-
-            // Update last connected time
-            connection.LastConnectedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
-
-            return Results.Ok(new
-            {
-                success = true,
-                connection = new
-                {
-                    id = connection.Id,
-                    userId = connection.UserId,
-                    companyId = connection.CompanyId,
-                    name = connection.Name,
-                    host = connection.Host,
-                    port = connection.Port,
-                    database = connection.Database,
-                    username = connection.Username,
-                    password = decryptedPassword,
-                    trustServerCertificate = connection.TrustServerCertificate
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error decrypting connection: {ConnectionId}", id);
-            return Results.Problem("Bağlantı şifresi çözülemedi: " + ex.Message);
-        }
-    }
-
     private static async Task<IResult> UpdateConnection(
         Guid id,
         [FromBody] UpdateConnectionRequest request,
@@ -389,7 +328,7 @@ public static class SavedConnectionEndpoints
             connection.Database = request.Database ?? connection.Database;
             connection.Username = request.Username ?? connection.Username;
             
-            if (!string.IsNullOrEmpty(request.Password))
+            if (!string.IsNullOrWhiteSpace(request.Password))
             {
                 connection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
             }
@@ -473,24 +412,3 @@ public static class SavedConnectionEndpoints
     }
 }
 
-public record SaveConnectionRequest(
-    string UserId,
-    string CompanyId,
-    string Name,
-    string Host,
-    int Port,
-    string Database,
-    string Username,
-    string Password,
-    bool TrustServerCertificate
-);
-
-public record UpdateConnectionRequest(
-    string? Name,
-    string? Host,
-    int? Port,
-    string? Database,
-    string? Username,
-    string? Password,
-    bool? TrustServerCertificate
-);

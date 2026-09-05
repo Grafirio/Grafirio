@@ -23,6 +23,7 @@ public class PromptProfileTests
     private static DatabaseProfile Sample() => new()
     {
         DatabaseName = "Test",
+        SamplingConsentGiven = true,
         Tables =
         [
             new TableProfile

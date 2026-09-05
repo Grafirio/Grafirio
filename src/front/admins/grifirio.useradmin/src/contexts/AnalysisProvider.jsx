@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnalysisContext } from './AnalysisContext';
+import reconcileAnalysisState from '../utils/analysis/reconcileAnalysisState.js';
+import selectAnalysisAnswers from '../utils/analysis/selectAnalysisAnswers.js';
 import {
   startAnalysis, getAnalysisStatus, submitAnalysisAnswers,
 } from '../services/dataAnalysisService';
@@ -55,27 +57,7 @@ export function AnalysisProvider({ children }) {
   useEffect(() => stopPolling, [stopPolling]);
 
   const applyState = useCallback((state) => {
-    setAnalysis((p) => ({
-      ...p,
-      running: state.status === 'analyzing',
-      status: state.status,
-      // Sunucudan taze bir durum geldi: takip yeniden ayakta.
-      trackingAbandoned: false,
-      questions: state.questions || [],
-      summary: state.summary || '',
-      stats: state.tableCount
-        ? { tables: state.tableCount, columns: state.columnCount, sampled: state.sampledColumnCount }
-        : p.stats,
-      // Yanıtlanacak soru geldiyse küçültülmüş bildirim yetmez; modal geri
-      // açılıyor. Hata da öyle: küçük bir rozette kaybolmamalı. Kullanıcı
-      // bildirimi tamamen gizlemiş olsa bile geri açılıyor — aksi hâlde
-      // sorular hiç sorulmadan analiz yarım kalırdı.
-      open: (state.status === 'awaiting_answers' || state.status === 'failed') ? true : p.open,
-      minimized: (state.status === 'awaiting_answers' || state.status === 'failed') ? false : p.minimized,
-      error: state.status === 'failed'
-        ? (state.summary || 'Analiz başarısız oldu. Sunucu loglarında sebebi yazıyor.')
-        : '',
-    }));
+    setAnalysis(previous => reconcileAnalysisState(previous, state));
 
     if (state.status !== 'analyzing') sessionStorage.removeItem(STORAGE_KEY);
   }, []);
@@ -253,17 +235,28 @@ export function AnalysisProvider({ children }) {
   }, [analysis, poll]);
 
   const submit = useCallback(async () => {
+    const answers = selectAnalysisAnswers(analysis.questions, analysis.answers);
+    if (analysis.running || Object.keys(answers).length === 0) return;
     setAnalysis((p) => ({ ...p, running: true, error: '' }));
     try {
-      await submitAnalysisAnswers(analysis.connectionId, analysis.answers);
-      setAnalysis((p) => ({ ...p, running: false, status: 'ready' }));
+      const result = await submitAnalysisAnswers(analysis.connectionId, answers);
+      // The POST may return only status; refresh to obtain the remaining questions.
+      if (result.status) applyState({ ...result, questions: result.questions ?? analysis.questions });
+      const state = await getAnalysisStatus(analysis.connectionId);
+      applyState(state);
+      if (state.status === 'analyzing') {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+          connectionId: analysis.connectionId, connectionName: analysis.connectionName,
+        }));
+        poll(analysis.connectionId);
+      }
     } catch (error) {
       setAnalysis((p) => ({
         ...p, running: false,
         error: error.response?.data?.error || error.message,
       }));
     }
-  }, [analysis.connectionId, analysis.answers]);
+  }, [analysis, applyState, poll]);
 
   const minimize = useCallback(() => setAnalysis((p) => ({ ...p, minimized: true })), []);
   const restore = useCallback(() => setAnalysis((p) => ({ ...p, minimized: false })), []);

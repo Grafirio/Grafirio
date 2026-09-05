@@ -24,6 +24,9 @@ public sealed record DataSourceTarget(
     string Password,
     bool TrustServerCertificate)
 {
+    /// <summary>Explicit authorization scope; an empty collection permits metadata only.</summary>
+    public IReadOnlyList<string> AllowedTables { get; init; } = [];
+
     /// <summary>Analiz ve profil isleri icin baglanti zaman asimi (saniye).</summary>
     public const int DefaultConnectTimeoutSeconds = 30;
 

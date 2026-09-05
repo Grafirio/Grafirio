@@ -30,6 +30,7 @@
   <ItemGroup>
     <!-- Bridge protokolu: sunucu ile musteri agindaki servis arasindaki sozlesme. -->
     <ProjectReference Include="..\..\bridge\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Grafirio.QueryPolicy\Grafirio.QueryPolicy.csproj" />
   </ItemGroup>
 
   <ItemGroup>

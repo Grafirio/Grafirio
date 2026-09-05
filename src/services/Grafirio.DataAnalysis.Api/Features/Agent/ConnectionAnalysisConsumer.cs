@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Profile;
 using Grafirio.DataAnalysis.Api.Services;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.DataAnalysis.Api.Features.Agent;
 
@@ -39,6 +41,7 @@ public class ConnectionAnalysisConsumer(
     SchemaProfiler profiler,
     IDataSourceFactory dataSources,
     LearnedFactStore facts,
+    ConnectionProfileStore profileStore,
     ILogger<ConnectionAnalysisConsumer> logger)
     : IConsumer<AnalyzeConnectionRequested>
 {
@@ -47,7 +50,7 @@ public class ConnectionAnalysisConsumer(
         var message = context.Message;
         var ct = context.CancellationToken;
 
-        var config = await db.AnalysisConfigs.FindAsync([message.ConfigId], ct);
+        var config = await db.AnalysisConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == message.ConfigId, ct);
         if (config is null)
         {
             // Kayit silinmisse yapacak bir sey yok; mesaji tekrar denemek de
@@ -56,22 +59,26 @@ public class ConnectionAnalysisConsumer(
             return;
         }
 
-        var connection = await db.SavedConnections.FindAsync([message.ConnectionId], ct);
-        if (connection is null || connection.CompanyId != message.CompanyId)
+        var connection = await db.SavedConnections.AsNoTracking().FirstOrDefaultAsync(c => c.Id == message.ConnectionId, ct);
+        if (connection is null || !AnalysisJobGuard.CanRun(
+                config.ConnectionId, config.CompanyId, config.IsActive, config.Status,
+                connection.Id, connection.CompanyId, connection.IsActive, message.ConnectionId, message.CompanyId))
         {
-            await Fail(config, "Bağlantı bulunamadı.", ct);
-            return;
-        }
-
-        var selectedTables = JsonSerializer.Deserialize<List<string>>(config.TablesJson) ?? [];
-        if (selectedTables.Count == 0)
-        {
-            await Fail(config, "Tablo seçimi boş.", ct);
+            logger.LogWarning("Rejected stale or incorrectly scoped analysis job {ConfigId}", message.ConfigId);
+            if (config.ConnectionId == message.ConnectionId && config.CompanyId == message.CompanyId)
+                await Fail(config, "Connection is no longer active or owned by this company.", ct);
             return;
         }
 
         try
         {
+            var currentSelection = await profileStore.GetSelectedTablesAsync(message.ConnectionId, message.CompanyId, ct);
+            if (!AnalysisJobGuard.MatchesSelection(config.TablesJson, currentSelection))
+            {
+                await Fail(config, "Table selection changed. Start a new analysis.", ct);
+                return;
+            }
+            var selectedTables = JsonSerializer.Deserialize<List<string>>(config.TablesJson)!;
             await using var session = await dataSources.OpenAsync(connection, ct);
 
             // Kullanicinin daha once ogrettikleri. Sozluk her analizde
@@ -96,9 +103,13 @@ public class ConnectionAnalysisConsumer(
 
             var profile = await profiler.ProfileAsync(
                 session, connection.Database, selectedTables, message.SamplingConsentGiven,
-                declaredLinks, rejectedLinks, declaredProblems, ct);
+                declaredLinks, rejectedLinks, declaredProblems, ct,
+                () => EnsureCurrentAsync(message, config.TablesJson, ct));
 
-            await RecordDeclaredProblemsAsync(message, learned, declaredProblems, ct);
+            await EnsureCurrentAsync(message, config.TablesJson, ct);
+            CanonicalSchemaDictionary.ValidateProfile(profile);
+            if (message.SamplingConsentGiven)
+                await RecordDeclaredProblemsAsync(message, learned, declaredProblems, ct);
 
             // Sozluk tek cagriyla uretilemiyor: cikti kolon sayisiyla dogru
             // orantili buyudugu icin birkac yuz kolonda cevap token butcesine
@@ -136,20 +147,21 @@ public class ConnectionAnalysisConsumer(
             // kilitlendi" dedirtiyor. `SchemaSummary` bu durumda zaten mesaj
             // tasiyicisi olarak kullaniliyor (bkz. `Fail`); sonuc geldiginde
             // gercek ozetle degistiriliyor.
-            Func<int, int, Task>? onProgress = chunks.Count > 1
-                ? async (done, total) =>
+            Func<int, int, Task> onProgress = async (done, total) =>
                 {
-                    config.SchemaSummary = $"Sözlük üretiliyor: {done}/{total} parça tamamlandı.";
-                    config.UpdatedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync(ct);
-                }
-            : null;
+                    await EnsureCurrentAsync(message, config.TablesJson, ct);
+                    var summary = $"Sözlük üretiliyor: {done}/{total} parça tamamlandı.";
+                    await CurrentConfig(message, config.TablesJson)
+                        .ExecuteUpdateAsync(update => update.SetProperty(current => current.SchemaSummary, summary)
+                            .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+                };
 
-            if (onProgress is not null) await onProgress(0, chunks.Count);
+            await onProgress(0, chunks.Count);
 
             var result = await llm.BuildSchemaDictionaryAsync(
                 chunkProfiles, allTableNames, onProgress, ct);
 
+            await EnsureCurrentAsync(message, config.TablesJson, ct);
             if (!result.Success)
             {
                 // Yapilandirma hatasi yeniden denemekle duzelmez; digerleri
@@ -163,20 +175,35 @@ public class ConnectionAnalysisConsumer(
                 throw new InvalidOperationException(result.Error ?? "Sözlük üretilemedi.");
             }
 
-            var dictionary = AttachProfileFacts(result.Json, profile, accepted);
+            await EnsureCurrentAsync(message, config.TablesJson, ct);
+            var canonical = CanonicalSchemaDictionary.Build(result.Json, profile);
+            var validFacts = accepted.Where(fact => FactBelongsToProfile(fact, profile)).ToList();
+            var dictionary = AttachProfileFacts(canonical.ToJsonString(JsonOptions), profile, validFacts);
+            var dictionaryRoot = JsonNode.Parse(dictionary)!.AsObject();
+            dictionaryRoot[RelationshipDictionary.RejectedProperty] = JsonSerializer.SerializeToNode(
+                learned.Where(f => f.Kind == LearnedFact.Relationship && !f.Accepted)
+                    .Select(f => new RelationshipProposal(f.FromTable!, f.FromColumn!, f.ToTable!, f.ToColumn!)),
+                JsonOptions);
+            dictionary = dictionaryRoot.ToJsonString(JsonOptions);
 
-            config.ConfigJson = dictionary;
-            config.SchemaSummary = result.Explanation;
-            config.Status = AgentAnalyzeEndpoints.ExtractQuestions(dictionary).Count > 0
+            var status = AnalysisAnswers.CountPending(dictionary) > 0
                 ? AgentAnalyzeEndpoints.AnalysisStatus.AwaitingAnswers
                 : AgentAnalyzeEndpoints.AnalysisStatus.Ready;
-            config.UpdatedAt = DateTime.UtcNow;
-
-            await db.SaveChangesAsync(ct);
+            await EnsureCurrentAsync(message, config.TablesJson, ct);
+            var written = await CurrentConfig(message, config.TablesJson)
+                .ExecuteUpdateAsync(update => update.SetProperty(current => current.ConfigJson, dictionary)
+                    .SetProperty(current => current.SchemaSummary, result.Explanation)
+                    .SetProperty(current => current.Status, status)
+                    .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+            if (written != 1) return;
 
             logger.LogInformation(
                 "Analiz tamamlandı. Connection: {ConnectionId}, durum: {Status}",
-                message.ConnectionId, config.Status);
+                message.ConnectionId, status);
+        }
+        catch (StaleAnalysisJobException)
+        {
+            await Fail(config, "Analysis selection or connection changed. Start a new analysis.", ct);
         }
         catch (Exception ex) when (context.GetRetryAttempt() >= MaxRetries)
         {
@@ -255,10 +282,35 @@ public class ConnectionAnalysisConsumer(
 
     private async Task Fail(Data.Entities.AnalysisConfig config, string reason, CancellationToken ct)
     {
-        config.Status = AgentAnalyzeEndpoints.AnalysisStatus.Failed;
-        config.SchemaSummary = reason;
-        config.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await db.AnalysisConfigs.Where(current => current.Id == config.Id && current.IsActive
+                && current.ConnectionId == config.ConnectionId && current.CompanyId == config.CompanyId
+                && current.Status == AgentAnalyzeEndpoints.AnalysisStatus.Analyzing)
+            .ExecuteUpdateAsync(update => update.SetProperty(current => current.Status, AgentAnalyzeEndpoints.AnalysisStatus.Failed)
+                .SetProperty(current => current.SchemaSummary, reason)
+                .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+    }
+
+    private IQueryable<Data.Entities.AnalysisConfig> CurrentConfig(AnalyzeConnectionRequested message, string tablesJson) =>
+        db.AnalysisConfigs.Where(config => config.Id == message.ConfigId && config.IsActive
+            && config.ConnectionId == message.ConnectionId && config.CompanyId == message.CompanyId
+            && config.Status == AgentAnalyzeEndpoints.AnalysisStatus.Analyzing && config.TablesJson == tablesJson
+            && db.SavedConnections.Any(connection => connection.Id == message.ConnectionId
+                && connection.CompanyId == message.CompanyId && connection.IsActive));
+
+    private async Task EnsureCurrentAsync(AnalyzeConnectionRequested message, string tablesJson, CancellationToken ct)
+    {
+        if (!await CurrentConfig(message, tablesJson).AnyAsync(ct)
+            || !AnalysisJobGuard.MatchesSelection(tablesJson,
+                await profileStore.GetSelectedTablesAsync(message.ConnectionId, message.CompanyId, ct)))
+            throw new StaleAnalysisJobException();
+    }
+
+    private static bool FactBelongsToProfile(LearnedFact fact, DatabaseProfile profile)
+    {
+        if (fact.Kind == LearnedFact.Relationship) return true;
+        var table = profile.Tables.FirstOrDefault(table => string.Equals(table.Qualified, fact.Table, StringComparison.OrdinalIgnoreCase));
+        return table is not null && (string.IsNullOrWhiteSpace(fact.Column)
+            || table.Columns.Any(column => string.Equals(column.ColumnName, fact.Column, StringComparison.OrdinalIgnoreCase)));
     }
 
     /// <summary>
@@ -282,7 +334,7 @@ public class ConnectionAnalysisConsumer(
     {
         try
         {
-            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) return dictionaryJson;
+            if (JsonNode.Parse(dictionaryJson) is not JsonObject root) throw new JsonException("Invalid dictionary.");
 
             root["profileStats"] = new JsonObject
             {
@@ -312,6 +364,7 @@ public class ConnectionAnalysisConsumer(
                 foreach (var column in table.Columns)
                 {
                     if (column.SampleValues.Count == 0) continue;
+                    if (!SensitiveColumnPolicy.MayExposeValues(column, profile.SamplingConsentGiven)) continue;
                     if (column.DistinctCount is null or > CodeValueThreshold) continue;
 
                     codeValues.Add(new JsonObject
@@ -319,7 +372,8 @@ public class ConnectionAnalysisConsumer(
                         ["table"] = $"{table.Schema}.{table.TableName}",
                         ["column"] = column.ColumnName,
                         ["values"] = new JsonArray(
-                            column.SampleValues.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray())
+                            column.SampleValues.Where(SensitiveColumnPolicy.IsValueSafe)
+                                .Select(v => (JsonNode)JsonValue.Create(v)!).ToArray())
                     });
                 }
             }
@@ -327,12 +381,19 @@ public class ConnectionAnalysisConsumer(
             root["codeValues"] = codeValues;
 
             ApplyLearnedFacts(root, learned);
+            var remainingQuestions = new JsonArray(CanonicalSchemaDictionary.Objects(root, "questions")
+                .Where(question => !learned.Any(fact => fact.Kind == LearnedFact.Meaning && fact.Accepted
+                    && !string.IsNullOrWhiteSpace(fact.Means)
+                    && Same(question["table"], fact.Table) && Same(question["column"], fact.Column)))
+                .Select(question => question.DeepClone()).ToArray());
+            root["questions"] = remainingQuestions;
+            root["questionCount"] = remainingQuestions.Count;
 
             return root.ToJsonString(JsonOptions);
         }
-        catch (JsonException)
+        catch (JsonException exception)
         {
-            return dictionaryJson;
+            throw new InvalidOperationException("Profile facts could not be attached to the dictionary.", exception);
         }
     }
 

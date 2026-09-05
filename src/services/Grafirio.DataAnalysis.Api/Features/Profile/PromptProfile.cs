@@ -36,12 +36,12 @@ public static class PromptProfile
         {
             profile.DatabaseName,
             profile.SamplingConsentGiven,
-            Tables = profile.Tables.Select(Project),
+            Tables = profile.Tables.Select(table => Project(table, profile.SamplingConsentGiven)),
             profile.Relationships
         }, options);
 
     /// <summary>Tek bir tablonun modele gonderilen bicimi.</summary>
-    private static object Project(TableProfile table) =>
+    private static object Project(TableProfile table, bool consent) =>
         new
         {
                 table.Schema,
@@ -62,14 +62,18 @@ public static class PromptProfile
                     IsPrimaryKey = column.IsPrimaryKey ? true : (bool?)null,
                     column.DistinctCount,
                     column.NullCount,
-                    column.MinValue,
-                    column.MaxValue,
+                    MinValue = SafeValue(column, consent, column.MinValue),
+                    MaxValue = SafeValue(column, consent, column.MaxValue),
                     // Bos liste yerine hic yazilmiyor. "Ornek alinamadi"
                     // bilgisi prompt'ta bir kez anlatiliyor; kolon basina
                     // tekrar etmenin karsiligi yok.
-                    SampleValues = column.SampleValues.Count == 0
+                    SampleValues = !SensitiveColumnPolicy.MayExposeValues(column, consent) || column.SampleValues.Count == 0
                         ? null
-                        : column.SampleValues.Take(MaxSampleValues).ToList()
+                        : column.SampleValues.Where(SensitiveColumnPolicy.IsValueSafe).Take(MaxSampleValues).ToList()
                 })
         };
+
+    private static string? SafeValue(ColumnProfile column, bool consent, string? value) =>
+        SensitiveColumnPolicy.MayExposeValues(column, consent) && SensitiveColumnPolicy.IsValueSafe(value)
+            ? value : null;
 }
