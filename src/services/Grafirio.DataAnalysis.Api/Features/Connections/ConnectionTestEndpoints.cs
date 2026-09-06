@@ -9,23 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Grafirio.DataAnalysis.Api.Features.Connections;
 
 /// <summary>
-/// Baglanti denemesi: kayitli bir baglantiya gercekten ulasilabiliyor mu diye
-/// bakar. Kayitli baglantilarin CRUD'u <see cref="SavedConnectionEndpoints"/>'te.
-///
-/// <b>Uc artik kayitli baglanti kimligi aliyor, ham kimlik bilgisi degil.</b>
-/// Eskiden govdede host/kullanici/sifre geliyordu ve bunun iki sonucu vardi:
-///
-///   * Test bridge'i kullanamiyordu. Yol secimi baglantinin bridge esleşmesine
-///     bagli, esleşme de kimligine; govdedeki ham bilgide kimlik yok. Yani
-///     firewall arkasindaki her veritabani icin test HER ZAMAN basarisizdi.
-///     Arayuz kaydi teste bagladigi icin o baglantilar hic kaydedilemiyordu —
-///     bridge kurulu ve cevrimici olsa bile.
-///   * Sunucu, istekte yazan herhangi bir adrese baglanti kuruyordu. Kimlik
-///     dogrulamasi eklenmisti ama gecerli bir hesabi olan herkes bunu ic
-///     aglari yoklamak icin kullanabiliyordu; kaydedilmis baglantilarla
-///     sinirlamak bu yuzeyi tamamen kapatiyor.
-///
-/// Akis artik tek yonlu: kaydet → (istege bagli) bridge'e bagla → test et.
+/// Tests saved connections using their persisted route and exposes isolated connection previews.
 /// </summary>
 public static class ConnectionTestEndpoints
 {
@@ -39,12 +23,14 @@ public static class ConnectionTestEndpoints
             .WithTags("Connection Management")
             .WithOpenApi();
 
+        group.MapConnectionPreviewEndpoints();
+
         // Test okuma islemi: baglantiyi degistirmiyor, yalnizca ulasilabilir
         // mi diye bakiyor.
         group.MapPost("/{connectionId:guid}/test", TestConnection)
             .RequirePermission(AppPermissions.DataSourcesRead)
             .WithName("TestConnection")
-            .WithDescription("Kayıtlı bağlantıya ulaşılabiliyor mu diye bakar (bridge varsa onun üzerinden)");
+            .WithDescription("Tests connectivity using the saved connection route.");
     }
 
     private static async Task<IResult> TestConnection(

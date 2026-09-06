@@ -6,9 +6,13 @@ namespace Grafirio.Bridge.Desktop.Cloud;
 internal sealed class DesktopBridgeHost(
     IHost host, BridgeState state, BridgeEnrollment enrollment,
     BridgeWorker worker, IHostApplicationLifetime lifetime,
-    DesktopBridgeDisplay display) : IAsyncDisposable
+    DesktopBridgeDisplay display) : IDesktopBridgeHost
 {
-    private const string ConnectionFailureMessage = "Bulut bağlantısı kurulamadı. Yerel çalışma alanını kullanmaya devam edebilirsiniz.";
+    private const string ConnectionFailureMessage = "Veri bağlantısı kurulamadı. Lütfen yeniden deneyin.";
+
+    public Guid? BridgeId => state.BridgeId;
+    public bool IsConnected => display.IsConnected && worker.ExecuteTask is { IsCompleted: false }
+        && !lifetime.ApplicationStopping.IsCancellationRequested;
 
     public static DesktopBridgeHost Create(
         BridgeOptions options, ILoggerFactory loggerFactory, DesktopBridgeDisplay display)

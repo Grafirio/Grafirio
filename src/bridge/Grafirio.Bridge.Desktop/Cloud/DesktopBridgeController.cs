@@ -1,8 +1,12 @@
+using Grafirio.Bridge.Desktop.Authentication;
+
 namespace Grafirio.Bridge.Desktop.Cloud;
 
 public sealed class DesktopBridgeController : IDesktopBridgeController
 {
-    private const string ConnectionFailureMessage = "Bulut bağlantısı kurulamadı. Yerel çalışma alanını kullanmaya devam edebilirsiniz.";
+    private const string ConnectionFailureMessage = "Veri bağlantısı kurulamadı. Lütfen yeniden deneyin.";
+    private readonly IDesktopSessionManager _sessions;
+    private readonly Func<BridgeOptions, ILoggerFactory, DesktopBridgeDisplay, IDesktopBridgeHost> _createHost;
     private readonly IOptions<BridgeOptions> _options;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DesktopBridgeController> _logger;
@@ -10,12 +14,20 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
     private readonly Lock _connectionLock = new();
     private readonly DesktopBridgeDisplay _display;
     private CancellationTokenSource? _connectionCancellation;
-    private DesktopBridgeHost? _host;
+    private IDesktopBridgeHost? _host;
     private string? _identityDirectory;
     private bool _disposed;
 
-    public DesktopBridgeController(IOptions<BridgeOptions> options, ILoggerFactory loggerFactory)
+    public DesktopBridgeController(IDesktopSessionManager sessions,
+        IOptions<BridgeOptions> options, ILoggerFactory loggerFactory)
+        : this(sessions, options, loggerFactory, DesktopBridgeHost.Create) { }
+
+    internal DesktopBridgeController(IDesktopSessionManager sessions, IOptions<BridgeOptions> options,
+        ILoggerFactory loggerFactory,
+        Func<BridgeOptions, ILoggerFactory, DesktopBridgeDisplay, IDesktopBridgeHost> createHost)
     {
+        _sessions = sessions;
+        _createHost = createHost;
         _options = options;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DesktopBridgeController>();
@@ -28,7 +40,14 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
         remove => _display.Changed -= value;
     }
 
-    public async Task ConnectAsync(UserSession session, CancellationToken cancellationToken)
+    public async Task ConnectAsync(UserSession session, CancellationToken cancellationToken) =>
+        await WithConnectionAsync(session, requireContext: false, cancellationToken).ConfigureAwait(false);
+
+    public Task<Guid> GetConnectionContextAsync(UserSession session, CancellationToken cancellationToken) =>
+        WithConnectionAsync(session, requireContext: true, cancellationToken);
+
+    private async Task<Guid> WithConnectionAsync(UserSession session, bool requireContext,
+        CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -38,19 +57,26 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
             lock (_connectionLock) _connectionCancellation = connectionCancellation;
             var connectionToken = connectionCancellation.Token;
             connectionToken.ThrowIfCancellationRequested();
-            var directory = DesktopBridgeIdentity.GetDirectory(session);
-            if (_host is not null && directory == _identityDirectory) return;
+            var directory = ValidateSession(session);
+            if (_host is not null && directory == _identityDirectory)
+            {
+                if (requireContext) return ReadConnectionContext(session);
+                if (_host.IsConnected) return Guid.Empty;
+            }
 
             await StopCoreAsync().ConfigureAwait(false);
             connectionToken.ThrowIfCancellationRequested();
             var options = DesktopBridgeOptions.Create(_options.Value, directory);
             var display = new DesktopBridgeDisplay(_loggerFactory.CreateLogger<DesktopBridgeDisplay>());
             display.Changed += _display.Publish;
-            _host = DesktopBridgeHost.Create(options, _loggerFactory, display);
+            _host = _createHost(options, _loggerFactory, display);
             await _host.StartAsync(session, connectionToken).ConfigureAwait(false);
             connectionToken.ThrowIfCancellationRequested();
+            ValidateSession(session);
+            if (!_host.IsConnected) throw new DesktopBridgeException(ConnectionFailureMessage);
             _identityDirectory = directory;
             _logger.LogInformation("Desktop cloud bridge started.");
+            return requireContext ? ReadConnectionContext(session) : Guid.Empty;
         }
         catch (OperationCanceledException) when (connectionCancellation.IsCancellationRequested)
         {
@@ -70,6 +96,25 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
             lock (_connectionLock) _connectionCancellation = null;
             _semaphore.Release();
         }
+    }
+
+    private string ValidateSession(UserSession session)
+    {
+        var current = _sessions.Current;
+        if (current is null || current.ExpiresAt is not { } expiry || expiry <= DateTimeOffset.UtcNow)
+            throw new DesktopBridgeException("Oturum gerekli. Lütfen yeniden giriş yapın.");
+        var directory = DesktopBridgeIdentity.GetDirectory(session);
+        if (!ReferenceEquals(current, session) || directory != DesktopBridgeIdentity.GetDirectory(current))
+            throw new DesktopBridgeException("Oturum değişti. Lütfen yeniden deneyin.");
+        return directory;
+    }
+
+    private Guid ReadConnectionContext(UserSession session)
+    {
+        if (ValidateSession(session) != _identityDirectory || _host is not { IsConnected: true }
+            || _host.BridgeId is not { } bridgeId || bridgeId == Guid.Empty)
+            throw new DesktopBridgeException(ConnectionFailureMessage);
+        return bridgeId;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

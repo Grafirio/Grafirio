@@ -1,10 +1,14 @@
 import axios from 'axios';
-import keycloak from '../keycloak';
+import keycloak from '../keycloak.js';
 import buildConnectionUpdate from '../utils/connections/buildConnectionUpdate.js';
+import requestConnectionDraft from './connections/requestConnectionDraft.js';
+import requireDesktopSavedConnection from './connections/requireDesktopSavedConnection.js';
+import withDesktopConnectionContext from './connections/withDesktopConnectionContext.js';
+import { DATA_ANALYSIS_API_URL as API_BASE_URL } from '../constants/dataAnalysisApi.js';
+import isDesktopApp from '../auth/desktop/isDesktopApp.js';
+import DesktopConnectionError from './connections/DesktopConnectionError.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/data-analysis`
-  : 'http://localhost:5000/data-analysis';
+const DATABASE_OPERATION_PATH = /^\/api\/(?:connections\/[^/]+\/test|schema\/|analysis\/|agent\/(?:query$|analyze-connection\/|config\/[^/]+\/answers))/;
 
 /**
  * DataAnalysis.Api artik kimlik dogrulamasi istiyor ve kullanici/firma
@@ -19,6 +23,22 @@ axios.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${keycloak.token}`;
   }
   return config;
+});
+
+axios.interceptors.response.use((response) => {
+  if (isDesktopApp() && response.config.url?.startsWith(API_BASE_URL)
+    && DATABASE_OPERATION_PATH.test(response.config.url.slice(API_BASE_URL.length))
+    && response.data?.success === false) {
+    response.data = { ...response.data, message: `${new DesktopConnectionError().message} ${response.data.message ?? ''}` };
+  }
+  return response;
+}, (error) => {
+  if (isDesktopApp() && error.config?.url?.startsWith(API_BASE_URL)
+    && DATABASE_OPERATION_PATH.test(error.config.url.slice(API_BASE_URL.length))
+    && (!error.response || error.response.status >= 500)) {
+    return Promise.reject(new DesktopConnectionError());
+  }
+  return Promise.reject(error);
 });
 
 /**
@@ -42,19 +62,18 @@ export const normalizeHostAndPort = (host, port) => {
   return { host: trimmed, port: Number(port) > 0 ? Number(port) : 1433 };
 };
 
-/**
- * Kayıtlı bir bağlantıya ulaşılabiliyor mu.
- *
- * Kimlik bilgisi değil bağlantı KİMLİĞİ gönderiliyor. Sebebi mimari: test,
- * sorgunun gerçekte gideceği yoldan gitmeli — şirketin çevrimiçi bir masaüstü
- * uygulaması varsa oradan, yoksa buluttan. Ham host/kullanıcı/şifre gönderen
- * eski uç bunu yapamıyor, firewall arkasındaki her veritabanı için hep
- * başarısız oluyordu; test geçmeden kayıt da yapılmadığı için o bağlantılar
- * hiç kaydedilemiyordu.
- *
- * Bu yüzden sıra da değişti: önce kaydet, sonra test et.
- */
+// Draft operations never persist credentials or rebind an existing connection.
+export const testConnectionDraft = (connectionInfo) => requestConnectionDraft('test', {
+  ...connectionInfo, ...normalizeHostAndPort(connectionInfo.host, connectionInfo.port),
+});
+
+export const getDatabases = (connectionInfo) => requestConnectionDraft('databases', {
+  ...connectionInfo, ...normalizeHostAndPort(connectionInfo.host, connectionInfo.port),
+});
+
+// Saved tests use the stored route; desktop requires this PC's bridge and never falls back.
 export const testConnection = async (connectionId) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   try {
     const response = await axios.post(
       `${API_BASE_URL}/api/connections/${connectionId}/test`, null, { timeout: 30000 }
@@ -73,7 +92,7 @@ export const testConnection = async (connectionId) => {
  */
 export const saveConnection = async (name, connectionInfo) => {
   const { host, port } = normalizeHostAndPort(connectionInfo.host, connectionInfo.port);
-  const payload = {
+  const payload = await withDesktopConnectionContext({
     name,
     host,
     port,
@@ -81,7 +100,7 @@ export const saveConnection = async (name, connectionInfo) => {
     username: connectionInfo.username,
     password: connectionInfo.password,
     trustServerCertificate: connectionInfo.trustServerCertificate
-  };
+  });
   const response = await axios.post(`${API_BASE_URL}/api/connections`, payload, {
     timeout: 10000
   });
@@ -124,9 +143,10 @@ export const getConnectionSummary = async (connectionId) => {
  */
 export const updateConnection = async (connectionId, changes) => {
   const { host, port } = normalizeHostAndPort(changes.host, changes.port);
+  const payload = await withDesktopConnectionContext(buildConnectionUpdate({ ...changes, host, port }));
   const response = await axios.put(
     `${API_BASE_URL}/api/connections/${connectionId}`,
-    buildConnectionUpdate({ ...changes, host, port }),
+    payload,
     { timeout: 10000 }
   );
   return response.data;
@@ -160,6 +180,7 @@ export const deleteConnection = async (connectionId) => {
  * Yan etkisi: veritabanı parolasının artık tarayıcıya inmesi gerekmiyor.
  */
 export const getTables = async (connectionId) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   try {
     const response = await axios.get(
       `${API_BASE_URL}/api/schema/${connectionId}/tables`, { timeout: 30000 }
@@ -179,6 +200,7 @@ export const getTables = async (connectionId) => {
    "Analiz başarısız" diye gösterildiği için uç bulunamadığı anlaşılmıyordu.
 ───────────────────────────────────────────────────────────── */
 const runPreAnalysis = async (connectionId, kind, tables) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   try {
     const response = await axios.post(
       `${API_BASE_URL}/api/analysis/${connectionId}/${kind}`, { tables }, { timeout: 60000 }
@@ -220,6 +242,7 @@ export const getRelationships = (connectionId, tables) =>
  * ilerleme `getAnalysisStatus` ile takip edilir.
  */
 export const startAnalysis = async (connectionId, samplingConsentGiven = false) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   try {
     const response = await axios.post(
       `${API_BASE_URL}/api/agent/analyze-connection/${connectionId}`,
@@ -248,6 +271,7 @@ export const getAnalysisStatus = async (connectionId) => {
 
 /** Saves answers; the returned status determines whether more answers are needed. */
 export const submitAnalysisAnswers = async (connectionId, answers) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   const response = await axios.post(
     `${API_BASE_URL}/api/agent/config/${connectionId}/answers`,
     { answers },
@@ -265,6 +289,7 @@ export const listAnalyses = async () => {
 
 // Doğal dil sorgusu gönder → LLM + PyCaret
 export const submitAgentQuery = async (connectionId, question, parentQueryId = null) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   try {
     const response = await axios.post(`${API_BASE_URL}/api/agent/query`, {
       connectionId,
@@ -333,6 +358,7 @@ export const getAgentQueryHistory = async (connectionId) => {
 
 /** Seçili tabloları sunucuya kaydeder. Seçim değişince analiz geçersiz olur. */
 export const saveSelectedTables = async (connectionId, tables) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   const response = await axios.put(
     `${API_BASE_URL}/api/connections/${connectionId}/tables`,
     { tables },
@@ -349,22 +375,7 @@ export const getSelectedTables = async (connectionId) => {
   return response.data;
 };
 
-/* ─────────────────────────────────────────────────────────────
-   Bridge — müşterinin kendi ağında çalışan bağlantı servisi.
-
-   Neden var: kurumsal veritabanları firewall arkasında ve buluttan
-   erişilemiyor. Bridge yönü çeviriyor — bağlantıyı müşterinin sunucusu
-   dışarı doğru kurar, firewall'da hiçbir port açılmaz.
-
-   Panelin bu uçlarla işi kurulumu başlatmak ve durumu göstermekle sınırlı.
-   Hangi bağlantının hangi makineden okunacağı SORULMUYOR: şirketin
-   çevrimiçi bir bridge'i varsa hepsi oradan okunuyor. Eşleştirme uçları
-   bu yüzden kaldırıldı — kullanıcıya sorulacak bir soru değildi ve
-   yapılmadığında kurulum sessizce işe yaramıyordu.
-
-   Kurulumun kendisi panelden geçmiyor — bridge açılışta kendi kodunu
-   gösteriyor ve onay Keycloak'ın device flow ekranında veriliyor.
-───────────────────────────────────────────────────────────── */
+// Company bridge availability never overrides a connection's stored route.
 
 /** Şirketin bridge'leri ve çevrimiçi durumları. */
 export const getBridges = async () => {
@@ -406,6 +417,7 @@ export const revokeBridge = async (bridgeId) => {
 
 /** Kullanıcının onayladığı (ya da reddettiği) bir bilgiyi kalıcı kaydeder. */
 export const learnFact = async (connectionId, fact) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   const response = await axios.post(
     `${API_BASE_URL}/api/agent/config/${connectionId}/learned`, fact, { timeout: 15000 });
   return response.data;
@@ -434,6 +446,7 @@ export const forgetLearnedFact = async (connectionId, key) => {
  * elle bağlanması gereken kolonlar tam olarak onlar.
  */
 export const getTableColumns = async (connectionId, fullName) => {
+  await requireDesktopSavedConnection(connectionId, getConnectionSummary);
   const response = await axios.get(
     `${API_BASE_URL}/api/schema/${connectionId}/table/${encodeURIComponent(fullName)}`,
     { timeout: 30000 });

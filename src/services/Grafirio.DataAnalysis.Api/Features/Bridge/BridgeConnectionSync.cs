@@ -1,5 +1,6 @@
 using Grafirio.Bridge.Contracts;
 using Grafirio.DataAnalysis.Api.Data;
+using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -7,29 +8,8 @@ using Microsoft.EntityFrameworkCore;
 namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 
 /// <summary>
-/// Baglanti tanimlarini bridge'e gonderir.
-///
-/// Bridge yalnizca kendi yerel deposunda tanimli baglantilara sorgu
-/// calistiriyor; oraya nasil geldigi bu sinifin isi.
-///
-/// <b>Kapsam sirket.</b> Bir bridge, sirketinin BUTUN baglantilarini aliyor.
-/// Onceden baglanti basina elle yapilan bir eslestirme vardi ve yalnizca
-/// eslesenler gonderiliyordu; o kavram kalkti, cunku kullaniciya "bu baglanti
-/// hangi makineden okunsun" diye sormanin karsiligi yoktu — masaustu
-/// uygulamasini kuran biri zaten veritabanina buluttan ulasilamadigi icin
-/// kuruyor.
-///
-/// Uc tetikleyici var ve ucu de gerekli:
-///
-///   * Bridge her baglandiginda (<see cref="SyncAllAsync"/>). Sifre ya da
-///     tablo secimi arada degismis olabilir.
-///   * Yeni bir baglanti kaydedildiginde ya da guncellendiginde
-///     (<see cref="SyncOneAsync"/>). Bu olmadan yeni baglanti, bridge bir
-///     sonraki yeniden baglanmasina kadar "tanimli degil" ile duserdi.
-///   * Baglanti silindiginde (<see cref="ForgetAsync"/>).
-///
-/// Sifre burada cozulup kanaldan gonderiliyor ve bridge'in diskinde kaliyor.
-/// Bulut kalici bir kopya tutmuyor.
+/// Sends credentials only to the explicitly assigned, company-owned bridge.
+/// Query sessions resend configuration before execution so reconnect sync is not a readiness guarantee.
 /// </summary>
 public class BridgeConnectionSync(
     IHubContext<BridgeHub> hub,
@@ -39,8 +19,7 @@ public class BridgeConnectionSync(
     ILogger<BridgeConnectionSync> logger)
 {
     /// <summary>
-    /// Sirketin butun baglantilarini bridge'e yeniden gonderir. Bridge
-    /// baglandiginda cagriliyor.
+    /// Refreshes assigned connections and removes stale copies when a bridge reconnects.
     /// </summary>
     public async Task SyncAllAsync(
         Guid bridgeId, string companyId, string signalRConnectionId, CancellationToken ct = default)
@@ -51,7 +30,7 @@ public class BridgeConnectionSync(
         var db = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
 
         var connections = await db.SavedConnections
-            .Where(c => c.CompanyId == companyId && c.IsActive)
+            .Where(c => c.CompanyId == companyId)
             .ToListAsync(ct);
 
         if (connections.Count == 0)
@@ -66,7 +45,16 @@ public class BridgeConnectionSync(
         {
             try
             {
-                await SendAsync(signalRConnectionId, connection.Id, companyId, db, ct);
+                var route = await bridges.GetConnectionRouteAsync(connection.Id, companyId, ct);
+                if (!connection.IsActive || !route.Matches(connection) ||
+                    route.ConnectionMode != ConnectionRoute.Bridge || route.BridgeId != bridgeId)
+                {
+                    await hub.Clients.Client(signalRConnectionId).SendAsync(
+                        BridgeProtocol.ServerToBridge.RemoveConnection, new RemoveConnectionRequest(connection.Id), ct);
+                    continue;
+                }
+                await bridges.ValidateRouteAsync(route, companyId, ct);
+                await SendAsync(signalRConnectionId, bridgeId, connection, ct);
             }
             catch (Exception ex)
             {
@@ -89,62 +77,49 @@ public class BridgeConnectionSync(
     public async Task SyncOneAsync(
         Guid connectionId, string companyId, BridgeRegistry registry, CancellationToken ct = default)
     {
-        if (await OnlineBridgeAsync(companyId, registry, ct) is not { } bridgeId)
-        {
-            // Cevrimdisi bir bridge'e gonderemeyiz; baglandiginda SyncAllAsync
-            // zaten hepsini yollayacak. Sirkette hic bridge yoksa da normal:
-            // sorgular buluttan dogrudan gidiyor.
-            return;
-        }
-
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DataAnalysisDbContext>();
+        var connection = await db.SavedConnections.AsNoTracking().FirstOrDefaultAsync(value =>
+            value.Id == connectionId && value.CompanyId == companyId && value.IsActive, ct);
+        if (connection is null) return;
+        var route = await bridges.GetConnectionRouteAsync(connectionId, companyId, ct);
+        route.ValidateBinding(connection);
+        if (route.ConnectionMode != ConnectionRoute.Bridge) return;
+        await bridges.ValidateRouteAsync(route, companyId, ct);
+        var bridgeId = route.BridgeId!.Value;
+        if (!registry.IsOnline(bridgeId)) return;
 
         await SendAsync(
-            registry.ConnectionIdOf(bridgeId, companyId), connectionId, companyId, db, ct);
+            registry.ConnectionIdOf(bridgeId, companyId), bridgeId, connection, ct);
     }
 
     /// <summary>Baglantiyi bridge'e unutturur. Silme sonrasi cagriliyor.</summary>
-    public async Task ForgetAsync(
+    public virtual async Task ForgetAsync(
         Guid connectionId, string companyId, BridgeRegistry registry, CancellationToken ct = default)
     {
-        if (await OnlineBridgeAsync(companyId, registry, ct) is not { } bridgeId) return;
-
-        await hub.Clients.Client(registry.ConnectionIdOf(bridgeId, companyId))
-            .SendAsync(
-                BridgeProtocol.ServerToBridge.RemoveConnection,
-                new RemoveConnectionRequest(connectionId), ct);
-    }
-
-    /// <summary>
-    /// Sirketin cevrimici bridge'i; yoksa <c>null</c>. Yol secimiyle ayni
-    /// kural — bkz. <c>DataSourceFactory.ResolveRouteAsync</c>.
-    /// </summary>
-    private async Task<Guid?> OnlineBridgeAsync(
-        string companyId, BridgeRegistry registry, CancellationToken ct)
-    {
+        // Remove stale copies from previous routes as well as the current route.
         foreach (var bridge in await bridges.ListAsync(companyId, ct))
         {
-            if (registry.IsOnline(bridge.Id)) return bridge.Id;
+            if (!registry.IsOnline(bridge.Id)) continue;
+            await hub.Clients.Client(registry.ConnectionIdOf(bridge.Id, companyId))
+                .SendAsync(BridgeProtocol.ServerToBridge.RemoveConnection,
+                    new RemoveConnectionRequest(connectionId), ct);
         }
-
-        return null;
     }
 
+    public virtual Task ClearSelectedTablesAsync(Guid connectionId, string companyId, CancellationToken ct = default) =>
+        profiles.SaveSelectedTablesAsync(connectionId, companyId, [], ct);
+
     private async Task SendAsync(
-        string signalRConnectionId, Guid connectionId, string companyId,
-        DataAnalysisDbContext db, CancellationToken ct)
+        string signalRConnectionId, Guid bridgeId, Data.Entities.SavedConnection connection, CancellationToken ct)
     {
-        var connection = await db.SavedConnections
-            .FirstOrDefaultAsync(c => c.Id == connectionId && c.CompanyId == companyId, ct);
-
-        if (connection is null) return;
-
-        // Secili tablolar izin listesine donusuyor: sistemde zaten "yalnizca
-        // secili tablolar islenir" kurali var, bridge tarafinda da ayni kural
-        // uygulansin. Secim bossa kisit da yok — aksi halde tablo secmemis bir
-        // musteride hicbir sorgu calismazdi.
-        var allowedTables = await profiles.GetSelectedTablesAsync(connectionId, companyId, ct);
+        // Empty selection permits metadata only; the same scope applies on both routes.
+        var allowedTables = await profiles.GetSelectedTablesAsync(connection.Id, connection.CompanyId, ct);
+        var route = await bridges.GetConnectionRouteAsync(connection.Id, connection.CompanyId, ct);
+        route.ValidateBinding(connection);
+        if (!connection.IsActive || route.ConnectionMode != ConnectionRoute.Bridge || route.BridgeId != bridgeId)
+            throw new DataSourceException("Bağlantı yönlendirmesi değişti; kimlik bilgileri gönderilmedi.");
+        await bridges.ValidateRouteAsync(route, connection.CompanyId, ct);
 
         await hub.Clients.Client(signalRConnectionId).SendAsync(
             BridgeProtocol.ServerToBridge.ConfigureConnection,

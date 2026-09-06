@@ -24,6 +24,9 @@ public sealed record DataSourceTarget(
     string Password,
     bool TrustServerCertificate)
 {
+    public ConnectionRoute Route { get; init; } = new();
+    public string CompanyId { get; init; } = string.Empty;
+
     /// <summary>Explicit authorization scope; an empty collection permits metadata only.</summary>
     public IReadOnlyList<string> AllowedTables { get; init; } = [];
 

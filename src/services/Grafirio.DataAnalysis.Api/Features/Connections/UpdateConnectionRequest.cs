@@ -7,5 +7,7 @@ public record UpdateConnectionRequest(
     string? Database,
     string? Username,
     string? Password,
-    bool? TrustServerCertificate
+    bool? TrustServerCertificate,
+    string? ConnectionMode = null,
+    Guid? BridgeId = null
 );

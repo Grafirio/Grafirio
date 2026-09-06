@@ -11,6 +11,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\bridge\Grafirio.Bridge.Desktop\Grafirio.Bridge.Desktop.csproj" />
-    <Compile Include="..\Grafirio.Bridge.LocalWorkspace.Tests\*.cs" Link="LocalWorkspace\%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\src\bridge\Grafirio.Bridge.Desktop\MainWindow.xaml" LogicalName="Shell.MainWindow.xaml" />
   </ItemGroup>
 </Project>

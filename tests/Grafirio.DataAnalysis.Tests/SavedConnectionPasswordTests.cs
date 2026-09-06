@@ -2,7 +2,12 @@ using System.Reflection;
 using System.Text.Json;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Connections;
+using Grafirio.DataAnalysis.Api.Features.Bridge;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -10,6 +15,8 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
+using MongoDB.Driver;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Grafirio.DataAnalysis.Tests;
 
@@ -162,9 +169,35 @@ public sealed class SavedConnectionPasswordTests
         UserId.ToString(), CompanyId.ToString(), "connection", "database.test", 1433,
         "test", "reader", password, true);
 
-    private static Task<IResult> InvokeAsync(string method, params object[] arguments) =>
-        (Task<IResult>)typeof(SavedConnectionEndpoints)
-            .GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments)!;
+    private static Task<IResult> InvokeAsync(string method, params object[] arguments)
+    {
+        var bridges = new Mock<BridgeStore>(Mock.Of<IMongoDatabase>(), NullLogger<BridgeStore>.Instance);
+        var db = arguments.OfType<DataAnalysisDbContext>().Single();
+        var routes = db.SavedConnections.ToDictionary(connection => connection.Id, connection => new ConnectionRoute
+        {
+            Fingerprint = ConnectionRouteFingerprint.Create(connection), Revision = Guid.NewGuid().ToString("N")
+        });
+        bridges.Setup(store => store.GetConnectionRouteAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, string _, CancellationToken _) => routes.GetValueOrDefault(id, new ConnectionRoute()));
+        bridges.Setup(store => store.ReserveConnectionRouteAsync(It.IsAny<Guid>(), It.IsAny<string>(),
+                It.IsAny<ConnectionRoute>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, ConnectionRoute, string, CancellationToken>((id, _, route, revision, _) =>
+                routes[id] = route with { Pending = true, Revision = revision }).Returns(Task.CompletedTask);
+        bridges.Setup(store => store.CompleteConnectionRouteAsync(It.IsAny<Guid>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<ConnectionRoute>(), It.IsAny<CancellationToken>()))
+            .Callback<Guid, string, string, ConnectionRoute, CancellationToken>((id, _, _, route, _) => routes[id] = route)
+            .Returns(Task.CompletedTask);
+        if (method is "SaveConnection" or "UpdateConnection")
+        {
+            var sync = new Mock<BridgeConnectionSync>(Mock.Of<IHubContext<BridgeHub>>(), bridges.Object,
+                null!, Mock.Of<IServiceScopeFactory>(), NullLogger<BridgeConnectionSync>.Instance);
+            sync.Setup(value => value.ForgetAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<BridgeRegistry>(),
+                It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+            arguments[method == "UpdateConnection" ? 4 : 3] = sync.Object;
+        }
+        return (Task<IResult>)typeof(SavedConnectionEndpoints)
+            .GetMethod(method, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [.. arguments, bridges.Object])!;
+    }
 
     private static void AssertNoPassword(IResult result, CapturingLogger logger)
     {

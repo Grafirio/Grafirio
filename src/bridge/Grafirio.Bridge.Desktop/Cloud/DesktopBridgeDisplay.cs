@@ -4,16 +4,19 @@ internal sealed class DesktopBridgeDisplay(ILogger<DesktopBridgeDisplay> logger)
 {
     private readonly TaskCompletionSource<bool> _connectionAttempt =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _connected;
 
     public event Action<BridgeStatus, string?>? Changed;
 
     public Task<bool> ConnectionAttempt => _connectionAttempt.Task;
+    public bool IsConnected => Volatile.Read(ref _connected) != 0;
 
     public void ShowDeviceCode(DeviceCodePrompt prompt) =>
         throw new DesktopBridgeException("Bulut bağlantısı için masaüstü oturumuyla yeniden giriş yapın.");
 
     public void ShowStatus(BridgeStatus status, string? detail = null)
     {
+        Volatile.Write(ref _connected, status == BridgeStatus.Connected ? 1 : 0);
         // Core details may contain server bodies; never forward them to the desktop UI.
         Publish(status, status switch
         {

@@ -1,7 +1,6 @@
 using System.Windows;
 using Grafirio.Bridge.Desktop.Authentication;
 using Grafirio.Bridge.Desktop.Cloud;
-using Grafirio.Bridge.Desktop.LocalWorkspace;
 using Grafirio.Bridge.Desktop.Shell;
 
 namespace Grafirio.Bridge.Desktop;
@@ -10,25 +9,23 @@ public partial class MainWindow : Window
 {
     private readonly IDesktopSessionManager _sessions;
     private readonly IDesktopBridgeController _bridge;
-    private readonly LocalWorkspaceView _local;
     private readonly CloudPanel _cloud;
     private readonly ILogger<MainWindow> _logger;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _login;
     private Task? _maintenance;
+    private string? _problem;
     private bool _closing;
 
     public MainWindow(IDesktopSessionManager sessions, IDesktopBridgeController bridge,
-        LocalWorkspaceView local, CloudPanel cloud, ILogger<MainWindow> logger)
+        CloudPanel cloud, ILogger<MainWindow> logger)
     {
         InitializeComponent();
         _sessions = sessions;
         _bridge = bridge;
-        _local = local;
         _cloud = cloud;
         _logger = logger;
         Icon = BrandIcon.Mark();
-        LocalContent.Content = local;
         CloudContent.Content = cloud;
         _sessions.SessionChanged += OnSessionChanged;
         _bridge.Changed += OnBridgeChanged;
@@ -37,7 +34,12 @@ public partial class MainWindow : Window
         _cloud.Problem += SetStatus;
     }
 
-    public void Start() => _maintenance = MaintainSessionAsync();
+    public void Start()
+    {
+        UpdateSessionDisplay();
+        _ = ShowCloudAsync();
+        _maintenance = MaintainSessionAsync();
+    }
 
     private async Task MaintainSessionAsync()
     {
@@ -54,7 +56,7 @@ public partial class MainWindow : Window
             catch (Exception exception)
             {
                 _logger.LogWarning("Session maintenance failed with {ErrorType}", exception.GetType().Name);
-                SetStatus("Bulut oturumu doğrulanamadı. Yerel çalışma devam ediyor; bağlantı yeniden denenecek.");
+                SetStatus("Oturum doğrulanamadı. İnternet bağlantınızı kontrol edin; yeniden denenecek.");
             }
         } while (await timer.WaitForNextTickAsync(_lifetime.Token));
     }
@@ -66,7 +68,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             _logger.LogWarning("Cloud bridge connection failed with {ErrorType}", exception.GetType().Name);
-            SetStatus("Bulut veri bağlantısı kurulamadı. Şirket üyeliğinizi ve interneti kontrol edin; yerel çalışma etkilenmez.");
+            SetStatus("Veri bağlantısı kurulamadı. Şirket üyeliğinizi ve internet bağlantınızı kontrol edip yeniden deneyin.");
         }
     }
 
@@ -74,8 +76,9 @@ public partial class MainWindow : Window
     {
         if (_closing) return;
         UpdateSessionDisplay();
+        if (_sessions.Current is { } session) _ = ConnectAsync(session);
+        else _ = StopBridgeAsync();
         _cloud.PublishSession();
-        if (_sessions.Current is null) _ = StopBridgeAsync();
     });
 
     private async Task StopBridgeAsync()
@@ -89,13 +92,19 @@ public partial class MainWindow : Window
     {
         var signedIn = _sessions.Current is not null;
         SignInButton.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
-        SignOutButton.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
-        SessionText.Text = signedIn ? "Bulut oturumu açık" : "Yerel kullanım • Giriş Yap";
+        NoticeBar.Visibility = !signedIn || _problem is not null || _login is not null
+            ? Visibility.Visible : Visibility.Collapsed;
+        RetryButton.Visibility = _problem is not null && _login is null ? Visibility.Visible : Visibility.Collapsed;
+        StatusText.Text = _problem ?? (signedIn ? string.Empty : "Grafirio'yu kullanmak için giriş yapın.");
     }
 
     private void OnBridgeChanged(BridgeStatus status, string? detail) => Dispatcher.BeginInvoke(() =>
     {
-        if (!_closing) SetStatus($"Bulut veri bağlantısı: {StatusLabel.Of(status)}. Yerel çalışma bağımsızdır.");
+        if (_closing) return;
+        if (status == BridgeStatus.Connected) SetStatus(null);
+        else if (status is BridgeStatus.Disconnected or BridgeStatus.EnrollmentFailed
+            or BridgeStatus.AwaitingApproval or BridgeStatus.AwaitingEnrollment)
+            SetStatus(detail ?? "Veri bağlantısı kurulamadı. Yeniden deneyin.");
     });
 
     private void OnSignInRequested() => _ = SignInAsync();
@@ -108,7 +117,7 @@ public partial class MainWindow : Window
         _login = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         SignInButton.IsEnabled = false;
         CancelLoginButton.Visibility = Visibility.Visible;
-        SetStatus("Varsayılan tarayıcıda giriş bekleniyor. Yerel çalışmaya devam edebilirsiniz.");
+        SetStatus("Varsayılan tarayıcıda giriş bekleniyor.");
         try
         {
             var session = await _sessions.SignInAsync(_login.Token);
@@ -118,12 +127,14 @@ public partial class MainWindow : Window
                 return;
             }
             BringToFront();
+            SetStatus(null);
+            var connection = ConnectAsync(session);
             await ShowCloudAsync();
-            await ConnectAsync(session);
+            await connection;
         }
         catch (OperationCanceledException)
         {
-            if (!_closing) SetStatus("Giriş iptal edildi veya zaman aşımına uğradı. Yerel çalışma devam ediyor.");
+            if (!_closing) SetStatus("Giriş iptal edildi veya zaman aşımına uğradı. Yeniden deneyebilirsiniz.");
         }
         catch (Exception exception)
         {
@@ -144,7 +155,6 @@ public partial class MainWindow : Window
     }
 
     private void CancelLoginButton_Click(object sender, RoutedEventArgs e) => _login?.Cancel();
-    private async void SignOutButton_Click(object sender, RoutedEventArgs e) => await SignOutAsync();
 
     private async Task SignOutAsync()
     {
@@ -153,8 +163,7 @@ public partial class MainWindow : Window
         {
             await _sessions.SignOutAsync(_lifetime.Token);
             await _bridge.StopAsync(_lifetime.Token);
-            ShowLocal();
-            SetStatus("Masaüstü oturumu kapatıldı. Yerel veriler korunuyor. Tarayıcıdaki web oturumunuz ayrı yönetilir.");
+            SetStatus(null);
         }
         catch (Exception exception)
         {
@@ -163,50 +172,42 @@ public partial class MainWindow : Window
         }
     }
 
-    private void LocalButton_Click(object sender, RoutedEventArgs e) => ShowLocal();
-    private void ShowLocal()
-    {
-        CloudContent.Visibility = Visibility.Collapsed;
-        LocalContent.Visibility = Visibility.Visible;
-    }
-
-    private async void CloudButton_Click(object sender, RoutedEventArgs e) => await ShowCloudAsync();
     private async Task ShowCloudAsync()
     {
         try
         {
-            await _local.DeactivateAsync();
             await _cloud.OpenAsync();
-            if (_closing) return;
-            LocalContent.Visibility = Visibility.Collapsed;
-            CloudContent.Visibility = Visibility.Visible;
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Cloud panel initialization failed");
-            SetStatus("Geçiş tamamlanamadı. Yerel kaydı ve bulut bağlantısını kontrol edin; çalışma alanınız açık tutuldu.");
+            SetStatus("Grafirio açılamadı. İnternet bağlantısını ve WebView2 kurulumunu kontrol edip yeniden deneyin.");
         }
     }
 
     private async void RetryButton_Click(object sender, RoutedEventArgs e)
     {
+        SetStatus(null);
+        await ShowCloudAsync();
         _cloud.Reload();
         try
         {
             var session = await _sessions.GetAsync(_lifetime.Token);
             if (session is not null) await ConnectAsync(session);
-            else SetStatus("Bulut özellikleri için Giriş Yap düğmesini kullanın.");
+            else SetStatus("Grafirio'yu kullanmak için Giriş Yap düğmesini kullanın.");
         }
         catch (Exception exception)
         {
             _logger.LogWarning("Desktop retry failed with {ErrorType}", exception.GetType().Name);
-            SetStatus("Buluta ulaşılamadı. Yerel çalışma devam ediyor.");
+            SetStatus("Grafirio'ya ulaşılamadı. İnternet bağlantınızı kontrol edip yeniden deneyin.");
         }
     }
 
-    private void SetStatus(string message)
+    private void SetStatus(string? message)
     {
-        if (!_closing) StatusText.Text = message;
+        if (_closing) return;
+        _problem = message;
+        UpdateSessionDisplay();
     }
 
     public void BringToFront()
@@ -216,30 +217,15 @@ public partial class MainWindow : Window
         Activate();
     }
 
-    public async Task<bool> PrepareToExitAsync()
-    {
-        try
-        {
-            await _local.DeactivateAsync();
-            return true;
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Pending local work could not be saved before exit");
-            ShowLocal();
-            BringToFront();
-            SetStatus("Son değişiklikler kaydedilemedi. Çıkış iptal edildi; kaydı kontrol edip yeniden deneyin.");
-            return false;
-        }
-    }
-
     public async Task StopAsync()
     {
         _closing = true;
         _sessions.SessionChanged -= OnSessionChanged;
         _bridge.Changed -= OnBridgeChanged;
         _lifetime.Cancel();
-        _local.Dispose();
+        _cloud.SignInRequested -= OnSignInRequested;
+        _cloud.SignOutRequested -= OnSignOutRequested;
+        _cloud.Problem -= SetStatus;
         _cloud.Dispose();
         if (_maintenance is not null)
         {

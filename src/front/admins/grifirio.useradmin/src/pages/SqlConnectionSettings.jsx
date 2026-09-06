@@ -8,6 +8,8 @@ import {
   getBridges,
   revokeBridge, getBridgeInstallerInfo, bridgeInstallerUrl,
 } from '../services/dataAnalysisService';
+import isDesktopApp from '../auth/desktop/isDesktopApp.js';
+import testDesktopConnectionForm from '../services/connections/testDesktopConnectionForm.js';
 import TableList from '../components/DataAnalysis/TableList';
 import LearnedFactsPanel from '../components/Analysis/LearnedFactsPanel';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -19,6 +21,7 @@ import '../styles/SqlConnectionSettings.css';
 // durumda burasi kendi ".st-head" basligini tekrar cizmez.
 const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const navigate = useNavigate();
+  const isDesktop = isDesktopApp();
   // Analiz durumu uygulama seviyesinde: sayfa degisince kaybolmasin.
   const { openFor: openAnalysis } = useAnalysis();
   const [connections, setConnections] = useState([]);
@@ -44,13 +47,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   // Notification Modal
   const [notification, setNotification] = useState({ show: false, type: '', title: '', message: '', details: '' });
 
-  /* ── Bridge ────────────────────────────────────────────────────────
-     Kurumsal veritabanlarının çoğu firewall arkasında ve buluttan
-     erişilemiyor. Bridge yönü çeviriyor: bağlantıyı müşterinin kendi
-     sunucusu dışarı doğru kurar. Panelin buradaki işi yalnızca kurulumu
-     başlatmak ve durumu göstermek: hangi bağlantının hangi makineden
-     okunacağı SORULMUYOR — çevrimiçi bir bridge varsa hepsi oradan
-     okunuyor.                                                           */
+  // Desktop uses native context for this PC, not the company bridge list.
   const [bridges, setBridges] = useState([]);
   const [bridgeError, setBridgeError] = useState('');
   const [installer, setInstaller] = useState(null);
@@ -108,19 +105,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   };
 
   useEffect(() => {
-    loadBridges();
-  }, []);
-
-  /**
-   * Şirketin çevrimiçi masaüstü uygulaması; yoksa null.
-   *
-   * Yol artık bağlantı başına SEÇİLMİYOR, türetiliyor: çevrimiçi bir bridge
-   * varsa şirketin bütün bağlantıları oradan okunuyor. Kullanıcıya "bu
-   * bağlantı hangi makineden okunsun" diye sormanın karşılığı yoktu —
-   * masaüstü uygulamasını kuran biri zaten veritabanına buluttan
-   * ulaşılamadığı için kuruyor.
-   */
-  const onlineBridge = () => bridges.find((b) => b.online) ?? null;
+    if (!isDesktop) loadBridges();
+  }, [isDesktop]);
 
   /**
    * Bir yükleme hatasını, kullanıcının ne yapacağını bilebileceği bir cümleye
@@ -170,6 +156,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         database: conn.database,
         username: conn.username,
         trustServerCertificate: conn.trustServerCertificate,
+        connectionMode: conn.connectionMode,
+        bridgeId: conn.bridgeId,
         createdAt: conn.createdAt,
         updatedAt: conn.updatedAt,
         lastConnectedAt: conn.lastConnectedAt,
@@ -208,20 +196,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const describeError = (error) =>
     error?.response?.data?.error ?? error?.message ?? 'Bilinmeyen hata';
 
-  /**
-   * Formu sunucuya yazar ve bağlantı kimliğini döndürür. Artık TEK kayıt yolu.
-   *
-   * Önceden iki tane vardı ve ikisi de eksikti: "Kaydet" düğmesi kaydı
-   * yalnızca localStorage'a yazıyordu — sunucuda böyle bir bağlantı hiç
-   * oluşmuyor, kimliği de bir zaman damgası oluyordu; sunucuya yazan tek yol
-   * ise "Test Et"in içine gömülüydü, yani test geçmeden bağlantı
-   * kaydedilemiyordu. Bridge'e bağlanacak bir veritabanında test her zaman
-   * başarısız olduğu için o bağlantılar hiç kaydedilemiyordu.
-   *
-   * Sıra artık şu ve tek yönlü: kaydet → bridge'e bağla → test et. Testin
-   * bridge'i kullanabilmesi buna bağlı: yol seçimi bağlantının eşleşmesinden,
-   * eşleşme de kimliğinden okunuyor.
-   */
+  // Desktop tests preview the draft without invoking this save path.
   const persistConnection = async () => {
     const name = formData.name?.trim() || `${formData.host}-${formData.database}`;
     let connectionId = savedConnectionId;
@@ -253,8 +228,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     setTestStatus({ type: '', message: '' });
 
     try {
-      const connectionId = await persistConnection();
-      const result = await testConnection(connectionId);
+      const result = isDesktop
+        ? await testDesktopConnectionForm(formData, savedConnectionId)
+        : await testConnection(await persistConnection());
 
       setTestStatus(result.success
         ? { type: 'success', message: `✅ ${result.message}` }
@@ -576,7 +552,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
 
           Bölüm bilerek bağlantı listesinin ÜSTÜNDE: bir bağlantı bridge
           üzerinden okunacaksa bridge'in önce kurulmuş olması gerekiyor. */}
-      <div className="bridge-section">
+      {!isDesktop && <div className="bridge-section">
         <div className="bridge-section__head">
           <div>
             <h3>Bridge’ler</h3>
@@ -696,7 +672,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {isFormOpen && (
         <div className="connection-form-card">
@@ -801,7 +777,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                 />
                 <small id="connection-password-hint" className="gf-hint">
                   {savedConnectionId
-                    ? 'Kayıtlı parola gösterilmez. Değiştirmek için yeni parolayı girin; boş bırakırsanız kaydetme ve test mevcut parolayı kullanır.'
+                    ? isDesktop
+                      ? 'Kayıtlı parola gösterilmez. Değişiklikleri kaydetmeden test etmek için parolayı girin. Kaydet, bağlantıyı bu bilgisayarda kullanacak şekilde günceller.'
+                      : 'Kayıtlı parola gösterilmez. Değiştirmek için yeni parolayı girin; boş bırakırsanız kaydetme ve test mevcut parolayı kullanır.'
                     : 'Bağlantıyı kaydetmek için parolayı girin.'}
                 </small>
               </div>
@@ -819,19 +797,14 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
               </label>
             </div>
 
-            {/* Sorguların hangi yoldan gideceği SORULMUYOR: şirketin çevrimiçi
-                bir masaüstü uygulaması varsa hepsi oradan okunuyor. Kullanıcı
-                seçim yapmıyor, yalnızca durumu görüyor. */}
-            <div className="form-group">
+            {/* Bridge availability does not select or change the saved route. */}
+            {!isDesktop && <div className="form-group">
               <small className="form-hint">
-                {onlineBridge()
-                  ? `Sorgular masaüstü uygulamanız (${onlineBridge().name || onlineBridge().machineName}) ` +
-                    "üzerinden çalışacak; veritabanı şifreniz sizin makinenizde kalır."
-                  : "Sorgular Grafirio sunucudan doğrudan çalışacak. Veritabanınız firewall " +
-                    "arkasındaysa masaüstü uygulamasını kurun; kurulduğunda bu bağlantı da " +
-                    "otomatik olarak oradan okunur."}
+                Sorgular bağlantının kayıtlı erişim yolunu kullanır; başka bir masaüstü uygulamasına
+                veya doğrudan bağlantıya otomatik geçiş yapılmaz. Bu bilgisayardan erişmek için
+                masaüstü uygulamasında bağlantıyı açıp kaydedin.
               </small>
-            </div>
+            </div>}
           </div>
 
           <div className="card-footer">
@@ -943,22 +916,22 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     </div>
                   )}
 
-                  {/* Sorgunun hangi yoldan gittiği. Bağlantı başına bir seçim
-                      değil, şirket geneli bir durum: çevrimiçi masaüstü
-                      uygulaması varsa hepsi oradan okunuyor. */}
-                  {(() => {
-                    const bridge = onlineBridge();
+                  {/* Only the bridge bound to this connection describes its availability. */}
+                  {!isDesktop && (() => {
+                    const bridge = bridges.find((item) => item.id === connection.bridgeId);
 
-                    return bridge ? (
+                    return connection.connectionMode === 'bridge' ? (
                       <div className="detail-item">
                         <i className="ti ti-transfer"></i>
-                        <span>{bridge.name || bridge.machineName || "Masaüstü uygulaması"}</span>
-                        <span className="badge badge-success">Çevrimiçi</span>
+                        <span>{bridge?.name || bridge?.machineName || "Kayıtlı masaüstü uygulaması"}</span>
+                        <span className={`badge ${bridge?.online ? 'badge-success' : 'badge-warning'}`}>
+                          {bridge?.online ? 'Çevrimiçi' : 'Çevrimdışı veya erişilemiyor'}
+                        </span>
                       </div>
                     ) : (
                       <div className="detail-item">
                         <i className="ti ti-cloud"></i>
-                        <span>Doğrudan bağlantı</span>
+                        <span>{connection.connectionMode === 'direct' ? 'Doğrudan bağlantı' : 'Bağlantı yolu doğrulanamadı'}</span>
                       </div>
                     );
                   })()}
