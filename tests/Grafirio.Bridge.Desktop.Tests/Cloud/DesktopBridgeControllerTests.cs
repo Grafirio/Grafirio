@@ -1,4 +1,5 @@
 using Grafirio.Bridge.Desktop.Cloud;
+using Grafirio.Bridge.Desktop.Authentication;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -13,6 +14,7 @@ public sealed class DesktopBridgeControllerTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddSingleton<IDesktopSessionManager>(new ContextSessionManager());
         services.AddDesktopBridge();
         services.AddDesktopBridge();
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
@@ -68,5 +70,5 @@ public sealed class DesktopBridgeControllerTests
     }
 
     private static DesktopBridgeController CreateController() =>
-        new(Options.Create(new BridgeOptions()), NullLoggerFactory.Instance);
+        new(new ContextSessionManager(), Options.Create(new BridgeOptions()), NullLoggerFactory.Instance);
 }

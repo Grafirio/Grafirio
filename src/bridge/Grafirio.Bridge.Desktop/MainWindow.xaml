@@ -5,33 +5,18 @@
         Background="{StaticResource Canvas}" WindowStartupLocation="CenterScreen" FontFamily="Segoe UI">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="18,12">
+        <ContentControl x:Name="CloudContent" />
+        <Border x:Name="NoticeBar" Grid.Row="1" Visibility="Collapsed" Background="{StaticResource Surface}" Padding="18,10" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <TextBlock x:Name="SessionText" VerticalAlignment="Center" Margin="12,0" Foreground="{StaticResource Muted}" Text="Yerel kullanım • Giriş gerekli değil" />
-                    <Button x:Name="SignInButton" Content="Giriş Yap" Click="SignInButton_Click" Style="{StaticResource PrimaryButton}" />
+                    <Button x:Name="SignInButton" Content="Giriş Yap" Visibility="Collapsed" Click="SignInButton_Click" Style="{StaticResource PrimaryButton}" />
                     <Button x:Name="CancelLoginButton" Content="İptal" Visibility="Collapsed" Click="CancelLoginButton_Click" Margin="8,0,0,0" Style="{StaticResource QuietButton}" />
-                    <Button x:Name="SignOutButton" Content="Oturumu kapat" Visibility="Collapsed" Click="SignOutButton_Click" Margin="8,0,0,0" Style="{StaticResource QuietButton}" />
+                    <Button x:Name="RetryButton" Content="Yeniden dene" Visibility="Collapsed" Style="{StaticResource QuietButton}" Click="RetryButton_Click" Margin="12,0,0,0" />
                 </StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <Image Source="{StaticResource BrandMark}" Width="32" Height="32" Margin="0,0,18,0" />
-                    <Button Content="Yerel çalışma" Click="LocalButton_Click" Style="{StaticResource QuietButton}" Margin="0,0,8,0" />
-                    <Button Content="Bulut paneli" Click="CloudButton_Click" Style="{StaticResource QuietButton}" />
-                </StackPanel>
-            </DockPanel>
-        </Border>
-        <Grid Grid.Row="1">
-            <ContentControl x:Name="LocalContent" />
-            <ContentControl x:Name="CloudContent" Visibility="Collapsed" />
-        </Grid>
-        <Border Grid.Row="2" Background="{StaticResource Surface}" Padding="18,10" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
-            <DockPanel>
-                <Button Content="Yeniden dene" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Click="RetryButton_Click" Margin="12,0,0,0" />
-                <TextBlock x:Name="StatusText" Text="Yerel çalışma hazır. Bulut özellikleri için web üzerinden giriş yapabilirsiniz."
+                <TextBlock x:Name="StatusText"
                            TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
             </DockPanel>
         </Border>

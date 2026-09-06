@@ -22,8 +22,12 @@ public sealed class BridgeDataSourceSession(
     string companyId,
     IHubContext<BridgeHub> hub,
     BridgeRegistry registry,
-    ILogger<BridgeDataSourceSession> logger) : IDataSourceSession
+    ILogger<BridgeDataSourceSession> logger,
+    ConfigureConnectionRequest? configuration = null,
+    bool temporary = false) : IDataSourceSession
 {
+    private string? _configuredClient;
+
     /// <summary>Tek sorguda alinabilecek en fazla satir.</summary>
     private const int DefaultMaxRows = 100_000;
 
@@ -78,20 +82,45 @@ public sealed class BridgeDataSourceSession(
 
         try
         {
-            await hub.Clients.Client(connectionIdOfBridge).SendAsync(
-                BridgeProtocol.ServerToBridge.ExecuteQuery,
-                new ExecuteQueryRequest(
-                    requestId,
-                    connectionId,
-                    sql,
-                    QueryParameterCodec.Encode(parameters),
-                    maxRows ?? DefaultMaxRows,
-                    timeoutSeconds ?? DataSourceTarget.DefaultConnectTimeoutSeconds),
-                ct);
+            // Send configuration on the same channel before execution, including after reconnects.
+            if (configuration is not null)
+            {
+                _configuredClient = connectionIdOfBridge;
+                try
+                {
+                    await hub.Clients.Client(connectionIdOfBridge).SendAsync(
+                        BridgeProtocol.ServerToBridge.ConfigureConnection, configuration, ct);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    throw new DataSourceException("Bağlantı bilgileri Bridge'e gönderilemedi. Tekrar deneyin.", exception);
+                }
+            }
+
+            try
+            {
+                await hub.Clients.Client(connectionIdOfBridge).SendAsync(
+                    BridgeProtocol.ServerToBridge.ExecuteQuery,
+                    new ExecuteQueryRequest(
+                        requestId,
+                        connectionId,
+                        sql,
+                        QueryParameterCodec.Encode(parameters),
+                        maxRows ?? DefaultMaxRows,
+                        timeoutSeconds ?? DataSourceTarget.DefaultConnectTimeoutSeconds),
+                    ct);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                throw new DataSourceException("Sorgu Bridge'e gönderilemedi. Bağlantıyı kontrol edin.", exception);
+            }
 
             var emitted = 0;
 
-            await foreach (var chunk in ReadChunksAsync(pending, requestId, ct))
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(
+                timeoutSeconds ?? DataSourceTarget.DefaultConnectTimeoutSeconds));
+            await foreach (var chunk in ReadChunksAsync(pending, ct, deadline.Token))
             {
                 foreach (var row in chunk.Rows)
                 {
@@ -117,7 +146,7 @@ public sealed class BridgeDataSourceSession(
     /// cagiran taraflar dogrudan baglantiyla ayni sekilde ele alabilsin diye.
     /// </summary>
     private static async IAsyncEnumerable<QueryChunk> ReadChunksAsync(
-        PendingQuery pending, string requestId, [EnumeratorCancellation] CancellationToken ct)
+        PendingQuery pending, CancellationToken callerToken, [EnumeratorCancellation] CancellationToken ct)
     {
         while (true)
         {
@@ -134,6 +163,10 @@ public sealed class BridgeDataSourceSession(
             catch (BridgeUnavailableException ex)
             {
                 throw new DataSourceException(ex.Message, ex);
+            }
+            catch (OperationCanceledException ex) when (!callerToken.IsCancellationRequested)
+            {
+                throw new DataSourceException("Bridge yanıtı zaman aşımına uğradı. Bağlantıyı kontrol edip tekrar deneyin.", ex);
             }
 
             yield return chunk;
@@ -170,5 +203,18 @@ public sealed class BridgeDataSourceSession(
     }
 
     // Oturum durum tutmuyor: her sorgu kendi istek kimligiyle gidiyor.
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public async ValueTask DisposeAsync()
+    {
+        if (!temporary || _configuredClient is null) return;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(DataSourceTarget.ProbeConnectTimeoutSeconds));
+            await hub.Clients.Client(_configuredClient).SendAsync(
+                BridgeProtocol.ServerToBridge.RemoveConnection, new RemoveConnectionRequest(connectionId), deadline.Token);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Temporary bridge connection cleanup failed for {ConnectionId}", connectionId);
+        }
+    }
 }

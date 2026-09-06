@@ -1,5 +1,7 @@
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
+using Grafirio.DataAnalysis.Api.Data.Access;
+using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -58,7 +60,8 @@ public static class SavedConnectionEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] BridgeConnectionSync bridgeSync,
         [FromServices] BridgeRegistry bridgeRegistry,
-        [FromServices] ILogger<SaveConnectionRequest> logger)
+        [FromServices] ILogger<SaveConnectionRequest> logger,
+        [FromServices] BridgeStore bridges)
     {
         try
         {
@@ -95,19 +98,16 @@ public static class SavedConnectionEndpoints
             {
                 // Aynı isimde connection varsa güncelle
                 logger.LogInformation("Connection already exists, updating it. Id: {Id}", existingConnection.Id);
-                
-                existingConnection.Host = request.Host;
-                existingConnection.Port = request.Port;
-                existingConnection.Database = request.Database;
-                existingConnection.Username = request.Username;
-                if (!string.IsNullOrWhiteSpace(request.Password))
+                await ConnectionRouteSave.SaveAsync(existingConnection, request.ConnectionMode, request.BridgeId, () =>
                 {
-                    existingConnection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
-                }
-                existingConnection.TrustServerCertificate = request.TrustServerCertificate;
-                existingConnection.UpdatedAt = DateTime.UtcNow;
-                
-                await db.SaveChangesAsync();
+                    existingConnection.Host = request.Host;
+                    existingConnection.Port = request.Port;
+                    existingConnection.Database = request.Database;
+                    existingConnection.Username = request.Username;
+                    if (!string.IsNullOrWhiteSpace(request.Password))
+                        existingConnection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
+                    existingConnection.TrustServerCertificate = request.TrustServerCertificate;
+                }, false, db, bridges, bridgeSync, bridgeRegistry, logger);
 
                 await PushToBridgeAsync(
                     bridgeSync, bridgeRegistry, logger, existingConnection.Id, existingConnection.CompanyId);
@@ -143,8 +143,8 @@ public static class SavedConnectionEndpoints
                 IsActive = true
             };
 
-            db.SavedConnections.Add(connection);
-            await db.SaveChangesAsync();
+            await ConnectionRouteSave.SaveAsync(connection, request.ConnectionMode, request.BridgeId, () => { },
+                true, db, bridges, bridgeSync, bridgeRegistry, logger);
 
             await PushToBridgeAsync(
                 bridgeSync, bridgeRegistry, logger, connection.Id, connection.CompanyId);
@@ -158,10 +158,14 @@ public static class SavedConnectionEndpoints
                 connectionId = connection.Id
             });
         }
+        catch (DataSourceException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error saving connection");
-            return Results.Problem("Bağlantı kaydedilemedi: " + ex.Message);
+            return Results.Problem("Bağlantı kaydedilemedi. Bağlantıyı yeniden yükleyip tekrar deneyin.");
         }
     }
 
@@ -200,7 +204,8 @@ public static class SavedConnectionEndpoints
     private static async Task<IResult> GetConnections(
         [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] ILogger<SaveConnectionRequest> logger)
+        [FromServices] ILogger<SaveConnectionRequest> logger,
+        [FromServices] BridgeStore bridges)
     {
         try
         {
@@ -218,27 +223,34 @@ public static class SavedConnectionEndpoints
             var connections = await db.SavedConnections
                 .Where(c => c.CompanyId == companyId.Value.ToString() && c.IsActive)
                 .OrderByDescending(c => c.CreatedAt)
-                .Select(c => new
-                {
-                    id = c.Id,
-                    name = c.Name,
-                    host = c.Host,
-                    port = c.Port,
-                    database = c.Database,
-                    username = c.Username,
-                    trustServerCertificate = c.TrustServerCertificate,
-                    createdAt = c.CreatedAt,
-                    updatedAt = c.UpdatedAt,
-                    lastConnectedAt = c.LastConnectedAt
-                })
+                .AsNoTracking()
                 .ToListAsync();
 
-            return Results.Ok(new { success = true, connections });
+            var routedConnections = new List<object>();
+            foreach (var connection in connections)
+            {
+                var route = await bridges.GetConnectionRouteAsync(connection.Id, companyId.Value.ToString());
+                var routeError = await GetRouteErrorAsync(connection, route, bridges);
+                routedConnections.Add(new
+                {
+                    id = connection.Id, name = connection.Name, host = connection.Host, port = connection.Port,
+                    database = connection.Database, username = connection.Username,
+                    trustServerCertificate = connection.TrustServerCertificate, createdAt = connection.CreatedAt,
+                    updatedAt = connection.UpdatedAt, lastConnectedAt = connection.LastConnectedAt,
+                    connectionMode = route.ConnectionMode, bridgeId = route.BridgeId,
+                    routeAvailable = routeError is null, routeError
+                });
+            }
+            return Results.Ok(new { success = true, connections = routedConnections });
+        }
+        catch (DataSourceException ex)
+        {
+            return Results.Conflict(new { error = ex.Message });
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting connections");
-            return Results.Problem("Bağlantılar getirilemedi: " + ex.Message);
+            return Results.Problem("Bağlantılar getirilemedi.");
         }
     }
 
@@ -246,7 +258,8 @@ public static class SavedConnectionEndpoints
         Guid id,
         [FromServices] IIdentityService identity,
         [FromServices] DataAnalysisDbContext db,
-        [FromServices] ILogger<SaveConnectionRequest> logger)
+        [FromServices] ILogger<SaveConnectionRequest> logger,
+        [FromServices] BridgeStore bridges)
     {
         try
         {
@@ -262,20 +275,7 @@ public static class SavedConnectionEndpoints
 
             var connection = await db.SavedConnections
                 .Where(c => c.Id == id && c.CompanyId == scopedCompanyId && c.IsActive)
-                .Select(c => new
-                {
-                    id = c.Id,
-                    userId = c.UserId,
-                    companyId = c.CompanyId,
-                    name = c.Name,
-                    host = c.Host,
-                    port = c.Port,
-                    database = c.Database,
-                    username = c.Username,
-                    trustServerCertificate = c.TrustServerCertificate,
-                    createdAt = c.CreatedAt,
-                    lastConnectedAt = c.LastConnectedAt
-                })
+                .AsNoTracking()
                 .FirstOrDefaultAsync();
 
             if (connection == null)
@@ -283,12 +283,42 @@ public static class SavedConnectionEndpoints
                 return Results.NotFound(new { error = "Bağlantı bulunamadı" });
             }
 
-            return Results.Ok(connection);
+            var route = await bridges.GetConnectionRouteAsync(connection.Id, scopedCompanyId);
+            var routeError = await GetRouteErrorAsync(connection, route, bridges);
+            return Results.Ok(new
+            {
+                id = connection.Id, userId = connection.UserId, companyId = connection.CompanyId,
+                name = connection.Name, host = connection.Host, port = connection.Port,
+                database = connection.Database, username = connection.Username,
+                trustServerCertificate = connection.TrustServerCertificate,
+                createdAt = connection.CreatedAt, lastConnectedAt = connection.LastConnectedAt,
+                connectionMode = route.ConnectionMode, bridgeId = route.BridgeId,
+                routeAvailable = routeError is null, routeError
+            });
+        }
+        catch (DataSourceException ex)
+        {
+            return Results.Conflict(new { error = ex.Message });
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting connection: {ConnectionId}", id);
-            return Results.Problem("Bağlantı getirilemedi: " + ex.Message);
+            return Results.Problem("Bağlantı getirilemedi.");
+        }
+    }
+
+    private static async Task<string?> GetRouteErrorAsync(
+        SavedConnection connection, ConnectionRoute route, BridgeStore bridges)
+    {
+        try
+        {
+            route.ValidateBinding(connection);
+            await bridges.ValidateRouteAsync(route, connection.CompanyId);
+            return null;
+        }
+        catch (DataSourceException exception)
+        {
+            return exception.Message;
         }
     }
     
@@ -299,7 +329,8 @@ public static class SavedConnectionEndpoints
         [FromServices] DataAnalysisDbContext db,
         [FromServices] BridgeConnectionSync bridgeSync,
         [FromServices] BridgeRegistry bridgeRegistry,
-        [FromServices] ILogger<SaveConnectionRequest> logger)
+        [FromServices] ILogger<SaveConnectionRequest> logger,
+        [FromServices] BridgeStore bridges)
     {
         try
         {
@@ -321,22 +352,17 @@ public static class SavedConnectionEndpoints
                 return Results.NotFound(new { error = "Bağlantı bulunamadı" });
             }
 
-            // Update fields
-            connection.Name = request.Name ?? connection.Name;
-            connection.Host = request.Host ?? connection.Host;
-            connection.Port = request.Port ?? connection.Port;
-            connection.Database = request.Database ?? connection.Database;
-            connection.Username = request.Username ?? connection.Username;
-            
-            if (!string.IsNullOrWhiteSpace(request.Password))
+            await ConnectionRouteSave.SaveAsync(connection, request.ConnectionMode, request.BridgeId, () =>
             {
-                connection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
-            }
-            
-            connection.TrustServerCertificate = request.TrustServerCertificate ?? connection.TrustServerCertificate;
-            connection.UpdatedAt = DateTime.UtcNow;
-
-            await db.SaveChangesAsync();
+                connection.Name = request.Name ?? connection.Name;
+                connection.Host = request.Host ?? connection.Host;
+                connection.Port = request.Port ?? connection.Port;
+                connection.Database = request.Database ?? connection.Database;
+                connection.Username = request.Username ?? connection.Username;
+                if (!string.IsNullOrWhiteSpace(request.Password))
+                    connection.EncryptedPassword = EncryptionHelper.Encrypt(request.Password);
+                connection.TrustServerCertificate = request.TrustServerCertificate ?? connection.TrustServerCertificate;
+            }, false, db, bridges, bridgeSync, bridgeRegistry, logger);
 
             // Degisen tanim bridge'e de gitmeli: sifre ya da host degistiginde
             // bridge eski bilgiyle sorgu calistirmaya devam ederdi.
@@ -347,10 +373,14 @@ public static class SavedConnectionEndpoints
 
             return Results.Ok(new { success = true, message = "Bağlantı güncellendi" });
         }
+        catch (DataSourceException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error updating connection: {ConnectionId}", id);
-            return Results.Problem("Bağlantı güncellenemedi: " + ex.Message);
+            return Results.Problem("Bağlantı güncellenemedi. Bağlantıyı yeniden yükleyip tekrar deneyin.");
         }
     }
 

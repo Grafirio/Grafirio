@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using Grafirio.Bridge.Desktop.Authentication;
+using Grafirio.Bridge.Desktop.Cloud;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -15,6 +16,7 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
     };
     private readonly WebView2 _webView = new() { AllowExternalDrop = false };
     private readonly IDesktopSessionManager _sessions;
+    private readonly IDesktopBridgeController _bridge;
     private readonly ILogger<CloudPanel> _logger;
     private readonly PanelOrigin _origin;
     private readonly CancellationTokenSource _lifetime = new();
@@ -27,10 +29,11 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
     public event Action? SignOutRequested;
     public event Action<string>? Problem;
 
-    public CloudPanel(IDesktopSessionManager sessions, IOptions<BridgeOptions> options,
+    public CloudPanel(IDesktopSessionManager sessions, IDesktopBridgeController bridge, IOptions<BridgeOptions> options,
         ILogger<CloudPanel> logger)
     {
         _sessions = sessions;
+        _bridge = bridge;
         _logger = logger;
         _origin = new PanelOrigin(options.Value.PanelUrl);
         Content = _webView;
@@ -67,7 +70,7 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
             core.NavigationCompleted += (_, args) =>
             {
                 if (!args.IsSuccess)
-                    Problem?.Invoke("Bulut paneline ulaşılamadı. Yerel çalışma alanı kullanılabilir; yeniden deneyebilirsiniz.");
+                    Problem?.Invoke("Grafirio'ya ulaşılamadı. İnternet bağlantınızı kontrol edip yeniden deneyin.");
             };
             core.WebMessageReceived += OnWebMessageReceived;
             // Only a non-secret marker is installed; tokens use the validated message channel.
@@ -124,6 +127,12 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
                 case "signIn": SignInRequested?.Invoke(); return;
                 case "signOut": SignOutRequested?.Invoke(); return;
                 case "sessionExpired": return;
+                case "connectionContext":
+                    if (!_ready || !root.TryGetProperty("requestId", out var contextIdentifier) ||
+                        contextIdentifier.ValueKind != JsonValueKind.String ||
+                        !Guid.TryParse(contextIdentifier.GetString(), out _)) return;
+                    await ReplyConnectionContextAsync(contextIdentifier.GetString()!, navigation);
+                    return;
                 case "ready":
                 case "refresh":
                     if (!root.TryGetProperty("requestId", out var identifier) ||
@@ -148,6 +157,28 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
             if (!_disposed && navigation == _navigation && requestId is not null)
                 Send(new { type = "tokens", requestId, error = "offline" });
         }
+    }
+
+    private async Task ReplyConnectionContextAsync(string requestId, long navigation)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        deadline.CancelAfter(ConnectionContextRequest.Timeout);
+        ConnectionContextResponse response;
+        try
+        {
+            response = await ConnectionContextRequest.ResolveAsync(requestId, _sessions, _bridge, deadline.Token)
+                .WaitAsync(deadline.Token);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning("Desktop connection context failed with {ErrorType}", exception.GetType().Name);
+            response = new(requestId, Error: _sessions.Current is null ? "signedOut" : "unavailable");
+        }
+        if (_disposed || navigation != _navigation) return;
+        if (response.BridgeId is not null && (!ReferenceEquals(response.Session, _sessions.Current)
+            || response.Session?.ExpiresAt <= DateTimeOffset.UtcNow))
+            response = new(requestId, Error: "signedOut");
+        Send(response);
     }
 
     public void PublishSession()

@@ -2,7 +2,6 @@ using System.IO;
 using System.Windows;
 using Grafirio.Bridge.Desktop.Authentication;
 using Grafirio.Bridge.Desktop.Cloud;
-using Grafirio.Bridge.Desktop.LocalWorkspace;
 using Grafirio.Bridge.Desktop.Shell;
 using Serilog;
 
@@ -42,7 +41,6 @@ public partial class App : Application
                     rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7));
             builder.Services.AddDesktopAuthentication();
             builder.Services.AddDesktopBridge();
-            builder.Services.AddLocalWorkspace();
             builder.Services.AddSingleton<CloudPanel>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
@@ -66,11 +64,6 @@ public partial class App : Application
     {
         if (_exiting) return;
         _exiting = true;
-        if (_window is not null && !await _window.PrepareToExitAsync())
-        {
-            _exiting = false;
-            return;
-        }
         try
         {
             if (_window is not null) await _window.StopAsync();

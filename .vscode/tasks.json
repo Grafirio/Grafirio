@@ -47,17 +47,9 @@
 			"group": "test"
 		},
 		{
-			"label": "Validate Local Workspace UI",
-			"type": "shell",
-			"command": "node --experimental-vm-modules --test --test-timeout=10000 tests/Grafirio.Bridge.LocalWorkspace.Tests/Web/workspace.test.mjs",
-			"isBackground": false,
-			"problemMatcher": [],
-			"group": "test"
-		},
-		{
 			"label": "Build Desktop Installer",
 			"type": "shell",
-			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; & ./src/bridge/installer/Build-Installer.ps1 -Version 1.1.0 -IsccPath ./artifacts/installer-tools/inno/tools/ISCC.exe -WebView2InstallerPath ./artifacts/installer-tools/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; & ./src/bridge/installer/Build-Installer.ps1 -Version 1.2.0 -IsccPath ./artifacts/installer-tools/inno/tools/ISCC.exe -WebView2InstallerPath ./artifacts/installer-tools/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
 			"isBackground": false,
 			"problemMatcher": [
 				"$msCompile"
@@ -77,7 +69,55 @@
 		{
 			"label": "Validate Desktop Web Integration",
 			"type": "shell",
-			"command": "Push-Location src/front/admins/grifirio.useradmin; try { node --experimental-test-module-mocks --test tests/*.test.js src/auth/desktop/desktopAuth.test.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & ./node_modules/.bin/eslint.cmd src/auth/desktop src/main.jsx src/pages/LoginPage.jsx; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm.cmd run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { Pop-Location }; node --experimental-vm-modules --test --test-timeout=10000 tests/Grafirio.Bridge.LocalWorkspace.Tests/Web/workspace.test.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; & ./src/bridge/installer/tests/Test-Installer.ps1; git status --short; git diff --check; git diff --stat",
+			"command": "Push-Location src/front/admins/grifirio.useradmin; try { node --experimental-test-module-mocks --test tests/*.test.js src/auth/desktop/desktopAuth.test.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & ./node_modules/.bin/eslint.cmd src/auth/desktop src/services/connections src/services/dataAnalysisService.js src/main.jsx src/pages/LoginPage.jsx src/pages/SqlConnectionSettings.jsx; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm.cmd run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { Pop-Location }; Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; & ./src/bridge/installer/tests/Test-Installer.ps1; git status --short; git diff --check; git diff --stat",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Validate Transparent Desktop Routing",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.DataAnalysis.Tests/Grafirio.DataAnalysis.Tests.csproj -c Release --nologo --filter 'FullyQualifiedName~Bridge|FullyQualifiedName~ConnectionRoute|FullyQualifiedName~ConnectionPreview|FullyQualifiedName~DataAnalysisDependencyInjection'",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Validate Backend Route Review Recovery 20260906",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.DataAnalysis.Tests/Grafirio.DataAnalysis.Tests.csproj -c Release --nologo --filter 'FullyQualifiedName~ConnectionRoute|FullyQualifiedName~SavedConnectionBridge|FullyQualifiedName~BridgeConnectionRouting'",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Validate DataAnalysis Preview Baseline Release 20260906 B8E8A03A TRX",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.DataAnalysis.Tests/Grafirio.DataAnalysis.Tests.csproj -c Release --nologo --logger trx --results-directory artifacts/test-results/preview-b8e8a03a/baseline; exit $LASTEXITCODE",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Validate DataAnalysis Preview Final Release 20260906 B8E8A03A",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.DataAnalysis.Tests/Grafirio.DataAnalysis.Tests.csproj -c Release --nologo --logger trx --results-directory artifacts/test-results/preview-b8e8a03a/final; exit $LASTEXITCODE",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Validate Final Desktop Delivery",
+			"type": "shell",
+			"command": "Push-Location src/front/admins/grifirio.useradmin; try { node --experimental-test-module-mocks --test tests/*.test.js src/auth/desktop/desktopAuth.test.js; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & ./node_modules/.bin/eslint.cmd src/auth/desktop src/services/connections src/services/dataAnalysisService.js src/main.jsx src/pages/LoginPage.jsx src/pages/SqlConnectionSettings.jsx; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm.cmd run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { Pop-Location }; Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; & ./src/bridge/installer/tests/Test-Installer.ps1; git diff --check; git status --short",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
