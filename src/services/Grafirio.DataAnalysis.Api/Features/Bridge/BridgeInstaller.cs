@@ -24,7 +24,7 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 public class BridgeInstaller(IConfiguration configuration, ILogger<BridgeInstaller> logger)
 {
     /// <summary>Kullaniciya inen dosyanin adi.</summary>
-    public const string FileName = "GrafirioBridge.Desktop.exe";
+    public const string FileName = "GrafirioSetup.exe";
 
     private string? Url => Trimmed("BridgeInstaller:Url");
 

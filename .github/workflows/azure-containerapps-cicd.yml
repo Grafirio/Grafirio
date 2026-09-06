@@ -105,6 +105,7 @@ jobs:
             # ihtiyaci var, container servisleriyle ayni matriste calismiyor.
             bridge-desktop:
               - 'src/bridge/**'
+              - '.github/workflows/azure-containerapps-cicd.yml'
 
       - name: Build deployment matrix
         id: generate-matrix
@@ -291,7 +292,7 @@ jobs:
     env:
       STORAGE_ACCOUNT: grifirioinstallers
       CONTAINER_NAME: installers
-      EXE_NAME: GrafirioBridge.Desktop.exe
+      EXE_NAME: GrafirioSetup.exe
 
     steps:
       - name: Checkout
@@ -303,13 +304,52 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: preview
 
-      - name: Publish
-        shell: bash
+      - name: Build offline installer
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.BRIDGE_SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.BRIDGE_SIGNING_CERTIFICATE_PASSWORD }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
-          set -euo pipefail
-          dotnet publish src/bridge/Grafirio.Bridge.Desktop/Grafirio.Bridge.Desktop.csproj \
-            -c Release -r win-x64 --self-contained true \
-            -o artifacts/bridge-desktop
+          $ErrorActionPreference = 'Stop'
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'grafirio-signing.pfx'
+          $importedCertificates = @()
+          try {
+            # Keep the compiler job-local; no machine-wide tools are installed.
+            $compilerDirectory = Join-Path $env:RUNNER_TEMP 'grafirio-inno'
+            $compilerPackage = Join-Path $env:RUNNER_TEMP 'grafirio-inno.zip'
+            Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/tools.innosetup/6.7.3/tools.innosetup.6.7.3.nupkg' -OutFile $compilerPackage
+            Expand-Archive -LiteralPath $compilerPackage -DestinationPath $compilerDirectory -Force
+            ./src/bridge/installer/tests/Test-Installer.ps1
+            $parameters = @{
+              Version = "1.0.$env:BUILD_NUMBER"
+              OutputDirectory = (Join-Path $env:GITHUB_WORKSPACE 'artifacts/bridge-installer')
+              IsccPath = (Join-Path $compilerDirectory 'tools/ISCC.exe')
+            }
+            # Signing is opt-in: only a supplied production certificate is used.
+            if (-not [string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_BASE64)) {
+              [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE_BASE64))
+              $password = ConvertTo-SecureString $env:SIGNING_CERTIFICATE_PASSWORD -AsPlainText -Force
+              $importedCertificates = @(Import-PfxCertificate -FilePath $certificatePath -Password $password -CertStoreLocation Cert:\CurrentUser\My)
+              $signingCertificate = $importedCertificates | Where-Object HasPrivateKey | Select-Object -First 1
+              if (-not $signingCertificate) { throw 'The supplied PFX has no private key.' }
+              $parameters.SigningCertificateThumbprint = $signingCertificate.Thumbprint
+            }
+            ./src/bridge/installer/Build-Installer.ps1 @parameters
+          }
+          finally {
+            if (Test-Path $certificatePath) { Remove-Item $certificatePath -Force }
+            foreach ($certificate in $importedCertificates) {
+              Remove-Item "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force
+            }
+          }
+
+      - name: Retain setup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrafirioSetup-${{ github.sha }}
+          path: artifacts/bridge-installer/GrafirioSetup.exe
+          if-no-files-found: error
 
       - name: Azure Login
         uses: azure/login@v2
@@ -407,7 +447,10 @@ jobs:
             --account-key "$ACCOUNT_KEY" \
             --container-name "$CONTAINER_NAME" \
             --name "$EXE_NAME" \
-            --file "artifacts/bridge-desktop/$EXE_NAME" \
+            --file "artifacts/bridge-installer/$EXE_NAME" \
+            --content-type application/octet-stream \
+            --content-disposition "attachment; filename=$EXE_NAME" \
+            --content-cache-control no-cache \
             --overwrite
 
           # Surumlu kopya: sabit adres bir sonraki push'ta ustune yazilinca
@@ -417,10 +460,21 @@ jobs:
             --account-key "$ACCOUNT_KEY" \
             --container-name "$CONTAINER_NAME" \
             --name "$VERSION/$EXE_NAME" \
-            --file "artifacts/bridge-desktop/$EXE_NAME" \
+            --file "artifacts/bridge-installer/$EXE_NAME" \
+            --content-type application/octet-stream \
+            --content-disposition "attachment; filename=$EXE_NAME" \
             --overwrite
 
           echo "İndirme adresi: https://$STORAGE_ACCOUNT.blob.core.windows.net/$CONTAINER_NAME/$EXE_NAME"
+
+      - name: Point download endpoint to the published setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          az containerapp update \
+            --name data-analysis-api \
+            --resource-group "$RESOURCE_GROUP" \
+            --set-env-vars "BridgeInstaller__Url=https://$STORAGE_ACCOUNT.blob.core.windows.net/$CONTAINER_NAME/$EXE_NAME"
 
   no-op:
     runs-on: ubuntu-latest

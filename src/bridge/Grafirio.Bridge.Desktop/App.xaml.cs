@@ -1,86 +1,100 @@
+using System.IO;
 using System.Windows;
+using Grafirio.Bridge.Desktop.Authentication;
+using Grafirio.Bridge.Desktop.Cloud;
+using Grafirio.Bridge.Desktop.LocalWorkspace;
+using Grafirio.Bridge.Desktop.Shell;
+using Serilog;
 
 namespace Grafirio.Bridge.Desktop;
 
-/// <summary>
-/// Masaustu kabugu.
-///
-/// Cekirdek burada da konsol surumundekiyle ayni servislerle kosuyor
-/// (<see cref="BridgeCore.AddBridgeCore"/>). Iki fark var: giris tarayicida
-/// authorization code + PKCE ile yapiliyor (device flow servis surumunde
-/// kaldi) ve isci kendiliginden baslamiyor — kullanici "Giriş Yap" dedikten
-/// sonra basliyor.
-///
-/// Neden ayri bir ikili: agent sunucu odasina servis olarak da kuruluyor ama
-/// asil ihtiyac cogu zaman bir insanin kendi makinesinde — VPN istemeden,
-/// cift tiklayip calistirdigi bir sey.
-/// </summary>
 public partial class App : Application
 {
     private IHost? _host;
     private TrayIcon? _tray;
     private MainWindow? _window;
+    private SingleInstance? _instance;
+    private bool _exiting;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
-        var builder = Host.CreateApplicationBuilder();
-
-        // Yapilandirma exe'nin yaninda. Calisma dizini kisayoldan baslatinca
-        // baska bir yer olabiliyor; gorece okumak dosyayi bulamamak demekti.
-        builder.Configuration.Sources.Clear();
-        builder.Configuration.AddJsonFile(
-            System.IO.Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
-            optional: true,
-            reloadOnChange: false);
-        builder.Configuration.AddEnvironmentVariables();
-
-        builder.Services.Configure<BridgeOptions>(builder.Configuration.GetSection("Bridge"));
-
-        // Kurulum kodu diye bir sey yok: giris tarayicida yapiliyor. Cekirdek
-        // yine de bir IBridgeDisplay istiyor cunku servis surumu device
-        // flow'u kullanmayi surduruyor.
-        builder.Services.AddSingleton<IBridgeDisplay, SilentBridgeDisplay>();
-        builder.Services.AddSingleton<BrowserLogin>();
-
-        builder.Services.AddBridgeCore(runInBackground: false);
-
-        // Gunluk ekranda da gorunsun: bu uygulamanin konsolu yok ve bir sey
-        // ters gittiginde kullanicinin bakabilecegi baska bir yer kalmiyor.
-        builder.Logging.AddProvider(new WindowLogProvider(LogBuffer.Instance));
-
-        _host = builder.Build();
-
-        _window = new MainWindow(_host.Services);
-        _tray = new TrayIcon(_window, Shutdown);
-
-        _window.Show();
+        _instance = new SingleInstance();
+        if (!_instance.IsFirstInstance)
+        {
+            _instance.Dispose();
+            _instance = null;
+            Shutdown();
+            return;
+        }
+        try
+        {
+            var builder = Host.CreateApplicationBuilder();
+            builder.Configuration.Sources.Clear();
+            builder.Configuration.AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"),
+                optional: true, reloadOnChange: false);
+            builder.Configuration.AddEnvironmentVariables();
+            builder.Services.Configure<BridgeOptions>(builder.Configuration.GetSection("Bridge"));
+            builder.Services.AddSerilog(configuration => configuration
+                .MinimumLevel.Information()
+                .Enrich.FromLogContext()
+                .WriteTo.File(Path.Combine(DesktopPaths.DataDirectory, "Logs", "desktop-.log"),
+                    rollingInterval: RollingInterval.Day, retainedFileCountLimit: 7));
+            builder.Services.AddDesktopAuthentication();
+            builder.Services.AddDesktopBridge();
+            builder.Services.AddLocalWorkspace();
+            builder.Services.AddSingleton<CloudPanel>();
+            builder.Services.AddSingleton<MainWindow>();
+            _host = builder.Build();
+            await _host.StartAsync();
+            _window = _host.Services.GetRequiredService<MainWindow>();
+            _tray = new TrayIcon(_window, () => _ = ExitAsync());
+            _instance.Listen(() => Dispatcher.BeginInvoke(() => _window.BringToFront()));
+            _window.Show();
+            _window.Start();
+        }
+        catch (Exception exception)
+        {
+            Log.Error(exception, "Desktop startup failed");
+            MessageBox.Show("Grafirio başlatılamadı. Kurulumu onarın ve kullanıcı klasörü izinlerini kontrol edin.",
+                "Grafirio", MessageBoxButton.OK, MessageBoxImage.Error);
+            await ExitAsync();
+        }
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    private async Task ExitAsync()
+    {
+        if (_exiting) return;
+        _exiting = true;
+        if (_window is not null && !await _window.PrepareToExitAsync())
+        {
+            _exiting = false;
+            return;
+        }
+        try
+        {
+            if (_window is not null) await _window.StopAsync();
+            if (_host is not null)
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(10));
+                if (_host is IAsyncDisposable disposable) await disposable.DisposeAsync();
+                else _host.Dispose();
+            }
+        }
+        catch (Exception exception) { Log.Warning(exception, "Desktop shutdown failed"); }
+        finally
+        {
+            _tray?.Dispose();
+            _instance?.Dispose();
+            _instance = null;
+            Shutdown();
+        }
+    }
+
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
         _tray?.Dispose();
-
-        if (_host is not null)
-        {
-            // Kapanirken bulut baglantisinin duzgunce kapanmasi gerekiyor;
-            // aksi halde panel bridge'i bir sure daha "çevrimiçi" gosterir.
-            await _host.StopAsync(TimeSpan.FromSeconds(5));
-            _host.Dispose();
-        }
-
-        base.OnExit(e);
+        _tray = null;
+        base.OnSessionEnding(e);
     }
-}
-
-/// <summary>
-/// Masaustunde kurulum ekrani yok; durum bilgisi de gunluge yaziliyor. Bu
-/// yuzden gosterilecek bir sey yok — ama cekirdegin arayuzu karsilanmali.
-/// </summary>
-public class SilentBridgeDisplay : IBridgeDisplay
-{
-    public void ShowDeviceCode(DeviceCodePrompt prompt) { }
-
-    public void ShowStatus(BridgeStatus status, string? detail = null) { }
 }

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grafirio · Yerel çalışma alanı</title>
+  <link rel="stylesheet" href="workspace.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">G</span><div><strong>grafirio</strong><small>YEREL ÇALIŞMA ALANI</small></div></div>
+    <span class="offline"><span></span> Bulut bağlantısı gerekmez</span>
+  </header>
+  <main>
+    <aside class="sidebar">
+      <div class="section-heading"><h2>Bağlantılarım</h2><button id="new-connection" class="icon-button" title="Bağlantı ekle" aria-label="Bağlantı ekle">＋</button></div>
+      <p class="muted">Yalnızca bu Windows kullanıcısına ait. Şirket bağlantıları buraya aktarılmaz.</p>
+      <div id="connections" class="connection-list"></div>
+      <div class="sidebar-actions"><button id="edit-connection">Düzenle</button><button id="delete-connection" class="danger">Sil</button></div>
+      <div class="section-heading schema-heading"><h2>Şema gezgini</h2><button id="discover" class="icon-button" title="Şemayı yenile" aria-label="Şemayı yenile">↻</button></div>
+      <p class="muted">Tablolar ve sütunlar. Bir tabloya tıklamak okuma izni vermez.</p>
+      <div id="schema" class="schema"><p class="empty">Bağlantı seçip şemayı yenileyin.</p></div>
+      <div class="privacy-note">🔒 Bağlantılar ve SQL taslağı Windows CurrentUser DPAPI ile şifrelenir.</div>
+    </aside>
+    <section class="workspace">
+      <div class="workspace-heading"><div><span class="eyebrow">VERİNİZ, SİZİN CİHAZINIZDA</span><h1>Sorgu çalışma alanı</h1></div><button id="test">Bağlantıyı test et</button></div>
+      <div class="connection-context"><span id="connection-label">Henüz bağlantı seçilmedi</span><span class="badge">SALT OKUNUR</span></div>
+      <p id="provider-note" class="provider-note">SQL Server: yalnızca izin verilen fiziksel tablolar; özel salt-okunur kullanıcı gerekir.</p>
+      <section class="editor-panel" aria-label="SQL düzenleyicisi">
+        <div class="editor-heading"><span>SQL taslağı</span><span id="draft-status" class="muted">Yerel kayıt</span></div>
+        <textarea id="sql" maxlength="20000" spellcheck="false" aria-label="SQL sorgusu" placeholder="SELECT TOP 100 * FROM dbo.YourTable"></textarea>
+        <div class="query-toolbar">
+          <label>Satır <input id="max-rows" type="number" min="1" max="5000" value="500"></label>
+          <label>Süre (sn) <input id="timeout" type="number" min="1" max="120" value="30"></label>
+          <span class="toolbar-spacer"></span><button id="cancel" disabled>İptal</button><button id="run" class="primary">▶ Çalıştır</button>
+        </div>
+      </section>
+      <div class="result-heading"><h2>Sonuçlar <span id="result-count" class="muted"></span></h2><button id="export" disabled>CSV dışa aktar ↗</button></div>
+      <div id="result" class="result"><div class="empty-state"><span>⌘</span><h3>Bir sorguyla başlayın</h3><p>Sonuçlar burada görünür. Veriler buluta gönderilmez.</p></div></div>
+      <footer><span id="status" role="status" aria-live="polite">Hazırlanıyor…</span><span>Ctrl + Enter · Çalıştır</span></footer>
+    </section>
+  </main>
+  <dialog id="connection-dialog">
+    <form id="connection-form" autocomplete="off">
+      <div class="dialog-heading"><div><span class="eyebrow">YEREL BAĞLANTI</span><h2 id="dialog-title">Bağlantı ekle</h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Kapat">×</button></div>
+      <input id="connection-id" type="hidden">
+      <label>Bağlantı adı<input id="connection-name" required maxlength="100" placeholder="Örn. Yerel satış verileri"></label>
+      <div class="form-grid"><label>Sağlayıcı<select id="provider"><option value="sqlserver">SQL Server</option><option value="postgres">PostgreSQL · keşif</option><option value="mysql">MySQL · keşif</option></select></label><label>Port<input id="port" type="number" required min="1" max="65535" value="1433"></label></div>
+      <div class="form-grid"><label>Sunucu<input id="host" required maxlength="253" placeholder="localhost"></label><label>Veritabanı<input id="database" required maxlength="128"></label></div>
+      <div class="form-grid"><label>Kullanıcı adı<input id="username" required maxlength="128" autocomplete="off"></label><label>Parola<input id="password" type="password" maxlength="1024" autocomplete="new-password"></label></div>
+      <p class="muted">Düzenlerken boş parola mevcut parolayı korur. Kayıtlı parola arayüze gönderilmez.</p>
+      <label class="checkbox"><input id="trust-certificate" type="checkbox"> SQL Server sertifikasına güven (TLS doğrulamasını gevşetir)</label>
+      <label>İzin verilen tablolar<textarea id="allowed-tables" maxlength="50000" rows="3" placeholder="dbo.Sales&#10;dbo.Products"></textarea></label>
+      <p class="muted">Her satıra tam şema.tablo adı yazın. Boş liste hiçbir veri tablosuna izin vermez. PostgreSQL/MySQL serbest SQL henüz desteklenmez; TLS sertifikası doğrulanır.</p>
+      <p id="form-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-dialog">Vazgeç</button><button type="submit" id="save-connection" class="primary">Yerel olarak kaydet</button></div>
+    </form>
+  </dialog>
+  <dialog id="delete-dialog"><h2>Bağlantı silinsin mi?</h2><p>Yerel kayıt ve kayıtlı parola kaldırılır. Veritabanı değişmez.</p><div class="dialog-actions"><button id="cancel-delete">Vazgeç</button><button id="confirm-delete" class="danger">Bağlantıyı sil</button></div></dialog>
+</body>
+</html>

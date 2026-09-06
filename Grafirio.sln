@@ -58,6 +58,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.QueryPolicy.Tests"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.Gateway.Tests", "tests\Grafirio.Gateway.Tests\Grafirio.Gateway.Tests.csproj", "{711C6458-3431-44F7-BF7B-70D9CB3A4C19}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.Bridge.Desktop.Tests", "tests\Grafirio.Bridge.Desktop.Tests\Grafirio.Bridge.Desktop.Tests.csproj", "{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -254,6 +256,18 @@ Global
 		{711C6458-3431-44F7-BF7B-70D9CB3A4C19}.Release|x64.Build.0 = Release|Any CPU
 		{711C6458-3431-44F7-BF7B-70D9CB3A4C19}.Release|x86.ActiveCfg = Release|Any CPU
 		{711C6458-3431-44F7-BF7B-70D9CB3A4C19}.Release|x86.Build.0 = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|x64.Build.0 = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Debug|x86.Build.0 = Debug|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|x64.ActiveCfg = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|x64.Build.0 = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|x86.ActiveCfg = Release|Any CPU
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -282,6 +296,7 @@ Global
 		{62F37A12-2458-4E48-8F4B-50172D9C17F8} = {6960B5C0-1AD6-A279-F53D-1BD357EBD80B}
 		{78E0130E-883F-4047-B967-35B997CE7E7C} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{711C6458-3431-44F7-BF7B-70D9CB3A4C19} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{3470F2C1-3E3A-44E1-9DD1-0B9B6B3EDCE9} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {D4A3B2D0-F757-4001-A25A-D22548EF4BBE}
