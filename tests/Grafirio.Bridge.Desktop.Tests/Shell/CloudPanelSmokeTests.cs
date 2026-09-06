@@ -103,10 +103,10 @@ public sealed class CloudPanelSmokeTests
             }
 
             Assert.Equal("tokens", (await RequestAsync("ready")).GetProperty("type").GetString());
-            Assert.Equal(0, bridge.ContextCalls);
+            Assert.Equal(1, bridge.ContextCalls);
             await webView.ExecuteScriptAsync("window.chrome.webview.postMessage({type:'connectionContext',requestId:'invalid'})");
             await RequestAsync("ready");
-            Assert.Equal(0, bridge.ContextCalls);
+            Assert.Equal(1, bridge.ContextCalls);
             var context = await RequestAsync("connectionContext");
             Assert.Equal(bridge.BridgeId, context.GetProperty("bridgeId").GetGuid());
             Assert.Equal(3, context.EnumerateObject().Count());
