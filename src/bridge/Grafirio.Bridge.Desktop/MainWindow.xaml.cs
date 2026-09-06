@@ -1,314 +1,252 @@
-using System.IO;
-using System.Text.Json;
 using System.Windows;
-using Microsoft.Web.WebView2.Core;
+using Grafirio.Bridge.Desktop.Authentication;
+using Grafirio.Bridge.Desktop.Cloud;
+using Grafirio.Bridge.Desktop.LocalWorkspace;
+using Grafirio.Bridge.Desktop.Shell;
 
 namespace Grafirio.Bridge.Desktop;
 
-/// <summary>
-/// Uygulamanin tek penceresi ve iki hâli: giris ve panel.
-///
-/// Giris ekraninda logo ve tek bir dugme var. Once burada durum karti,
-/// baglanti listesi ve gunluk vardi; hepsi kalkti. Kullanicinin ogrenmesi
-/// gereken ikinci bir arayuz yaratmak, panelde kazandigi aliskanliklari bu
-/// pencerede ise yaramaz hâle getiriyordu.
-///
-/// Giristen sonra panelin KENDISI aciliyor — yeniden yazilmis bir benzeri
-/// degil. Benzeri yazilsaydi "web'dekiyle ayni" olmasi ilk degisiklige kadar
-/// surerdi.
-/// </summary>
 public partial class MainWindow : Window
 {
-    private readonly IServiceProvider _services;
-    private readonly BridgeOptions _options;
+    private readonly IDesktopSessionManager _sessions;
+    private readonly IDesktopBridgeController _bridge;
+    private readonly LocalWorkspaceView _local;
+    private readonly CloudPanel _cloud;
+    private readonly ILogger<MainWindow> _logger;
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _login;
+    private Task? _maintenance;
+    private bool _closing;
 
-    /// <summary>Bu makineyi sirkete baglama denemesinin sayisi.</summary>
-    private const int ConnectAttempts = 3;
-
-    /// <summary>
-    /// Giris yapan kisinin oturumu. "Tekrar dene" bunu kullaniyor: kaydin
-    /// basarisiz olmasi kullanicinin yeniden giris yapmasini gerektirmiyor.
-    /// </summary>
-    private UserSession? _session;
-
-    public MainWindow(IServiceProvider services)
+    public MainWindow(IDesktopSessionManager sessions, IDesktopBridgeController bridge,
+        LocalWorkspaceView local, CloudPanel cloud, ILogger<MainWindow> logger)
     {
         InitializeComponent();
-
-        _services = services;
-        _options = services.GetRequiredService<IOptions<BridgeOptions>>().Value;
-
+        _sessions = sessions;
+        _bridge = bridge;
+        _local = local;
+        _cloud = cloud;
+        _logger = logger;
         Icon = BrandIcon.Mark();
-
-        LogText.Text = string.Join(Environment.NewLine, LogBuffer.Instance.Snapshot());
-        LogBuffer.Instance.LineAdded += line => Dispatcher.Invoke(() => AppendLog(line));
+        LocalContent.Content = local;
+        CloudContent.Content = cloud;
+        _sessions.SessionChanged += OnSessionChanged;
+        _bridge.Changed += OnBridgeChanged;
+        _cloud.SignInRequested += OnSignInRequested;
+        _cloud.SignOutRequested += OnSignOutRequested;
+        _cloud.Problem += SetStatus;
     }
 
-    private void AppendLog(string line)
-    {
-        LogText.Text = LogText.Text.Length == 0
-            ? line
-            : LogText.Text + Environment.NewLine + line;
+    public void Start() => _maintenance = MaintainSessionAsync();
 
-        LogScroller.ScrollToEnd();
+    private async Task MaintainSessionAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+        do
+        {
+            try
+            {
+                var session = await _sessions.GetAsync(_lifetime.Token);
+                UpdateSessionDisplay();
+                if (session is not null) await ConnectAsync(session);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+            catch (Exception exception)
+            {
+                _logger.LogWarning("Session maintenance failed with {ErrorType}", exception.GetType().Name);
+                SetStatus("Bulut oturumu doğrulanamadı. Yerel çalışma devam ediyor; bağlantı yeniden denenecek.");
+            }
+        } while (await timer.WaitForNextTickAsync(_lifetime.Token));
     }
 
-    /// <summary>
-    /// Giris ve hemen ardindan panel.
-    ///
-    /// Bu makinenin sirkete kaydi ARTIK panelin onunde durmuyor. Duruyordu:
-    /// kayit basarisiz olunca panel hic acilmiyordu ve giris yapmis kullanici
-    /// bos bir pencereyle kaliyordu. Oysa panelin kayitla isi yok — kayit,
-    /// bu makinedeki veritabanina sorgu gelebilmesi icin gerekli. Ikisini tek
-    /// dugume baglamak, calisan bir seyi calismayan bir seyin rehinesi
-    /// yapmakti.
-    /// </summary>
-    private async void SignInButton_Click(object sender, RoutedEventArgs e)
+    private async Task ConnectAsync(UserSession session)
     {
+        try { await _bridge.ConnectAsync(session, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            _logger.LogWarning("Cloud bridge connection failed with {ErrorType}", exception.GetType().Name);
+            SetStatus("Bulut veri bağlantısı kurulamadı. Şirket üyeliğinizi ve interneti kontrol edin; yerel çalışma etkilenmez.");
+        }
+    }
+
+    private void OnSessionChanged() => Dispatcher.BeginInvoke(() =>
+    {
+        if (_closing) return;
+        UpdateSessionDisplay();
+        _cloud.PublishSession();
+        if (_sessions.Current is null) _ = StopBridgeAsync();
+    });
+
+    private async Task StopBridgeAsync()
+    {
+        try { await _bridge.StopAsync(_lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) { _logger.LogWarning(exception, "Cloud bridge stop failed"); }
+    }
+
+    private void UpdateSessionDisplay()
+    {
+        var signedIn = _sessions.Current is not null;
+        SignInButton.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
+        SignOutButton.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
+        SessionText.Text = signedIn ? "Bulut oturumu açık" : "Yerel kullanım • Giriş Yap";
+    }
+
+    private void OnBridgeChanged(BridgeStatus status, string? detail) => Dispatcher.BeginInvoke(() =>
+    {
+        if (!_closing) SetStatus($"Bulut veri bağlantısı: {StatusLabel.Of(status)}. Yerel çalışma bağımsızdır.");
+    });
+
+    private void OnSignInRequested() => _ = SignInAsync();
+    private void OnSignOutRequested() => _ = SignOutAsync();
+    private async void SignInButton_Click(object sender, RoutedEventArgs e) => await SignInAsync();
+
+    private async Task SignInAsync()
+    {
+        if (_login is not null || _closing) return;
+        _login = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         SignInButton.IsEnabled = false;
-        ClearProblem();
-        Hint("Tarayıcıda giriş bekleniyor…");
-
+        CancelLoginButton.Visibility = Visibility.Visible;
+        SetStatus("Varsayılan tarayıcıda giriş bekleniyor. Yerel çalışmaya devam edebilirsiniz.");
         try
         {
-            var session = await _services.GetRequiredService<BrowserLogin>()
-                .TryLoginAsync(CancellationToken.None);
-
+            var session = await _sessions.SignInAsync(_login.Token);
             if (session is null)
             {
-                Hint("Giriş tamamlanamadı. Tekrar deneyebilirsiniz.");
-                ShowProblem("Giriş tamamlanamadı.", canRetry: false);
+                SetStatus("Giriş tamamlanmadı. Giriş Yap düğmesiyle yeniden deneyebilirsiniz.");
                 return;
             }
-
-            _session = session;
-
-            // Giris bitti; pencere one geliyor. Kullanici tarayicidayken
-            // uygulamanin arkada kalmasi, "simdi ne olacak" sorusunu
-            // doguruyordu.
-            Activate();
-
-            await ShowPanelAsync(session);
-
-            // Kayit ve veritabani kanali arka planda. Kullanici bu sirada
-            // paneli kullanabiliyor.
-            _ = ConnectMachineAsync(session);
+            BringToFront();
+            await ShowCloudAsync();
+            await ConnectAsync(session);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            _services.GetRequiredService<ILogger<MainWindow>>()
-                .LogError(ex, "Giriş sırasında beklenmeyen hata.");
-
-            Hint("Giriş yapılamadı.");
-            ShowProblem($"Giriş yapılamadı: {ex.Message}", canRetry: false);
+            if (!_closing) SetStatus("Giriş iptal edildi veya zaman aşımına uğradı. Yerel çalışma devam ediyor.");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning("Desktop sign-in failed with {ErrorType}", exception.GetType().Name);
+            if (!_closing) SetStatus("Giriş tamamlanamadı. İnternet bağlantınızı kontrol edip yeniden deneyin.");
         }
         finally
         {
-            SignInButton.IsEnabled = true;
+            _login.Dispose();
+            _login = null;
+            if (!_closing)
+            {
+                SignInButton.IsEnabled = true;
+                CancelLoginButton.Visibility = Visibility.Collapsed;
+                UpdateSessionDisplay();
+            }
         }
     }
 
-    /// <summary>
-    /// Bu makineyi sirkete baglar: once kayit, sonra veritabani kanali.
-    ///
-    /// Ilk giriste bu makine sirkete tanitiliyor. Sonraki acilislarda kimlik
-    /// zaten yerel durum dosyasinda ve bu adim atlaniyor — kayit makineye
-    /// ait, oturuma degil.
-    ///
-    /// Basarisizlik panelin onune gecmiyor, alttaki seritte anlatiliyor:
-    /// kullanici paneli kullanmaya devam edebilir, yalnizca kendi
-    /// veritabanina soru soramaz.
-    /// </summary>
-    private async Task ConnectMachineAsync(UserSession session)
-    {
-        var logger = _services.GetRequiredService<ILogger<MainWindow>>();
+    private void CancelLoginButton_Click(object sender, RoutedEventArgs e) => _login?.Cancel();
+    private async void SignOutButton_Click(object sender, RoutedEventArgs e) => await SignOutAsync();
 
+    private async Task SignOutAsync()
+    {
+        _login?.Cancel();
         try
         {
-            var state = _services.GetRequiredService<BridgeState>();
-            state.Load();
-
-            if (!state.IsEnrolled && !await EnrollAsync(session))
-            {
-                ShowProblem(
-                    "Bu bilgisayar hesabınıza bağlanamadı; panel çalışıyor ama " +
-                    "kendi veritabanınıza sorgu gönderilemez.",
-                    canRetry: true);
-                return;
-            }
-
-            await StartAgentAsync();
-            ClearProblem();
+            await _sessions.SignOutAsync(_lifetime.Token);
+            await _bridge.StopAsync(_lifetime.Token);
+            ShowLocal();
+            SetStatus("Masaüstü oturumu kapatıldı. Yerel veriler korunuyor. Tarayıcıdaki web oturumunuz ayrı yönetilir.");
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            logger.LogError(ex, "Bu bilgisayar hesaba bağlanırken beklenmeyen hata.");
-
-            ShowProblem(
-                $"Bu bilgisayar hesabınıza bağlanamadı: {ex.Message}", canRetry: true);
+            _logger.LogWarning("Desktop sign-out failed with {ErrorType}", exception.GetType().Name);
+            SetStatus("Oturum kapatılamadı. Yeniden deneyin.");
         }
     }
 
-    /// <summary>
-    /// Kaydi birkac kez dener.
-    ///
-    /// Buradaki basarisizliklarin cogu gecici — bulut henuz ayakta degil, ag
-    /// bir an kesildi — ve hepsinin cevabi ayni: bir sure sonra tekrar sormak.
-    /// Sonsuz dongu yok: kalici bir sorunda (ornegin kayit ucu hata donduruyor)
-    /// kullaniciya soylemek, sessizce denemeye devam etmekten iyi.
-    /// </summary>
-    private async Task<bool> EnrollAsync(UserSession session)
+    private void LocalButton_Click(object sender, RoutedEventArgs e) => ShowLocal();
+    private void ShowLocal()
     {
-        var enrollment = _services.GetRequiredService<BridgeEnrollment>();
-
-        for (var attempt = 1; attempt <= ConnectAttempts; attempt++)
-        {
-            ShowProblem("Bu bilgisayar hesabınıza bağlanıyor…", canRetry: false, isFailure: false);
-
-            if (await enrollment.EnrollWithTokenAsync(
-                    session.AccessToken, CancellationToken.None))
-            {
-                return true;
-            }
-
-            if (attempt < ConnectAttempts)
-                await Task.Delay(TimeSpan.FromSeconds(5 * attempt));
-        }
-
-        return false;
+        CloudContent.Visibility = Visibility.Collapsed;
+        LocalContent.Visibility = Visibility.Visible;
     }
 
-    /// <summary>
-    /// Veritabanina baglanan kisim. Panel acildiktan sonra da arka planda
-    /// calismaya devam ediyor; pencerenin kapanmasi onu durdurmuyor.
-    /// </summary>
-    private Task StartAgentAsync() =>
-        _services.GetRequiredService<BridgeWorker>().StartAsync(CancellationToken.None);
-
-    /// <summary>
-    /// Paneli acar ve oturumu devreder.
-    ///
-    /// Giris DIS TARAYICIDA yapildigi icin bu pencerenin Keycloak cerezi yok;
-    /// panel kendi basina acilsaydi kullaniciyi ikinci kez giris yapmaya
-    /// zorlardi. Token'lar sayfanin ilk betigi calismadan once enjekte
-    /// ediliyor ve keycloak-js onlarla basliyor.
-    /// </summary>
-    private async Task ShowPanelAsync(UserSession session)
+    private async void CloudButton_Click(object sender, RoutedEventArgs e) => await ShowCloudAsync();
+    private async Task ShowCloudAsync()
     {
-        // Tarayici verisi kullanicinin profilinde: uygulamanin yanina
-        // yazmak, Program Files altina kurulan bir uygulamada yazma izni
-        // olmadigi icin sessizce basarisiz oluyor.
-        var profile = Path.Combine(BridgeCore.DataDirectory, "webview");
-        Directory.CreateDirectory(profile);
-
-        var environment = await CoreWebView2Environment.CreateAsync(
-            userDataFolder: profile);
-
-        await Panel.EnsureCoreWebView2Async(environment);
-
-        var handoff = JsonSerializer.Serialize(new
+        try
         {
-            tokens = new
-            {
-                token = session.AccessToken,
-                refreshToken = session.RefreshToken,
-                idToken = session.IdToken,
-            }
-        });
-
-        await Panel.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
-            $"window.__GRAFIRIO_DESKTOP__ = {handoff};");
-
-        // Panel disina cikan baglantilar (dokuman, destek) uygulamanin icinde
-        // acilmasin: kullanici uygulamanin icinde kaybolur ve geri donemez.
-        Panel.CoreWebView2.NewWindowRequested += (_, args) =>
+            await _local.DeactivateAsync();
+            await _cloud.OpenAsync();
+            if (_closing) return;
+            LocalContent.Visibility = Visibility.Collapsed;
+            CloudContent.Visibility = Visibility.Visible;
+        }
+        catch (Exception exception)
         {
-            args.Handled = true;
-            Browser.Open(args.Uri);
-        };
-
-        // Panel acilmiyorsa sebebi gorunsun: bos bir pencere, kullaniciya
-        // hicbir sey anlatmiyor.
-        Panel.CoreWebView2.NavigationCompleted += (_, args) =>
-        {
-            if (args.IsSuccess) return;
-
-            _services.GetRequiredService<ILogger<MainWindow>>()
-                .LogError("Panel açılamadı ({Reason}): {Url}",
-                    args.WebErrorStatus, _options.PanelUrl);
-
-            ShowProblem(
-                $"Panel açılamadı ({args.WebErrorStatus}). İnternet bağlantınızı " +
-                "kontrol edip tekrar deneyin.",
-                canRetry: true);
-        };
-
-        Panel.Source = new Uri(_options.PanelUrl);
-
-        LoginView.Visibility = Visibility.Collapsed;
-        Panel.Visibility = Visibility.Visible;
+            _logger.LogWarning(exception, "Cloud panel initialization failed");
+            SetStatus("Geçiş tamamlanamadı. Yerel kaydı ve bulut bağlantısını kontrol edin; çalışma alanınız açık tutuldu.");
+        }
     }
 
     private async void RetryButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_session is not { } session) return;
-
-        RetryButton.IsEnabled = false;
-
+        _cloud.Reload();
         try
         {
-            // Panel acilamamissa once o: kullanicinin gordugu bos pencerenin
-            // sebebi bu ve tekrar denemesi kaydi beklemeden olmali.
-            if (Panel.CoreWebView2 is not null) Panel.CoreWebView2.Reload();
-
-            await ConnectMachineAsync(session);
+            var session = await _sessions.GetAsync(_lifetime.Token);
+            if (session is not null) await ConnectAsync(session);
+            else SetStatus("Bulut özellikleri için Giriş Yap düğmesini kullanın.");
         }
-        finally
+        catch (Exception exception)
         {
-            RetryButton.IsEnabled = true;
+            _logger.LogWarning("Desktop retry failed with {ErrorType}", exception.GetType().Name);
+            SetStatus("Buluta ulaşılamadı. Yerel çalışma devam ediyor.");
         }
     }
 
-    private void DetailsButton_Click(object sender, RoutedEventArgs e)
+    private void SetStatus(string message)
     {
-        LogView.Visibility = LogView.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-
-        if (LogView.Visibility == Visibility.Visible) LogScroller.ScrollToEnd();
+        if (!_closing) StatusText.Text = message;
     }
 
-    /// <summary>Giris ekranindaki tek satirlik durum metni.</summary>
-    private void Hint(string text)
+    public void BringToFront()
     {
-        LoginHint.Text = text;
-        LoginHint.Visibility = Visibility.Visible;
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
     }
 
-    /// <summary>
-    /// Alttaki serit. Hata olunca gunluk kendiliginden aciliyor: sebebi
-    /// gormek icin kullanicinin once bir alani kesfetmesi gerekmemeli.
-    /// </summary>
-    private void ShowProblem(string text, bool canRetry, bool isFailure = true)
+    public async Task<bool> PrepareToExitAsync()
     {
-        Dispatcher.Invoke(() =>
+        try
         {
-            StatusText.Text = text;
-            StatusText.Foreground = isFailure
-                ? (System.Windows.Media.Brush)FindResource("Bad")
-                : (System.Windows.Media.Brush)FindResource("Ink");
-
-            StatusBar.Visibility = Visibility.Visible;
-            RetryButton.Visibility = canRetry ? Visibility.Visible : Visibility.Collapsed;
-
-            if (isFailure) LogView.Visibility = Visibility.Visible;
-        });
+            await _local.DeactivateAsync();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Pending local work could not be saved before exit");
+            ShowLocal();
+            BringToFront();
+            SetStatus("Son değişiklikler kaydedilemedi. Çıkış iptal edildi; kaydı kontrol edip yeniden deneyin.");
+            return false;
+        }
     }
 
-    private void ClearProblem() => Dispatcher.Invoke(() =>
+    public async Task StopAsync()
     {
-        StatusBar.Visibility = Visibility.Collapsed;
-        RetryButton.Visibility = Visibility.Collapsed;
-        LogView.Visibility = Visibility.Collapsed;
-    });
+        _closing = true;
+        _sessions.SessionChanged -= OnSessionChanged;
+        _bridge.Changed -= OnBridgeChanged;
+        _lifetime.Cancel();
+        _local.Dispose();
+        _cloud.Dispose();
+        if (_maintenance is not null)
+        {
+            try { await _maintenance; }
+            catch (OperationCanceledException) { /* Shutdown cancels the periodic timer. */ }
+        }
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await _bridge.StopAsync(deadline.Token);
+    }
 }

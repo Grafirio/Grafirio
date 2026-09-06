@@ -19,7 +19,10 @@ namespace Grafirio.Bridge;
 /// bir uyari veriliyor — sessizce korumasiz calismak, korumali sanmaktan
 /// kotudur.
 /// </summary>
-public class BridgeState(ILogger<BridgeState> logger, string filePath)
+public class BridgeState(
+    ILogger<BridgeState> logger,
+    string filePath,
+    DataProtectionScope protectionScope = DataProtectionScope.LocalMachine)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -139,16 +142,14 @@ public class BridgeState(ILogger<BridgeState> logger, string filePath)
     private byte[] Unprotect(byte[] stored) =>
         OperatingSystem.IsWindows() ? UnprotectWindows(stored) : stored;
 
-    // LocalMachine kapsami: servis LocalSystem gibi bir hesap altinda kosuyor
-    // ve kuran kullanicidan farkli olabiliyor. CurrentUser kapsami secilseydi
-    // servis kendi yazdigi dosyayi acamazdi.
+    // Services retain machine protection; desktop identities opt into user protection.
     [SupportedOSPlatform("windows")]
-    private static byte[] ProtectWindows(byte[] plain) =>
-        ProtectedData.Protect(plain, optionalEntropy: null, DataProtectionScope.LocalMachine);
+    private byte[] ProtectWindows(byte[] plain) =>
+        ProtectedData.Protect(plain, optionalEntropy: null, protectionScope);
 
     [SupportedOSPlatform("windows")]
-    private static byte[] UnprotectWindows(byte[] stored) =>
-        ProtectedData.Unprotect(stored, optionalEntropy: null, DataProtectionScope.LocalMachine);
+    private byte[] UnprotectWindows(byte[] stored) =>
+        ProtectedData.Unprotect(stored, optionalEntropy: null, protectionScope);
 
     private class StateDocument
     {

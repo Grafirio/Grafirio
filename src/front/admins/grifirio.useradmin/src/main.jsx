@@ -2,7 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ReactKeycloakProvider } from '@react-keycloak/web';
-import keycloak from './keycloak';
+import keycloak from './auth/desktop/authClient.js';
+import DesktopKeycloakProvider from './auth/desktop/DesktopKeycloakProvider.jsx';
 import App from './App';
 import { AuthProvider } from './contexts/AuthContext';
 import { CompanyProvider } from './contexts/CompanyProvider';
@@ -35,22 +36,15 @@ const eventLogger = (event, error) => {
   }
 };
 
+const AuthKeycloakProvider = keycloak.isDesktop ? DesktopKeycloakProvider : ReactKeycloakProvider;
+
 // StrictMode'u geçici olarak kaldırıyoruz çünkü Keycloak ile uyumsuzluk yaşıyor
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ReactKeycloakProvider
+  <AuthKeycloakProvider
     authClient={keycloak}
     onEvent={eventLogger}
-    initOptions={{
-      // Masaustu uygulamasinin devrettigi oturum.
-      //
-      // Giris orada DIS TARAYICIDA yapiliyor; bu pencerenin Keycloak
-      // cerezi yok ve 'login-required' kullaniciyi ikinci kez giris
-      // yapmaya zorlardi. keycloak-js hazir token'larla baslatilabiliyor:
-      // uygulama token'lari sayfa yuklenmeden once enjekte ediyor, buradan
-      // da olduklari gibi veriliyor. Yenileme yine keycloak-js'in isi —
-      // refresh token'la token ucuna gidiyor, cereze ihtiyaci yok.
-      ...(window.__GRAFIRIO_DESKTOP__?.tokens ?? {}),
-      onLoad: window.__GRAFIRIO_DESKTOP__?.tokens ? 'check-sso' : 'login-required',
+    initOptions={keycloak.isDesktop ? {} : {
+      onLoad: 'login-required',
       checkLoginIframe: false,
       enableLogging: false,
       flow: 'standard',
@@ -72,5 +66,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
-  </ReactKeycloakProvider>
+  </AuthKeycloakProvider>
 );

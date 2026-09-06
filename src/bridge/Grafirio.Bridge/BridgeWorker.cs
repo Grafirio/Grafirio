@@ -41,7 +41,7 @@ public class BridgeWorker(
             }
         }
 
-        await using var connection = Build();
+        await using var connection = Build(stoppingToken);
 
         using var subscription = pump.Attach(connection, stoppingToken);
 
@@ -67,6 +67,10 @@ public class BridgeWorker(
         {
             try
             {
+                // Automatic reconnect has a finite schedule; only this loop restarts it.
+                if (connection.State == HubConnectionState.Disconnected)
+                    await ConnectWithRetryAsync(connection, stoppingToken);
+
                 if (connection.State == HubConnectionState.Connected)
                     await connection.InvokeAsync(
                         BridgeProtocol.BridgeToServer.Heartbeat,
@@ -125,7 +129,7 @@ public class BridgeWorker(
         return false;
     }
 
-    private HubConnection Build()
+    private HubConnection Build(CancellationToken stoppingToken)
     {
         var url = _options.ServerUrl.TrimEnd('/') + BridgeProtocol.HubPath;
 
@@ -136,7 +140,7 @@ public class BridgeWorker(
             {
                 // SignalR token'i her baglanti denemesinde yeniden soruyor;
                 // yeniden baglanmalarda suresi dolmus bir token kullanilmiyor.
-                http.AccessTokenProvider = async () => await tokens.GetAsync();
+                http.AccessTokenProvider = async () => await tokens.GetAsync(stoppingToken);
                 http.Headers[BridgeVersionHeader] = BridgeProtocol.Version;
             })
             // Yeniden baglanma araliklari artan: bulut tarafinda bir kesinti

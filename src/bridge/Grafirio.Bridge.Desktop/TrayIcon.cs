@@ -38,12 +38,14 @@ public sealed class TrayIcon : IDisposable
         _icon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
         _icon.ContextMenuStrip.Items.Add("Çıkış", null, (_, _) => exit());
 
-        window.Closing += (_, e) =>
-        {
-            e.Cancel = true;
-            window.Hide();
-            WarnOnce();
-        };
+        window.Closing += OnClosing;
+    }
+
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        e.Cancel = true;
+        _window.Hide();
+        WarnOnce();
     }
 
     public void Update(BridgeStatus status)
@@ -83,6 +85,7 @@ public sealed class TrayIcon : IDisposable
 
     public void Dispose()
     {
+        _window.Closing -= OnClosing;
         _icon.Visible = false;
         _icon.Icon?.Dispose();
         _icon.Dispose();
