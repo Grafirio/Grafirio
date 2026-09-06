@@ -121,6 +121,26 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "Validate ConnectionContext Ready Gate Fix",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.Bridge.Desktop.Tests/Grafirio.Bridge.Desktop.Tests.csproj -c Release --nologo --filter \"FullyQualifiedName~CloudPanelSmokeTests|FullyQualifiedName~ConnectionContextRequestTests|FullyQualifiedName~DesktopConnectionContextTests\"",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
+		},
+		{
+			"label": "Validate ConnectionContext Ready Gate Fix v2",
+			"type": "shell",
+			"command": "dotnet test tests/Grafirio.Bridge.Desktop.Tests/Grafirio.Bridge.Desktop.Tests.csproj -c Release --nologo --filter 'FullyQualifiedName~CloudPanelSmokeTests|FullyQualifiedName~ConnectionContextRequestTests|FullyQualifiedName~DesktopConnectionContextTests'",
+			"isBackground": false,
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "test"
 		}
 	]
 }

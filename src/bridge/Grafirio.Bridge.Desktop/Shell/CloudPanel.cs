@@ -128,7 +128,7 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
                 case "signOut": SignOutRequested?.Invoke(); return;
                 case "sessionExpired": return;
                 case "connectionContext":
-                    if (!_ready || !root.TryGetProperty("requestId", out var contextIdentifier) ||
+                    if (!root.TryGetProperty("requestId", out var contextIdentifier) ||
                         contextIdentifier.ValueKind != JsonValueKind.String ||
                         !Guid.TryParse(contextIdentifier.GetString(), out _)) return;
                     await ReplyConnectionContextAsync(contextIdentifier.GetString()!, navigation);
@@ -178,7 +178,7 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
         if (response.BridgeId is not null && (!ReferenceEquals(response.Session, _sessions.Current)
             || response.Session?.ExpiresAt <= DateTimeOffset.UtcNow))
             response = new(requestId, Error: "signedOut");
-        Send(response);
+        Send(response, requireReady: false);
     }
 
     public void PublishSession()
@@ -198,9 +198,9 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
         });
     }
 
-    private void Send(object message)
+    private void Send(object message, bool requireReady = true)
     {
-        if (!_disposed && _ready && _origin.Contains(_webView.CoreWebView2.Source))
+        if (!_disposed && (!requireReady || _ready) && _origin.Contains(_webView.CoreWebView2.Source))
             _webView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message, MessageJsonOptions));
     }
 
