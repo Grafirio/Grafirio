@@ -10,7 +10,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.IdentityModel.Tokens;
+using Grafirio.Shared.Identity.Extensions;
+using Microsoft.AspNetCore.Authentication;
 
 namespace Grafirio.Bridge.IntegrationTests;
 
@@ -63,40 +64,52 @@ public class RealAuthConnectTests(KeycloakFixture keycloak)
         return (bridgeId, credentials);
     }
 
-    /// <summary>Gerçek JWT doğrulaması: üretimdeki ayarların aynısı.</summary>
+    /// <summary>
+    /// Gerçek JWT doğrulaması — üretimin taklidi değil, kendisi.
+    ///
+    /// Önceki sürümde burada elle
+    /// <c>AddAuthentication(JwtBearerDefaults.AuthenticationScheme)</c>
+    /// çağrılıyordu, yani şema VARSAYILAN oluyordu ve
+    /// <c>UseAuthentication()</c> her isteği kendiliğinden doğruluyordu.
+    /// Üretimde öyle değil: paylaşılan kurulum <c>AddAuthentication()</c>'ı
+    /// varsayılan şema vermeden çağırıp iki şema kaydediyor, dolayısıyla
+    /// şemasını söylemeyen bir politika hiçbir isteği doğrulatmıyor.
+    ///
+    /// Fark testte görünmüyordu: bridge politikası burada çalışıyor, üretimde
+    /// her bridge'i token'ı kusursuz olsa bile 401 ile geri çeviriyordu.
+    /// Testin kendi kurulumunu yapması, ölçtüğü şeyi ölçülmez yapmıştı.
+    /// </summary>
     private static IHost BuildServer(string url) =>
         Host.CreateDefaultBuilder()
             .ConfigureWebHostDefaults(web => web
                 .UseUrls(url)
                 .ConfigureLogging(l => l.SetMinimumLevel(LogLevel.Error))
-                .ConfigureServices(services =>
+                .ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(
+                    new Dictionary<string, string?>
+                    {
+                        ["IdentityOption:Address"] = KeycloakFixture.Authority,
+                        ["IdentityOption:Issuer"] = KeycloakFixture.Authority,
+                        ["IdentityOption:Audience"] = KeycloakFixture.Audience,
+                    }))
+                .ConfigureServices((context, services) =>
                 {
                     services.AddSingleton<IBridgeResponseBus, InProcessBridgeResponseBus>();
                     services.AddSingleton<BridgeRegistry>();
                     services.AddSingleton<IBridgePresence, NoopPresence>();
                     services.AddSignalR();
 
-                    services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                        .AddJwtBearer(options =>
-                        {
-                            options.Authority = KeycloakFixture.Authority;
-                            options.Audience = KeycloakFixture.Audience;
-                            // Yerel Keycloak HTTP; üretimde HTTPS.
-                            options.RequireHttpsMetadata = false;
-                            options.TokenValidationParameters = new TokenValidationParameters
-                            {
-                                ValidateIssuer = true,
-                                ValidIssuer = KeycloakFixture.Authority,
-                                ValidateAudience = true,
-                                ValidAudience = KeycloakFixture.Audience,
-                            };
-                        });
+                    // Üretimdeki kimlik doğrulama kurulumu — kendisi.
+                    services.AddAuthenticationAndAuthorizationExt(context.Configuration);
 
-                    services.AddAuthorizationBuilder()
-                        .AddPolicy(BridgeAuthentication.Policy, policy => policy
-                            .RequireAuthenticatedUser()
-                            .RequireClaim(BridgeAuthentication.BridgeIdClaim)
-                            .RequireClaim(BridgeAuthentication.CompanyIdClaim));
+                    // Üretimdeki forbid/challenge şeması: reddetmenin hangi
+                    // kodu (401 mi 403 mü) döndüğünü bu belirliyor.
+                    services.Configure<AuthenticationOptions>(options =>
+                    {
+                        options.DefaultForbidScheme ??= JwtBearerDefaults.AuthenticationScheme;
+                        options.DefaultChallengeScheme ??= JwtBearerDefaults.AuthenticationScheme;
+                    });
+
+                    services.AddBridgeAuthorization();
                 })
                 .Configure(app =>
                 {

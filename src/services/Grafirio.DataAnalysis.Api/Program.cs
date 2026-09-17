@@ -228,11 +228,9 @@ builder.Services.Configure<AuthenticationOptions>(options =>
 // Onceki surumde burada elle yazilmis bir sema vardi: kendi token'imiz, kendi
 // SHA256 ozetimiz. Auth sunucusu zaten kuruluydu; token suresi, anahtar
 // rotasyonu ve merkezi iptal o surumde hic yoktu.
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(BridgeAuthentication.Policy, policy => policy
-        .RequireAuthenticatedUser()
-        .RequireClaim(BridgeAuthentication.BridgeIdClaim)
-        .RequireClaim(BridgeAuthentication.CompanyIdClaim));
+// Politika BridgeAuthentication icinde tanimli: semayi acikca yazan tek bir
+// yer var ve testler de ayni yerden okuyor.
+builder.Services.AddBridgeAuthorization();
 
 builder.Services.AddSingleton<KeycloakBridgeIdentity>();
 builder.Services.AddSingleton<BridgeInstaller>();

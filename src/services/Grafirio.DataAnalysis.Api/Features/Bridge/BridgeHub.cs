@@ -1,4 +1,5 @@
 using Grafirio.Bridge.Contracts;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
@@ -165,4 +166,33 @@ public static class BridgeAuthentication
     public const string BridgeIdClaim = "bridge_id";
     public const string CompanyIdClaim = "company_id";
     public const string VersionHeader = "X-Grafirio-Bridge-Version";
+
+    /// <summary>
+    /// Bridge politikasi — kimlik dogrulama semasi ACIKCA yazili.
+    ///
+    /// Paylasilan kurulum (<c>AddAuthenticationAndAuthorizationExt</c>)
+    /// <c>AddAuthentication()</c>'i varsayilan sema VERMEDEN cagiriyor ve iki
+    /// sema kaydediyor. Varsayilan olmayinca <c>UseAuthentication()</c> hicbir
+    /// istegi dogrulamiyor; <c>HttpContext.User</c> anonim kaliyor. Paketin
+    /// kendi politikalari (Password, CompanyAccess) semayi kendileri yazdigi
+    /// icin calisiyor — burada yazilmayinca yetkilendirme anonim User'a bakip
+    /// <c>RequireAuthenticatedUser()</c>'da dusuyordu.
+    ///
+    /// Gorunen sonuc: token kusursuz olsa bile her bridge negotiate'te 401
+    /// aliyordu. Sebebi hicbir yerde yazmiyordu, cunku dogrulama hic
+    /// calismadigi icin challenge basligi da bos "Bearer" donuyordu — bozuk
+    /// bir token <c>error="invalid_token"</c> derken gecerli olan hic token
+    /// yokmus gibi gorunuyordu.
+    ///
+    /// Uretim ve test ayni yerden okusun diye burada: testin politikayi kendi
+    /// kurmasi, tam da bu hatayi gorunmez yapmisti.
+    /// </summary>
+    public static IServiceCollection AddBridgeAuthorization(this IServiceCollection services) =>
+        services.AddAuthorizationBuilder()
+            .AddPolicy(Policy, policy => policy
+                .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+                .RequireAuthenticatedUser()
+                .RequireClaim(BridgeIdClaim)
+                .RequireClaim(CompanyIdClaim))
+            .Services;
 }
