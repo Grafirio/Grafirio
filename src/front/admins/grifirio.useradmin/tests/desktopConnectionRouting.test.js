@@ -204,6 +204,29 @@ test('desktop draft target changes preserve only the known safe password reentry
   }
 });
 
+test('desktop draft connection test failures surface the API error without axios internals', async (context) => {
+  fixture(context);
+  const SQL_FAILURE = 'SQL Server bağlantısı kurulamadı. Sunucu bulunamadı ya da sunucuya erişilemiyor.';
+  for (const status of [400, 422]) {
+    axios.defaults.adapter = async (config) => {
+      throw Object.assign(new Error(INFO.password), {
+        config,
+        response: { status, data: { success: false, error: SQL_FAILURE, message: SQL_FAILURE } },
+      });
+    };
+    for (const operation of DRAFT_OPERATIONS) {
+      await assert.rejects(operation(INFO), (error) => {
+        assert.equal(error.message, SQL_FAILURE);
+        assert.equal(error.response, undefined);
+        assert.equal(error.config, undefined);
+        assert.equal(error.cause, undefined);
+        assert.doesNotMatch(error.stack, /transient-secret/);
+        return true;
+      });
+    }
+  }
+});
+
 test('desktop draft errors hide unknown messages, near matches and unexpected statuses', async (context) => {
   fixture(context);
   for (const response of [
