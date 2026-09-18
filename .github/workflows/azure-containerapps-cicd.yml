@@ -105,6 +105,12 @@ jobs:
             # ihtiyaci var, container servisleriyle ayni matriste calismiyor.
             bridge-desktop:
               - 'src/bridge/**'
+              # Paylasilan sorgu politikasi masaustu exe'sinin ICINE derleniyor:
+              # okuma-only principal kontrolu de, SELECT ayristirmasi da orada
+              # calisiyor. Bu yol listede yokken, yalnizca QueryPolicy'yi
+              # degistiren bir duzeltme yayina alindi, CI yesil dondu ve
+              # musteri ayni eski exe'yi indirmeye devam etti.
+              - 'src/shared/**'
               - '.github/workflows/azure-containerapps-cicd.yml'
 
       - name: Build deployment matrix
