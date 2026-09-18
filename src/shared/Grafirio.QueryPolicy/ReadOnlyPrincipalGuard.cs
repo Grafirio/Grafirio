@@ -28,6 +28,18 @@ public static class ReadOnlyPrincipalGuard
     //   * VIEW SECURITY DEFINITION and VIEW PERFORMANCE DEFINITION are implied by VIEW DEFINITION
     //     on SQL Server 2022, which this check REQUIRES. Rejecting them contradicted the requirement.
     //
+    // The server-side catalog check ignores CONNECT on an ENDPOINT for the same reason: SQL Server
+    // grants it to public on its four built-in endpoints (TSQL Default TCP, Named Pipes, Local
+    // Machine, Dedicated Admin) in every installation, so every login inherits it and it says
+    // nothing about this principal. Revoking it from public would cut off all logins.
+    //
+    // What still blocks, unchanged: server roles beyond public, any other server permission
+    // (CONTROL SERVER, IMPERSONATE, ALTER ANY LOGIN ...), db_owner/db_datawriter/db_ddladmin and
+    // friends, ownership of schemas, objects, types, assemblies or principals, write/execute
+    // permissions at database, schema, object or column level, and every WITH GRANT OPTION grant.
+    // Effective-permission checks see role inheritance, so a dangerous grant made to public is
+    // still caught there.
+    //
     // Measured on SQL Server 2022 Express with a principal granted exactly CONNECT, SELECT and
     // VIEW DEFINITION: the previous list returned 0 (blocked), this one returns 1.
     private const string PrincipalVerificationSql = """
@@ -59,7 +71,9 @@ public static class ReadOnlyPrincipalGuard
                                 SELECT 1 FROM sys.server_permissions p
                                 JOIN sys.login_token token ON token.principal_id = p.grantee_principal_id
                                 WHERE p.state IN ('G', 'W')
-                                    AND (p.state = 'W' OR p.permission_name NOT IN ('CONNECT SQL', 'VIEW ANY DATABASE')))
+                                    AND (p.state = 'W'
+                                        OR (p.permission_name NOT IN ('CONNECT SQL', 'VIEW ANY DATABASE')
+                                            AND NOT (p.permission_name = 'CONNECT' AND p.class_desc = 'ENDPOINT'))))
                         AND NOT EXISTS (
                                 SELECT 1 FROM sys.database_permissions p
                                 JOIN sys.user_token token ON token.principal_id = p.grantee_principal_id
