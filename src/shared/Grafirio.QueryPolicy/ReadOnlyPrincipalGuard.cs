@@ -17,6 +17,19 @@ public static class ReadOnlyPrincipalGuard
         "must be removed by the database administrator. Verification must succeed; Grafirio does not modify permissions.";
 
     // Effective permissions include role inheritance; db_datareader alone proves nothing.
+    //
+    // The database allow-list carries four VIEW ... DEFINITION permissions beyond
+    // CONNECT/SELECT/VIEW DEFINITION. They are metadata visibility only — none of them reads,
+    // writes or executes anything — and without them the check can never pass on a stock server:
+    //
+    //   * VIEW ANY COLUMN ENCRYPTION KEY DEFINITION and VIEW ANY COLUMN MASTER KEY DEFINITION are
+    //     granted to the public role by SQL Server itself in every database (2016+). A DBA cannot
+    //     remove them without breaking Always Encrypted clients.
+    //   * VIEW SECURITY DEFINITION and VIEW PERFORMANCE DEFINITION are implied by VIEW DEFINITION
+    //     on SQL Server 2022, which this check REQUIRES. Rejecting them contradicted the requirement.
+    //
+    // Measured on SQL Server 2022 Express with a principal granted exactly CONNECT, SELECT and
+    // VIEW DEFINITION: the previous list returned 0 (blocked), this one returns 1.
     private const string PrincipalVerificationSql = """
         SELECT CASE WHEN
             COALESCE(IS_SRVROLEMEMBER('sysadmin'), 1) = 0
@@ -51,13 +64,21 @@ public static class ReadOnlyPrincipalGuard
                                 SELECT 1 FROM sys.database_permissions p
                                 JOIN sys.user_token token ON token.principal_id = p.grantee_principal_id
                                 WHERE p.state IN ('G', 'W')
-                                    AND (p.state = 'W' OR p.permission_name NOT IN ('CONNECT', 'SELECT', 'VIEW DEFINITION')))
+                                    AND (p.state = 'W' OR p.permission_name NOT IN (
+                                        'CONNECT', 'SELECT', 'VIEW DEFINITION',
+                                        'VIEW SECURITY DEFINITION', 'VIEW PERFORMANCE DEFINITION',
+                                        'VIEW ANY COLUMN ENCRYPTION KEY DEFINITION',
+                                        'VIEW ANY COLUMN MASTER KEY DEFINITION')))
             AND NOT EXISTS (
                 SELECT 1 FROM sys.fn_my_permissions(NULL, 'SERVER')
                 WHERE permission_name NOT IN ('CONNECT SQL', 'VIEW ANY DATABASE'))
             AND NOT EXISTS (
                 SELECT 1 FROM sys.fn_my_permissions(NULL, 'DATABASE')
-                WHERE permission_name NOT IN ('CONNECT', 'SELECT', 'VIEW DEFINITION'))
+                WHERE permission_name NOT IN (
+                    'CONNECT', 'SELECT', 'VIEW DEFINITION',
+                    'VIEW SECURITY DEFINITION', 'VIEW PERFORMANCE DEFINITION',
+                    'VIEW ANY COLUMN ENCRYPTION KEY DEFINITION',
+                    'VIEW ANY COLUMN MASTER KEY DEFINITION'))
             AND NOT EXISTS (
                 SELECT 1 FROM sys.schemas s
                 CROSS APPLY sys.fn_my_permissions(QUOTENAME(s.name), 'SCHEMA') p

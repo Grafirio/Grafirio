@@ -172,7 +172,9 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
         catch (Exception exception)
         {
             _logger.LogWarning("Desktop connection context failed with {ErrorType}", exception.GetType().Name);
-            response = new(requestId, Error: _sessions.Current is null ? "signedOut" : "unavailable");
+            response = new(requestId,
+                Error: _sessions.Current is null ? "signedOut" : "unavailable",
+                Reason: DescribeFailure(exception));
         }
         if (_disposed || navigation != _navigation) return;
         if (response.BridgeId is not null && (!ReferenceEquals(response.Session, _sessions.Current)
@@ -180,6 +182,22 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
             response = new(requestId, Error: "signedOut");
         Send(response, requireReady: false);
     }
+
+    /// <summary>
+    /// Panele gonderilebilir sebep. <see cref="DesktopBridgeException"/> mesajlari zaten
+    /// kullaniciya gosterilmek uzere yazilmis, guvenli metinler; digerlerinde yalnizca istisna
+    /// TURU geciyor, mesaji degil — bir sunucu govdesi ya da baglanti dizesi panele sizmasin.
+    ///
+    /// Neden gerekti: sebep yalnizca yerel gunluge yaziliyordu. Kullanici her arizada ayni
+    /// "Masaüstü bağlantısı hazır değil" yazisini goruyor, gercek sebebi ogrenmek icin
+    /// %LOCALAPPDATA% altindaki gunluk dosyasini acmak gerekiyordu.
+    /// </summary>
+    private static string DescribeFailure(Exception exception) => exception switch
+    {
+        DesktopBridgeException bridgeFailure => bridgeFailure.Message,
+        OperationCanceledException => "Bulut bağlantısı zaman aşımına uğradı.",
+        _ => exception.GetType().Name
+    };
 
     public void PublishSession()
     {

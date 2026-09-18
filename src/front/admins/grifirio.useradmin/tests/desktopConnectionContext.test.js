@@ -70,6 +70,40 @@ for (const response of [
   });
 }
 
+// Sebep taşınmasaydı her arıza aynı "Masaüstü bağlantısı hazır değil" yazısıyla çıkardı:
+// oturum düşmesi, buluta bağlanamama ve zaman aşımı ayırt edilemezdi ve gerçek sebebi
+// öğrenmenin tek yolu kullanıcının makinesindeki günlük dosyası olurdu.
+test('reported reason reaches the message, trimmed, capped and never invented', async (context) => {
+  const { reply } = fixture(context);
+
+  const withReason = requestContext();
+  reply({ error: 'unavailable', reason: '  Oturum gerekli. Lütfen yeniden giriş yapın.  ' });
+  await assert.rejects(withReason, (error) => {
+    assert.match(error.message, /\(Oturum gerekli\. Lütfen yeniden giriş yapın\.\)$/);
+    assert.equal(error.reason, 'Oturum gerekli. Lütfen yeniden giriş yapın.');
+    return true;
+  });
+
+  // Sınırsız bir dize, okunmak istenen cümleyi ekrandan taşırırdı.
+  const long = requestContext();
+  reply({ error: 'unavailable', reason: 'x'.repeat(500) });
+  await assert.rejects(long, (error) => {
+    assert.equal(error.reason.length, 200);
+    return true;
+  });
+
+  // Sebep yoksa uydurulmuyor; mesaj eskisi gibi kalıyor.
+  for (const reason of [undefined, '   ', 42, { detail: 'nesne' }]) {
+    const bare = requestContext();
+    reply({ error: 'unavailable', reason });
+    await assert.rejects(bare, (error) => {
+      assert.equal(error.reason, null);
+      assert.doesNotMatch(error.message, /\(/);
+      return true;
+    });
+  }
+});
+
 test('timeout is exactly 25 seconds, cleans listener, and permits ordinary retry', async (context) => {
   const { listeners, reply } = fixture(context);
   context.mock.timers.enable({ apis: ['setTimeout'] });

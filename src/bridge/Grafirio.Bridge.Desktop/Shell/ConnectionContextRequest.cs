@@ -24,7 +24,8 @@ internal static class ConnectionContextRequest
         if (current is null || current.ExpiresAt is not { } currentExpiry || currentExpiry <= DateTimeOffset.UtcNow
             || !ReferenceEquals(current, session) || DesktopBridgeIdentity.GetDirectory(current) != identity)
             return new(requestId, Error: "signedOut");
-        return bridgeId == Guid.Empty ? new(requestId, Error: "unavailable")
+        return bridgeId == Guid.Empty
+            ? new(requestId, Error: "unavailable", Reason: "Bridge kimliği henüz alınmadı.")
             : new(requestId, bridgeId) { Session = session };
     }
 }
