@@ -166,6 +166,21 @@ services:
       retries: 5
     networks:
       - grifirio_network
+  # Olcum paneli: .NET servislerinin izleri, metrikleri ve loglari.
+  # Veriyi bellekte tutuyor (yeniden baslayinca silinir) — canli izleme icin.
+  # Kalici kanit raporlari benchmark dashboard'unda (bkz. docs/olcum/README.md).
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.5
+    container_name: aspire-dashboard.container
+    environment:
+      # Yalnizca yerel gelistirme: panel kimlik dogrulamasiz aciliyor.
+      ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888" # arayuz
+      - "4317:18889"  # OTLP gRPC — yiginin disinda (IDE'den) calisan servisler icin
+    networks:
+      - grifirio_network
   pycaret.engine:
     build:
       context: ./src/ai/ai-service-pycaret-engine
@@ -201,6 +216,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5036
+      # Olcum: iz, metrik ve log Aspire Dashboard'a gidiyor (http://localhost:18888).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       MongoOption__ConnectionString: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017
       MongoOption__DatabaseName: GrafirioIdentityDb
       # Adres ile issuer AYRI: adres Keycloak'a nasıl ulaşıldığı (konteyner
@@ -234,6 +251,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5300
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       MongoOption__ConnectionString: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo.db:27017
       CatalogMongoOption__DatabaseName: catalog-db
       DiscountMongoOption__DatabaseName: discount-db
@@ -259,6 +277,12 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5221
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      # LLM maliyeti (USD / 1M token). Bos birakilirsa yalnizca token sayilir;
+      # fiyat deployment'a ve sozlesmeye gore degistigi icin varsayilan yok.
+      Llm__Pricing__InputPerMillion: ${LLM_PRICE_INPUT_PER_MILLION:-}
+      Llm__Pricing__CachedInputPerMillion: ${LLM_PRICE_CACHED_INPUT_PER_MILLION:-}
+      Llm__Pricing__OutputPerMillion: ${LLM_PRICE_OUTPUT_PER_MILLION:-}
       # appsettings.Development.json'daki dize localhost:5433'u gosteriyor —
       # servisi Docker DISINDA calistiranlar icin dogru, konteyner icinde
       # degil. Ortam Development oldugu icin o dosya appsettings.json'i
@@ -332,6 +356,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:5000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       ReverseProxy__Clusters__commerce.cluster__Destinations__destination1__Address: http://commerce.api.container:5300
       ReverseProxy__Clusters__identity.cluster__Destinations__destination1__Address: http://identity.api.container:5036
       ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221

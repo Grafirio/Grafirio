@@ -23,8 +23,14 @@ public class QueryAuditLog(ILogger<QueryAuditLog> logger, string filePath)
 
     public string FilePath { get; } = filePath;
 
-    public void Completed(ExecuteQueryRequest request, int rowCount, bool truncated) =>
-        Write("tamamlandı", request, $"satır={rowCount} kırpıldı={truncated}");
+    /// <param name="databaseMs">
+    /// Veritabaninda gecen sure. Musterinin DBA'i "bu sorgular sunucumu ne kadar
+    /// mesgul ediyor" sorusunu kendi gunlugunden cevaplayabilsin diye yaziliyor.
+    /// </param>
+    public void Completed(ExecuteQueryRequest request, int rowCount, bool truncated, double? databaseMs = null) =>
+        Write("tamamlandı", request, databaseMs is { } ms
+            ? string.Create(CultureInfo.InvariantCulture, $"satır={rowCount} kırpıldı={truncated} süre_ms={ms}")
+            : $"satır={rowCount} kırpıldı={truncated}");
 
     public void Rejected(ExecuteQueryRequest request, string reason) =>
         Write("REDDEDİLDİ", request, reason);

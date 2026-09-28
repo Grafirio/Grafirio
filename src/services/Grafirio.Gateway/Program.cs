@@ -1,14 +1,23 @@
 using Grafirio.Gateway.Metrics;
 using Grafirio.Shared.Infrastructure.Extensions;
 using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Telemetry;
 using Serilog;
 using Yarp.ReverseProxy.Model;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Olcum (OpenTelemetry). Disari aktarim yalnizca OTEL_EXPORTER_OTLP_ENDPOINT
+// tanimliysa acilir.
+builder.AddGrafirioTelemetry("gateway");
+
 // Serilog'u appsettings.json'dan okuyacak �ekilde yap�land�r
+//
+// writeToProviders: Serilog varsayilan olarak diger log saglayicilarini
+// devre disi birakiyor; bu olmadan gateway loglari OpenTelemetry'ye hic
+// ulasmiyor ve izle eslestirilemiyordu. Konsol/dosya ciktisi degismiyor.
 builder.Host.UseSerilog((context, configuration) =>
-    configuration.ReadFrom.Configuration(context.Configuration));
+    configuration.ReadFrom.Configuration(context.Configuration), writeToProviders: true);
 
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 builder.Services.AddSingleton<RequestMetrics>();

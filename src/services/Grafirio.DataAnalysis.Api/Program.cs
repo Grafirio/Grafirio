@@ -22,9 +22,14 @@ using Grafirio.Shared.Infrastructure.Extensions;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
 using MassTransit;
 using Grafirio.Shared.Identity.Extensions;
+using Grafirio.Telemetry;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Olcum: iz, metrik ve log. OTEL_EXPORTER_OTLP_ENDPOINT tanimsizsa hicbir
+// yere gonderilmez; servis toplayicisiz da ayni sekilde calisir.
+builder.AddGrafirioTelemetry("data-analysis-api");
 
 // Database Context - PostgreSQL
 builder.Services.AddDbContext<DataAnalysisDbContext>(options =>

@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Application.Analysis;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
+using Grafirio.Telemetry;
 using Grafirio.DataAnalysis.Api.Application.Interfaces;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
@@ -51,6 +54,12 @@ public static class AgentQueryEndpoints
             .WithName("CancelAgentQuery")
             .WithDescription("Cancels an owned analysis and blocks further SQL callbacks.");
 
+        // Oy vermek sonucu okuyabilen herkesin hakki: READ yetiyor.
+        group.MapPost("/query/{queryId:guid}/feedback", SubmitFeedback)
+            .RequirePermission(AppPermissions.AnalysisRead)
+            .WithName("SubmitQueryFeedback")
+            .WithDescription("Kullanıcının sonuca verdiği oyu (1 / -1) kaydeder");
+
         group.MapGet("/queries/{connectionId:guid}", GetQueryHistory)
             .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryHistory")
@@ -68,6 +77,16 @@ public static class AgentQueryEndpoints
     /// </param>
     public record QueryRequest(Guid ConnectionId, string Question, Guid? ParentQueryId = null);
 
+    /// <summary>
+    /// Sorunun nasil sonuclandigi — olcum etiketi. Varsayilan "rejected":
+    /// dogrulama asamasindaki erken donuslerin her birine ayri ayri
+    /// yazilmasina gerek kalmiyor.
+    /// </summary>
+    private sealed class QuestionOutcome
+    {
+        public string Value { get; set; } = "rejected";
+    }
+
     private static async Task<IResult> SubmitQuery(
         [FromBody] QueryRequest request,
         [FromServices] DataAnalysisDbContext db,
@@ -76,6 +95,48 @@ public static class AgentQueryEndpoints
         [FromServices] ConnectionProfileStore profiles,
         [FromServices] IIdentityService identity,
         [FromServices] ILogger<LlmAnalysisService> logger,
+        CancellationToken ct)
+    {
+        // Olcum sarmalayicisi: ic metot her donus yolunda sonucu isaretliyor,
+        // sure ve sayaclar burada tek yerde yaziliyor.
+        var started = Stopwatch.GetTimestamp();
+        using var usage = LlmUsage.Begin("question");
+        using var activity = AnalysisTelemetry.Source.StartActivity("question.submit");
+        var outcome = new QuestionOutcome();
+
+        try
+        {
+            return await SubmitQueryCore(request, db, llm, pycaret, profiles, identity, logger,
+                started, usage.Usage, outcome, ct);
+        }
+        catch
+        {
+            outcome.Value = "error";
+            throw;
+        }
+        finally
+        {
+            var outcomeTag = AnalysisTelemetry.Tag("question.outcome", outcome.Value);
+            AnalysisTelemetry.QuestionDuration.Record(GrafirioTelemetry.Seconds(started), outcomeTag);
+            AnalysisTelemetry.QuestionOutcome.Add(1, outcomeTag);
+            activity?.SetTag("grafirio.question.outcome", outcome.Value);
+            activity?.SetTag("grafirio.llm.calls", usage.Usage.Calls);
+        }
+    }
+
+    private static int ElapsedMs(long started) => (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+    private static async Task<IResult> SubmitQueryCore(
+        QueryRequest request,
+        DataAnalysisDbContext db,
+        LlmAnalysisService llm,
+        IPyCaretQueryService pycaret,
+        ConnectionProfileStore profiles,
+        IIdentityService identity,
+        ILogger<LlmAnalysisService> logger,
+        long started,
+        LlmUsage usage,
+        QuestionOutcome outcome,
         CancellationToken ct)
     {
         var companyId = identity.CurrentCompanyId;
@@ -181,6 +242,7 @@ public static class AgentQueryEndpoints
         // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
         if (!translation.Success)
         {
+            outcome.Value = "translation_failed";
             return translation.IsConfigurationError
                 ? Results.Problem(
                     detail: translation.Error,
@@ -266,8 +328,10 @@ public static class AgentQueryEndpoints
                 Status = ConversationContext.ClarificationStatus,
                 CreatedAt = DateTime.UtcNow,
                 // Tur burada bitiyor: bekleyen bir is yok, bekleyen bir cevap var.
-                CompletedAt = DateTime.UtcNow
+                CompletedAt = DateTime.UtcNow,
+                PreparationMs = ElapsedMs(started)
             };
+            clarificationRow.Apply(usage);
 
             clarificationRow.ResultJson = new JsonObject
             {
@@ -279,6 +343,8 @@ public static class AgentQueryEndpoints
 
             db.QueryHistories.Add(clarificationRow);
             await db.SaveChangesAsync(ct);
+            outcome.Value = "clarification";
+            AnalysisTelemetry.QueryCompleted.Add(1, AnalysisTelemetry.Tag("query.status", "clarification"));
 
             return Results.BadRequest(new
             {
@@ -287,7 +353,9 @@ public static class AgentQueryEndpoints
                 pendingConfirmations = proposals,
                 // Kimlik disari veriliyor ki kullanicinin cevabi bu tura
                 // baglanabilsin; zincirin halkasi bu.
-                queryId = clarificationRow.Id
+                queryId = clarificationRow.Id,
+                preparationMs = clarificationRow.PreparationMs,
+                usage = usage.ToResponse()
             });
         }
 
@@ -301,8 +369,10 @@ public static class AgentQueryEndpoints
             ParentQueryId = parentQueryId,
             PyCaretParamsJson = translation.Json,
             Status = "processing",
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            PreparationMs = ElapsedMs(started)
         };
+        queryHistory.Apply(usage);
 
         queryHistory.ResultJson = new JsonObject
         {
@@ -312,6 +382,7 @@ public static class AgentQueryEndpoints
         db.QueryHistories.Add(queryHistory);
         await db.SaveChangesAsync(ct);
         await pycaret.SubmitAsync(queryHistory, config, ct);
+        outcome.Value = "submitted";
 
         return Results.Ok(new
         {
@@ -322,7 +393,9 @@ public static class AgentQueryEndpoints
             clarificationQuestion = queryHistory.ClarificationQuestion,
             pendingConfirmations = StoredField(queryHistory, "pendingConfirmations"),
             explanation = translation.Explanation,
-            message = StoredField(queryHistory, "message")
+            message = StoredField(queryHistory, "message"),
+            preparationMs = queryHistory.PreparationMs,
+            usage = usage.ToResponse()
         });
     }
 
@@ -428,7 +501,9 @@ public static class AgentQueryEndpoints
         message = StoredField(query, "message"),
         clarificationQuestion = query.ClarificationQuestion,
         needsClarification = query.Status == ConversationContext.ClarificationStatus,
-        pendingConfirmations = StoredField(query, "pendingConfirmations")
+        pendingConfirmations = StoredField(query, "pendingConfirmations"),
+        preparationMs = query.PreparationMs,
+        usage = query.UsageResponse()
     });
 
     private static async Task<IResult> GetQueryResult(
@@ -470,8 +545,55 @@ public static class AgentQueryEndpoints
             completedAt = query.CompletedAt,
             durationMs = query.CompletedAt.HasValue
                 ? (int)(query.CompletedAt.Value - query.CreatedAt).TotalMilliseconds
-                : (int?)null
+                : (int?)null,
+            // durationMs satirin olusmasindan sayiyor; ceviri ondan once.
+            // Kullanicinin bekledigi toplam sure ikisinin toplami.
+            preparationMs = query.PreparationMs,
+            usage = query.UsageResponse(),
+            feedbackRating = query.FeedbackRating
         });
+    }
+
+    /// <param name="Rating">1 = isime yaradi, -1 = yanlis/yararsiz.</param>
+    /// <param name="Comment">Istege bagli; en fazla 1000 karakter.</param>
+    public record FeedbackRequest(int Rating, string? Comment = null);
+
+    private const int MaxFeedbackCommentLength = 1000;
+
+    /// <summary>
+    /// Kullanicinin sonuca verdigi oy. Ayni kullanici fikrini degistirebilir;
+    /// son oy gecerli. Yorum yalnizca kayitta duruyor, olcume girmiyor — serbest
+    /// metin kisisel veri tasiyabilir.
+    /// </summary>
+    private static async Task<IResult> SubmitFeedback(
+        Guid queryId,
+        [FromBody] FeedbackRequest request,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        if (request.Rating is not (1 or -1))
+            return Results.BadRequest(new { error = "Rating must be 1 or -1." });
+        if (request.Comment is { Length: > MaxFeedbackCommentLength })
+            return Results.BadRequest(new { error = $"Comment must be at most {MaxFeedbackCommentLength} characters." });
+
+        var query = await db.QueryHistories.FindAsync([queryId], ct);
+        if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
+            return Results.NotFound(new { error = "Sorgu bulunamadı" });
+
+        query.FeedbackRating = (short)request.Rating;
+        query.FeedbackComment = string.IsNullOrWhiteSpace(request.Comment) ? null : request.Comment.Trim();
+        query.FeedbackAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        AnalysisTelemetry.Feedback.Add(1,
+            AnalysisTelemetry.Tag("feedback.rating", request.Rating > 0 ? "up" : "down"),
+            AnalysisTelemetry.Tag("query.status", query.Status));
+
+        return Results.NoContent();
     }
 
     /// <summary>
@@ -534,6 +656,7 @@ public static class AgentQueryEndpoints
                 error = StoredField(q, "error"),
                 message = StoredField(q, "message"),
                 pendingConfirmations = StoredField(q, "pendingConfirmations"),
+                feedbackRating = q.FeedbackRating,
             })
             .ToList();
 

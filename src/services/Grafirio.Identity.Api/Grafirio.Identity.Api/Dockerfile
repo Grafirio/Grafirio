@@ -6,6 +6,8 @@ WORKDIR /src
 COPY ["Grafirio.sln", "./"]
 COPY ["nuget.config", "./"]
 COPY ["src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Grafirio.Identity.Api.csproj", "src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/"]
+# Ortak olcum kurulumu (OpenTelemetry) proje referansi: restore onu da gormeli.
+COPY ["src/shared/Grafirio.Telemetry/Grafirio.Telemetry.csproj", "src/shared/Grafirio.Telemetry/"]
 
 # Grafirio.Shared.* paketleri ayri bir depoda: github.com/Grafirio/Packages.
 #

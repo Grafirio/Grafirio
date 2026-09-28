@@ -34,6 +34,27 @@ public static class SchemaPatches
 
         // Zincir geriye dogru yurundugu icin ebeveyn kimligi aranabilir olmali.
         """CREATE INDEX IF NOT EXISTS "IX_QueryHistories_ParentQueryId" ON "QueryHistories" ("ParentQueryId")""",
+
+        // Olcum: soru basina hazirlik suresi, LLM harcamasi ve kullanici oyu.
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "PreparationMs" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmCalls" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmInputTokens" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmCachedInputTokens" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmOutputTokens" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmReasoningTokens" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "LlmDurationMs" integer NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackRating" smallint NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackComment" character varying(1000) NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackAt" timestamp with time zone NULL""",
+
+        // Olcum: "Analiz Et" isinin suresi ve LLM harcamasi.
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "AnalysisDurationMs" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmCalls" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmInputTokens" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmCachedInputTokens" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmOutputTokens" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmReasoningTokens" integer NULL""",
+        """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "LlmDurationMs" integer NULL""",
     };
 
     /// <summary>

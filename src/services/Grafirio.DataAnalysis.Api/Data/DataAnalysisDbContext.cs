@@ -90,6 +90,7 @@ public class DataAnalysisDbContext : DbContext
             entity.Property(e => e.PyCaretParamsJson).HasColumnType("text");
             entity.Property(e => e.ResultJson).HasColumnType("text");
             entity.Property(e => e.ClarificationQuestion).HasMaxLength(2000);
+            entity.Property(e => e.FeedbackComment).HasMaxLength(1000);
             entity.HasIndex(e => e.ConfigId);
             entity.HasIndex(e => e.UserId);
             // Zincir geriye dogru yurunuyor (cocuktan ebeveyne) ve her adim

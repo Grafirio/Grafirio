@@ -3,7 +3,7 @@ namespace Grafirio.DataAnalysis.Api.Data.Entities;
 /// <summary>
 /// PyCaret sorgu geçmişi — hangi sorular soruldu, ne cevap geldi
 /// </summary>
-public class QueryHistory
+public class QueryHistory : ILlmUsageColumns
 {
     public Guid Id { get; set; }
 
@@ -58,4 +58,30 @@ public class QueryHistory
     public DateTime CreatedAt { get; set; }
 
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// Istegin gelisinden bu satirin olusmasina kadar gecen sure (yetki, config
+    /// okuma, LLM cevirisi). <see cref="CreatedAt"/> ceviriden SONRA yaziliyor;
+    /// bu alan olmadan <c>CompletedAt - CreatedAt</c> kullanicinin bekledigi
+    /// suresinin en pahali kismini gostermiyordu.
+    /// </summary>
+    public int? PreparationMs { get; set; }
+
+    public int? LlmCalls { get; set; }
+    public int? LlmInputTokens { get; set; }
+    public int? LlmCachedInputTokens { get; set; }
+    public int? LlmOutputTokens { get; set; }
+    public int? LlmReasoningTokens { get; set; }
+    public int? LlmDurationMs { get; set; }
+
+    /// <summary>
+    /// Kullanicinin sonuca verdigi oy: 1 (isime yaradi) ya da -1 (yanlis/yararsiz).
+    /// Kullanisliligin dogrudan olcusu bu; diger her sinyal (tekrar sorma,
+    /// netlestirme) dolayli.
+    /// </summary>
+    public short? FeedbackRating { get; set; }
+
+    public string? FeedbackComment { get; set; }
+
+    public DateTime? FeedbackAt { get; set; }
 }

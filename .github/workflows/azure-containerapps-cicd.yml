@@ -75,15 +75,19 @@ jobs:
             # olarak bu yasandi. Ayrintisi: shared-packages.md
             identity-api:
               - 'src/services/Grafirio.Identity.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             commerce-api:
               - 'src/services/Grafirio.Commerce.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             data-analysis-api:
               - 'src/services/Grafirio.DataAnalysis.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             gateway:
               - 'src/services/Grafirio.Gateway/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             # Paylasilan tema bu iki uygulamanin icine derleniyor; degisince
             # ikisi de yeniden yayinlanmali, yoksa renk canliya cikmaz.

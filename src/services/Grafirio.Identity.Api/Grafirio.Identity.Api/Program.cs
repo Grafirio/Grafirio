@@ -10,8 +10,13 @@ using Grafirio.Identity.Api.Features.Users.Directory;
 using Grafirio.Identity.Api.Options;
 using Grafirio.Identity.Api.Repositories;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
+using Grafirio.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Olcum (OpenTelemetry). Disari aktarim yalnizca OTEL_EXPORTER_OTLP_ENDPOINT
+// tanimliysa acilir.
+builder.AddGrafirioTelemetry("identity-api");
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

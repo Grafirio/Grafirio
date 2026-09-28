@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Application.Analysis;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
+using Grafirio.Telemetry;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Access;
 using Grafirio.DataAnalysis.Api.Data.Mongo;
@@ -45,7 +48,50 @@ public class ConnectionAnalysisConsumer(
     ILogger<ConnectionAnalysisConsumer> logger)
     : IConsumer<AnalyzeConnectionRequested>
 {
+    // Olcum durumu. Tuketici her mesaj icin yeniden olusturuluyor (MassTransit
+    // kapsamli cozumluyor), alanlar mesajlar arasinda paylasilmiyor.
+    private long _started;
+    private LlmUsage? _usage;
+    private string _outcome = "skipped";
+
+    /// <summary>
+    /// Sure, sonuc ve LLM harcamasi burada olculuyor; asil is
+    /// <see cref="ConsumeCore"/>'da.
+    ///
+    /// Yeniden denemede her deneme ayri olculuyor ve satira yalnizca son
+    /// denemenin harcamasi yaziliyor. Onceki denemelerin token'lari kaybolmuyor:
+    /// olcum sayaclarinda (grafirio.llm.tokens) duruyorlar.
+    /// </summary>
     public async Task Consume(ConsumeContext<AnalyzeConnectionRequested> context)
+    {
+        _started = Stopwatch.GetTimestamp();
+        using var usage = LlmUsage.Begin("analysis");
+        _usage = usage.Usage;
+        using var activity = AnalysisTelemetry.Source.StartActivity("analysis.run", ActivityKind.Consumer);
+        activity?.SetTag("grafirio.analysis.attempt", context.GetRetryAttempt());
+
+        try
+        {
+            await ConsumeCore(context);
+        }
+        catch
+        {
+            // Hata MassTransit'e gidiyor; bir sonraki deneme ayrica olculecek.
+            _outcome = "retrying";
+            throw;
+        }
+        finally
+        {
+            var outcome = AnalysisTelemetry.Tag("analysis.outcome", _outcome);
+            AnalysisTelemetry.AnalysisDuration.Record(GrafirioTelemetry.Seconds(_started), outcome);
+            activity?.SetTag("grafirio.analysis.outcome", _outcome);
+            activity?.SetTag("grafirio.llm.calls", usage.Usage.Calls);
+        }
+    }
+
+    private int ElapsedMs() => (int)Stopwatch.GetElapsedTime(_started).TotalMilliseconds;
+
+    private async Task ConsumeCore(ConsumeContext<AnalyzeConnectionRequested> context)
     {
         var message = context.Message;
         var ct = context.CancellationToken;
@@ -157,6 +203,7 @@ public class ConnectionAnalysisConsumer(
                 };
 
             await onProgress(0, chunks.Count);
+            AnalysisTelemetry.AnalysisChunks.Record(chunks.Count);
 
             var result = await llm.BuildSchemaDictionaryAsync(
                 chunkProfiles, allTableNames, onProgress, ct);
@@ -190,12 +237,27 @@ public class ConnectionAnalysisConsumer(
                 ? AgentAnalyzeEndpoints.AnalysisStatus.AwaitingAnswers
                 : AgentAnalyzeEndpoints.AnalysisStatus.Ready;
             await EnsureCurrentAsync(message, config.TablesJson, ct);
+            var usage = _usage!;
+            var durationMs = ElapsedMs();
             var written = await CurrentConfig(message, config.TablesJson)
                 .ExecuteUpdateAsync(update => update.SetProperty(current => current.ConfigJson, dictionary)
                     .SetProperty(current => current.SchemaSummary, result.Explanation)
                     .SetProperty(current => current.Status, status)
-                    .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
-            if (written != 1) return;
+                    .SetProperty(current => current.UpdatedAt, DateTime.UtcNow)
+                    .SetProperty(current => current.AnalysisDurationMs, durationMs)
+                    .SetProperty(current => current.LlmCalls, usage.Calls)
+                    .SetProperty(current => current.LlmInputTokens, usage.InputTokens)
+                    .SetProperty(current => current.LlmCachedInputTokens, usage.CachedInputTokens)
+                    .SetProperty(current => current.LlmOutputTokens, usage.OutputTokens)
+                    .SetProperty(current => current.LlmReasoningTokens, usage.ReasoningTokens)
+                    .SetProperty(current => current.LlmDurationMs, usage.DurationMs), ct);
+            if (written != 1)
+            {
+                _outcome = "stale";
+                return;
+            }
+
+            _outcome = status;
 
             logger.LogInformation(
                 "Analiz tamamlandı. Connection: {ConnectionId}, durum: {Status}",
@@ -204,6 +266,7 @@ public class ConnectionAnalysisConsumer(
         catch (StaleAnalysisJobException)
         {
             await Fail(config, "Analysis selection or connection changed. Start a new analysis.", ct);
+            _outcome = "stale";
         }
         catch (Exception ex) when (context.GetRetryAttempt() >= MaxRetries)
         {
@@ -282,12 +345,31 @@ public class ConnectionAnalysisConsumer(
 
     private async Task Fail(Data.Entities.AnalysisConfig config, string reason, CancellationToken ct)
     {
+        _outcome = "failed";
+
+        // Basarisiz analizin harcamasi da yaziliyor: parasi odendi ve "analiz
+        // basina maliyet" hesabindan dusmesi maliyeti oldugundan dusuk gosterir.
+        var calls = _usage?.Calls ?? 0;
+        var input = _usage?.InputTokens ?? 0;
+        var cached = _usage?.CachedInputTokens ?? 0;
+        var output = _usage?.OutputTokens ?? 0;
+        var reasoning = _usage?.ReasoningTokens ?? 0;
+        var llmMs = _usage?.DurationMs ?? 0;
+        var durationMs = ElapsedMs();
+
         await db.AnalysisConfigs.Where(current => current.Id == config.Id && current.IsActive
                 && current.ConnectionId == config.ConnectionId && current.CompanyId == config.CompanyId
                 && current.Status == AgentAnalyzeEndpoints.AnalysisStatus.Analyzing)
             .ExecuteUpdateAsync(update => update.SetProperty(current => current.Status, AgentAnalyzeEndpoints.AnalysisStatus.Failed)
                 .SetProperty(current => current.SchemaSummary, reason)
-                .SetProperty(current => current.UpdatedAt, DateTime.UtcNow), ct);
+                .SetProperty(current => current.UpdatedAt, DateTime.UtcNow)
+                .SetProperty(current => current.AnalysisDurationMs, durationMs)
+                .SetProperty(current => current.LlmCalls, calls)
+                .SetProperty(current => current.LlmInputTokens, input)
+                .SetProperty(current => current.LlmCachedInputTokens, cached)
+                .SetProperty(current => current.LlmOutputTokens, output)
+                .SetProperty(current => current.LlmReasoningTokens, reasoning)
+                .SetProperty(current => current.LlmDurationMs, llmMs), ct);
     }
 
     private IQueryable<Data.Entities.AnalysisConfig> CurrentConfig(AnalyzeConnectionRequested message, string tablesJson) =>
