@@ -91,6 +91,10 @@ public static class AnalysisTelemetry
 
     // --- Kullanim --------------------------------------------------------
 
+    public static readonly Counter<long> ChartOverride = Meter.CreateCounter<long>(
+        "grafirio.chart.override", "{change}",
+        "Kullanicinin sonuctan sonra modelin sectigi grafik turunu degistirmesi.");
+
     public static readonly Counter<long> Feedback = Meter.CreateCounter<long>(
         "grafirio.feedback", "{vote}",
         "Kullanicinin sonuca verdigi oy; feedback.rating = up | down.");

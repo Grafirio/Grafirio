@@ -46,6 +46,7 @@ public static class SchemaPatches
         """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackRating" smallint NULL""",
         """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackComment" character varying(1000) NULL""",
         """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "FeedbackAt" timestamp with time zone NULL""",
+        """ALTER TABLE "QueryHistories" ADD COLUMN IF NOT EXISTS "ChartTypeOverride" character varying(20) NULL""",
 
         // Olcum: "Analiz Et" isinin suresi ve LLM harcamasi.
         """ALTER TABLE "AnalysisConfigs" ADD COLUMN IF NOT EXISTS "AnalysisDurationMs" integer NULL""",

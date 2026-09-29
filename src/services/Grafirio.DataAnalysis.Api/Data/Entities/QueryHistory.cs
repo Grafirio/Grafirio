@@ -84,4 +84,11 @@ public class QueryHistory : ILlmUsageColumns
     public string? FeedbackComment { get; set; }
 
     public DateTime? FeedbackAt { get; set; }
+
+    /// <summary>
+    /// Kullanicinin sonucu gordukten sonra sectigi grafik turu (modelinkinden
+    /// farkliysa). Visualization Accuracy'nin canli sinyali: model turu dogru
+    /// secseydi kullanici degistirmek zorunda kalmazdi.
+    /// </summary>
+    public string? ChartTypeOverride { get; set; }
 }

@@ -343,6 +343,14 @@ export const submitQueryFeedback = async (queryId, rating, comment = null) => {
   });
 };
 
+// Kullanıcı sonucu gördükten sonra grafik türünü değiştirdi. Sunucu yalnızca
+// modelin seçtiğinden FARKLI türü kaydediyor: grafik seçiminin isabet ölçüsü.
+export const submitQueryChartType = async (queryId, chartType) => {
+  await axios.post(`${API_BASE_URL}/api/agent/query/${queryId}/chart-type`, { chartType }, {
+    timeout: 10000
+  });
+};
+
 // Sorgu geçmişini getir
 export const getAgentQueryHistory = async (connectionId) => {
   try {

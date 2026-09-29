@@ -13,6 +13,7 @@ using StackExchange.Redis;
 using MongoDB.Driver;
 using Grafirio.DataAnalysis.Api.Features.Schema;
 using Grafirio.DataAnalysis.Api.Features.Analysis;
+using Grafirio.DataAnalysis.Api.Features.Admin;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Features.Connections;
 using Grafirio.DataAnalysis.Api.Features.Internal;
@@ -315,6 +316,7 @@ app.MapAgentAnalyzeEndpoints();    // Analiz Et: profil + semantik sozluk + soru
 app.MapAgentQueryEndpoints();      // Sorgu: soru -> parametre -> PyCaret
 app.MapInternalDataEndpoints();    // PyCaret'in veri okudugu ic uc (gateway'e tanimlanmaz)
 app.MapBridgeEndpoints();          // Bridge kaydi ve yonetimi
+app.MapSemanticSignalEndpoints();  // Platform yonetimi: semantik zeka sinyalleri (yalnizca toplu)
 
 // Musteri agindaki bridge'lerin bagli durdugu kanal. Baglantiyi bridge kurar;
 // sunucu hicbir zaman musteri agina baglanmaya calismaz.

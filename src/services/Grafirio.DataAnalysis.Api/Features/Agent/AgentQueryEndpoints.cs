@@ -60,6 +60,11 @@ public static class AgentQueryEndpoints
             .WithName("SubmitQueryFeedback")
             .WithDescription("Kullanıcının sonuca verdiği oyu (1 / -1) kaydeder");
 
+        group.MapPost("/query/{queryId:guid}/chart-type", SubmitChartType)
+            .RequirePermission(AppPermissions.AnalysisRead)
+            .WithName("SubmitQueryChartType")
+            .WithDescription("Kullanıcının sonuçtan sonra seçtiği grafik türünü kaydeder");
+
         group.MapGet("/queries/{connectionId:guid}", GetQueryHistory)
             .RequirePermission(AppPermissions.AnalysisRead)
             .WithName("GetQueryHistory")
@@ -552,6 +557,57 @@ public static class AgentQueryEndpoints
             usage = query.UsageResponse(),
             feedbackRating = query.FeedbackRating
         });
+    }
+
+    public record ChartTypeRequest(string ChartType);
+
+    /// <summary>Tuvaldeki secici ile ayni liste (chartTypes.js).</summary>
+    private static readonly HashSet<string> ChartTypes =
+        ["bar", "line", "area", "pie", "doughnut", "radar", "scatter", "pareto"];
+
+    /// <summary>
+    /// Kullanici sonucu gordukten sonra grafik turunu degistirdi. Yalnizca
+    /// modelin sectiginden FARKLI bir tur kaydediliyor; ayni ture donmek
+    /// kaydi temizliyor. Visualization Accuracy'nin canli sinyali.
+    /// </summary>
+    private static async Task<IResult> SubmitChartType(
+        Guid queryId,
+        [FromBody] ChartTypeRequest request,
+        [FromServices] DataAnalysisDbContext db,
+        [FromServices] IIdentityService identity,
+        CancellationToken ct)
+    {
+        var companyId = identity.CurrentCompanyId;
+        if (companyId is null) return Results.Forbid();
+
+        var chartType = request.ChartType?.Trim().ToLowerInvariant() ?? "";
+        if (!ChartTypes.Contains(chartType))
+            return Results.BadRequest(new { error = "Unknown chart type." });
+
+        var query = await db.QueryHistories.FindAsync([queryId], ct);
+        if (query is null || !await IsOwnedByCompanyAsync(db, query.ConfigId, companyId.Value.ToString()))
+            return Results.NotFound(new { error = "Sorgu bulunamadı" });
+
+        var modelType = ModelChartType(query);
+        query.ChartTypeOverride = chartType == modelType ? null : chartType;
+        await db.SaveChangesAsync(ct);
+
+        if (query.ChartTypeOverride is not null)
+            AnalysisTelemetry.ChartOverride.Add(1,
+                AnalysisTelemetry.Tag("chart.model", modelType ?? "unknown"),
+                AnalysisTelemetry.Tag("chart.user", chartType));
+
+        return Results.NoContent();
+    }
+
+    /// <summary>Modelin sectigi tur: ceviri parametrelerindeki chart_type.</summary>
+    internal static string? ModelChartType(QueryHistory query)
+    {
+        var parameters = TryParse(query.PyCaretParamsJson);
+        return parameters is { ValueKind: JsonValueKind.Object } p
+               && p.TryGetProperty("chart_type", out var type) && type.ValueKind == JsonValueKind.String
+            ? type.GetString()?.ToLowerInvariant()
+            : null;
     }
 
     /// <param name="Rating">1 = isime yaradi, -1 = yanlis/yararsiz.</param>
