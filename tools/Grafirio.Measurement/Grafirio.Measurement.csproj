@@ -17,12 +17,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>grafirio-measure</AssemblyName>
     <RootNamespace>Grafirio.Measurement</RootNamespace>
-    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Kullanim raporu dogrudan DataAnalysis veritabanini (Postgres) okuyor. -->
     <PackageReference Include="Npgsql" Version="9.0.3" />
+    <!-- Semantik canli olcum: altin SQL test veritabaninda calisiyor. -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
   </ItemGroup>
 
   <ItemGroup>

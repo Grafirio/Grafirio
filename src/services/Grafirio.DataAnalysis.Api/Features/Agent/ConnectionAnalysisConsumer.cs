@@ -411,7 +411,7 @@ public class ConnectionAnalysisConsumer(
     /// Iliski beyanlari burada islenmiyor — onlar profil cikarilirken olcum
     /// kapisindan gecip <c>profile.Relationships</c> icine girdi zaten.
     /// </param>
-    private static string AttachProfileFacts(
+    internal static string AttachProfileFacts(
         string dictionaryJson, DatabaseProfile profile, IReadOnlyList<LearnedFact> learned)
     {
         try
@@ -624,7 +624,7 @@ public class ConnectionAnalysisConsumer(
                 edge["labelColumn"] = fact.Column;
     }
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull

@@ -1,0 +1,104 @@
+// Altin veri: e-ticaret. Semanin DOGRU yorumu — sistemin ciktisi bununla
+// karsilastiriliyor.
+//
+// columns.*.role: kabul edilen roller (ilki tercih). Bir kolon birden fazla
+//   sekilde makul yorumlanabiliyorsa hepsi yazili; yalnizca bariz yanlis
+//   (tutari "dimension", kimligi "measure" saymak) hata sayilir.
+// columns.*.sensitive: kisisel veri — degeri modele/panoya gitmemeli.
+// tables.*.concepts: tablonun amacinda/es anlamlilarinda gecmesi beklenen
+//   kavramlardan EN AZ biri. forbidden: gecmemesi gerekenler (karsit anlam).
+// relationships.kind: fk | name | name-role | typo | abbreviation | language
+//   | self | lookup — kesif zorlugunun sinifi; recall bu sinifa gore kirilir.
+{
+  "dataset": "eticaret",
+  "description": "DummyData e-ticaret semasi; butun iliskiler FK olarak bildirilmis (taban cizgisi).",
+  "tables": {
+    "dbo.Categories": { "concepts": ["kategori", "category"] },
+    "dbo.Products": { "concepts": ["ürün", "urun", "product"] },
+    "dbo.Customers": { "concepts": ["müşteri", "musteri", "customer"] },
+    "dbo.Addresses": { "concepts": ["adres", "address"] },
+    "dbo.Orders": { "concepts": ["sipariş", "siparis", "order"] },
+    "dbo.OrderItems": { "concepts": ["kalem", "satır", "satir", "item", "line"] },
+    "dbo.Reviews": { "concepts": ["yorum", "değerlendirme", "degerlendirme", "review", "puan"] }
+  },
+  "columns": {
+    "dbo.Categories.Id": { "role": ["identifier"] },
+    "dbo.Categories.Name": { "role": ["dimension"] },
+    "dbo.Categories.ParentCategoryId": { "role": ["identifier", "dimension"] },
+    "dbo.Categories.IsActive": { "role": ["dimension", "other"] },
+
+    "dbo.Products.Id": { "role": ["identifier"] },
+    "dbo.Products.Name": { "role": ["dimension"] },
+    "dbo.Products.SKU": { "role": ["identifier", "dimension"] },
+    "dbo.Products.CategoryId": { "role": ["identifier", "dimension"] },
+    "dbo.Products.Brand": { "role": ["dimension"] },
+    "dbo.Products.Price": { "role": ["measure"] },
+    "dbo.Products.CostPrice": { "role": ["measure"] },
+    "dbo.Products.Stock": { "role": ["measure"] },
+    "dbo.Products.Rating": { "role": ["measure", "dimension"] },
+    "dbo.Products.IsActive": { "role": ["dimension", "other"] },
+    "dbo.Products.CreatedDate": { "role": ["date"] },
+
+    "dbo.Customers.Id": { "role": ["identifier"] },
+    "dbo.Customers.Email": { "role": ["identifier", "other"], "sensitive": true },
+    "dbo.Customers.FirstName": { "role": ["other", "dimension"], "sensitive": true },
+    "dbo.Customers.LastName": { "role": ["other", "dimension"], "sensitive": true },
+    "dbo.Customers.Phone": { "role": ["other", "identifier"], "sensitive": true },
+    "dbo.Customers.BirthDate": { "role": ["date", "other"], "sensitive": true },
+    "dbo.Customers.Gender": { "role": ["dimension"] },
+    "dbo.Customers.RegistrationDate": { "role": ["date"] },
+    "dbo.Customers.CustomerType": { "role": ["dimension"] },
+    "dbo.Customers.Country": { "role": ["dimension"] },
+    "dbo.Customers.City": { "role": ["dimension"] },
+    "dbo.Customers.TotalSpent": { "role": ["measure"] },
+
+    "dbo.Addresses.Id": { "role": ["identifier"] },
+    "dbo.Addresses.CustomerId": { "role": ["identifier", "dimension"] },
+    "dbo.Addresses.AddressType": { "role": ["dimension"] },
+    "dbo.Addresses.Country": { "role": ["dimension"] },
+    "dbo.Addresses.City": { "role": ["dimension"] },
+    "dbo.Addresses.Street": { "role": ["other", "dimension"], "sensitive": true },
+
+    "dbo.Orders.Id": { "role": ["identifier"] },
+    "dbo.Orders.OrderNumber": { "role": ["identifier"] },
+    "dbo.Orders.CustomerId": { "role": ["identifier", "dimension"] },
+    "dbo.Orders.OrderDate": { "role": ["date"] },
+    "dbo.Orders.ShippingAddressId": { "role": ["identifier", "dimension"] },
+    "dbo.Orders.BillingAddressId": { "role": ["identifier", "dimension"] },
+    "dbo.Orders.SubTotal": { "role": ["measure"] },
+    "dbo.Orders.DiscountAmount": { "role": ["measure"] },
+    "dbo.Orders.TaxAmount": { "role": ["measure"] },
+    "dbo.Orders.ShippingCost": { "role": ["measure"] },
+    "dbo.Orders.TotalAmount": { "role": ["measure"] },
+    "dbo.Orders.Status": { "role": ["dimension"] },
+    "dbo.Orders.PaymentMethod": { "role": ["dimension"] },
+    "dbo.Orders.PaymentStatus": { "role": ["dimension"] },
+
+    "dbo.OrderItems.Id": { "role": ["identifier"] },
+    "dbo.OrderItems.OrderId": { "role": ["identifier", "dimension"] },
+    "dbo.OrderItems.ProductId": { "role": ["identifier", "dimension"] },
+    "dbo.OrderItems.Quantity": { "role": ["measure"] },
+    "dbo.OrderItems.UnitPrice": { "role": ["measure"] },
+    "dbo.OrderItems.LineTotal": { "role": ["measure"] },
+
+    "dbo.Reviews.Id": { "role": ["identifier"] },
+    "dbo.Reviews.ProductId": { "role": ["identifier", "dimension"] },
+    "dbo.Reviews.CustomerId": { "role": ["identifier", "dimension"] },
+    "dbo.Reviews.Rating": { "role": ["measure", "dimension"] },
+    "dbo.Reviews.ReviewDate": { "role": ["date"] },
+    "dbo.Reviews.Status": { "role": ["dimension"] }
+  },
+  "relationships": [
+    { "from": "dbo.Categories.ParentCategoryId", "to": "dbo.Categories.Id", "kind": "self", "declared": true },
+    { "from": "dbo.Products.CategoryId", "to": "dbo.Categories.Id", "kind": "fk" },
+    { "from": "dbo.Addresses.CustomerId", "to": "dbo.Customers.Id", "kind": "fk" },
+    { "from": "dbo.Orders.CustomerId", "to": "dbo.Customers.Id", "kind": "fk" },
+    { "from": "dbo.Orders.ShippingAddressId", "to": "dbo.Addresses.Id", "kind": "fk" },
+    { "from": "dbo.Orders.BillingAddressId", "to": "dbo.Addresses.Id", "kind": "fk" },
+    { "from": "dbo.OrderItems.OrderId", "to": "dbo.Orders.Id", "kind": "fk" },
+    { "from": "dbo.OrderItems.ProductId", "to": "dbo.Products.Id", "kind": "fk" },
+    { "from": "dbo.Reviews.ProductId", "to": "dbo.Products.Id", "kind": "fk" },
+    { "from": "dbo.Reviews.CustomerId", "to": "dbo.Customers.Id", "kind": "fk" }
+  ],
+  "nonRelationships": []
+}

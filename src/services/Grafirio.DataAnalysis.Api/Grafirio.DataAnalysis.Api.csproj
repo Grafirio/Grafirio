@@ -36,6 +36,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Semantik degerlendirme araci sozlugu uretimle AYNI adimlarla kuruyor
+         (AttachProfileFacts); kopyasini yazmak, olculen seyin uretimden
+         sessizce ayrismasi demekti. -->
+    <InternalsVisibleTo Include="grafirio-semantic" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Grafirio.Shared.Infrastructure" Version="1.0.0" />
     <PackageReference Include="Grafirio.Shared.Identity" Version="1.0.0" />
   </ItemGroup>

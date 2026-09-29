@@ -3,6 +3,7 @@ using Grafirio.Measurement.Cli;
 using Grafirio.Measurement.Evaluation;
 using Grafirio.Measurement.Load;
 using Grafirio.Measurement.Reporting;
+using Grafirio.Measurement.Semantic;
 using Grafirio.Measurement.Usage;
 
 const string Help = """
@@ -14,6 +15,8 @@ const string Help = """
       usage         Gercek kullanim raporu (DataAnalysis veritabanindan, yalnizca toplu rakamlar).
       publish       Daha once yazilmis bir scenario-run/v1 JSON dosyasini dashboard'a gonderir.
       publish-bdn   BenchmarkDotNet *-report-full.json dosyalarini dashboard'a gonderir.
+      semantic-live SQL Generation + Visualization Accuracy: semantik veri setinin sorularini canli
+                    sisteme sorar, grafigi altin SQL sonucuyla karsilastirir.
 
     Ortak secenekler:
       --out <dosya>             Sonuc dosyasi (varsayilan: artifacts/olcum/<tur>-<set>-<zaman>.json)
@@ -51,6 +54,12 @@ const string Help = """
       --bucket day|week         Kirilim (varsayilan week)
       --price-* ...             (eval ile ayni)
 
+    semantic-live:
+      --dataset <klasor>        Veri seti (orn. evals/semantic/eticaret)
+      --connection <guid>       Grafirio.daki kayitli baglanti — veri setinin kuruldugu veritabanina
+      --gold-db <dize>          AYNI veritabanina ADO.NET baglanti dizesi (altin SQL icin)  [SEMANTIC_GOLD_DB]
+      --base-url, --prefix, --token, --timeout   (eval ile ayni)
+
     publish <dosya.json> --publish <url>
     publish-bdn [klasor] --publish <url>   (varsayilan klasor: BenchmarkDotNet.Artifacts/results)
     """;
@@ -85,6 +94,8 @@ try
             return await PublishFileAsync(cli, cancel.Token);
         case "publish-bdn":
             return await PublishBdnAsync(cli, cancel.Token);
+        case "semantic-live":
+            return await RunSemanticLiveAsync(cli, cancel.Token);
         default:
             Console.Error.WriteLine($"Bilinmeyen komut: {command}\n");
             Console.WriteLine(Help);
@@ -135,6 +146,38 @@ static async Task<int> RunEvalAsync(CommandLine cli, CancellationToken ct)
 
     PrintSummary(document);
     return document.Cases.All(c => c.Success) ? 0 : 3;
+}
+
+static async Task<int> RunSemanticLiveAsync(CommandLine cli, CancellationToken ct)
+{
+    var dataset = SemanticDataset.Load(cli.Require("dataset"));
+    var baseUrl = cli.Get("base-url", "GRAFIRIO_BASE_URL") ?? "http://localhost:5000";
+    var timeout = cli.Duration("timeout", TimeSpan.FromMinutes(5));
+    var options = new SemanticLiveOptions
+    {
+        Dataset = dataset,
+        ConnectionId = Guid.Parse(cli.Require("connection")),
+        BaseUrl = baseUrl,
+        GoldConnectionString = cli.Require("gold-db", "SEMANTIC_GOLD_DB"),
+        QuestionTimeout = timeout,
+        Label = cli.Get("label")
+    };
+    var api = GrafirioApi.Create(baseUrl, cli.Get("prefix") ?? "data-analysis", cli.Require("token", "GRAFIRIO_TOKEN"),
+        timeout + TimeSpan.FromSeconds(30));
+    var output = ReadOutputOptions(cli);
+    RejectUnknown(cli);
+
+    var (sql, chart) = await new SemanticLiveRunner(api, options).RunAsync(ct);
+    foreach (var document in new[] { sql, chart })
+    {
+        // Iki belge ayni --out'a yazilmasin: set adi dosya adina giriyor.
+        var path = output.Out is null ? null
+            : Path.Combine(Path.GetDirectoryName(output.Out) ?? ".", $"{document.Suite}-{Path.GetFileName(output.Out)}");
+        await FinishAsync(document, (path, output.PublishUrl, output.PublishKey), ct);
+        PrintSummary(document);
+    }
+
+    return 0;
 }
 
 static async Task<int> RunLoadAsync(CommandLine cli, CancellationToken ct)

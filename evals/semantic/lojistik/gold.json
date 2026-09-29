@@ -1,0 +1,139 @@
+// Altin veri: lojistik (zor). Alan aciklamalari icin eticaret/gold.json'a bakin.
+//
+// Iliski siniflari ve bugunku algoritmadan beklenen:
+//   name        ad kokuyle birebir: ExportReferenceId -> L_INT_ExportReference   (bulunmali)
+//   name-role   rol onekli: ShipperCompanyId -> L_DEF_Company                    (bulunmali)
+//   typo        yazim hatasi: PostionId -> ...Position                           (bulunmali, onay isteyerek)
+//   abbreviation kisaltma: ExportRefNo -> ReferenceNo                            (bugun kacar)
+//   language    farkli dil: ParaBirimi -> L_DEF_Currency                         (bugun kacar)
+//   self        oz-referans, FK yok: ParentCompanyId                             (bilincli olarak atlaniyor)
+//   lookup      kosullu parametre: TransportModeCode -> L_DEF_Parameter(TRN)     (tek kolonla ifade edilemez)
+//
+// nonRelationships: kurulmamasi gereken, ama ad + deger ortusmesiyle kurulmaya
+// cok musait baglantilar. Kurulursa precision duser ve join'ler yanlis sonuc verir.
+{
+  "dataset": "lojistik",
+  "description": "FK'siz, onekli, karisik dilli lojistik semasi; kesif algoritmasinin sinirlarini olcer.",
+  "tables": {
+    "dbo.L_DEF_Country": { "concepts": ["ülke", "ulke", "country"] },
+    "dbo.L_DEF_Currency": { "concepts": ["para birimi", "döviz", "doviz", "currency"] },
+    "dbo.L_DEF_Parameter": { "concepts": ["parametre", "tanım", "tanim", "kod", "lookup", "parameter"] },
+    "dbo.L_DEF_Company": { "concepts": ["firma", "şirket", "sirket", "company"] },
+    "dbo.L_INT_ExportReference": {
+      "concepts": ["ihracat", "export", "giden"],
+      "forbidden": ["ithalat", "import", "gelen"]
+    },
+    "dbo.L_INT_ImportReference": {
+      "concepts": ["ithalat", "import", "gelen"],
+      "forbidden": ["ihracat", "export", "giden"]
+    },
+    "dbo.L_ROD_ExportPosition": { "concepts": ["sefer", "pozisyon", "karayolu", "tır", "tir", "position", "truck"] },
+    "dbo.L_TRK_PositionEvent": { "concepts": ["olay", "takip", "event", "tracking", "hareket"] },
+    "dbo.Cari": { "concepts": ["cari", "hesap", "müşteri", "musteri", "tedarikçi", "account"] },
+    "dbo.Fatura": { "concepts": ["fatura", "invoice"] }
+  },
+  "columns": {
+    "dbo.L_DEF_Country.CountryCode": { "role": ["identifier", "dimension"] },
+    "dbo.L_DEF_Country.CountryName": { "role": ["dimension"] },
+    "dbo.L_DEF_Country.Region": { "role": ["dimension"] },
+
+    "dbo.L_DEF_Currency.CurrencyCode": { "role": ["identifier", "dimension"] },
+    "dbo.L_DEF_Currency.CurrencyName": { "role": ["dimension"] },
+
+    "dbo.L_DEF_Parameter.ParameterId": { "role": ["identifier"] },
+    "dbo.L_DEF_Parameter.ParamGroup": { "role": ["dimension"] },
+    "dbo.L_DEF_Parameter.ParamCode": { "role": ["dimension", "identifier"] },
+    "dbo.L_DEF_Parameter.ParamText": { "role": ["dimension"] },
+
+    "dbo.L_DEF_Company.CompanyId": { "role": ["identifier"] },
+    "dbo.L_DEF_Company.CompanyCode": { "role": ["identifier", "dimension"] },
+    "dbo.L_DEF_Company.CompanyName": { "role": ["dimension"] },
+    "dbo.L_DEF_Company.CountryCode": { "role": ["dimension", "identifier"] },
+    "dbo.L_DEF_Company.ParentCompanyId": { "role": ["identifier", "dimension"] },
+    "dbo.L_DEF_Company.TaxNumber": { "role": ["identifier", "other"], "sensitive": true },
+    "dbo.L_DEF_Company.PhoneNumber": { "role": ["other", "identifier"], "sensitive": true },
+    "dbo.L_DEF_Company.CreatedAt": { "role": ["date"] },
+
+    "dbo.L_INT_ExportReference.ExportReferenceId": { "role": ["identifier"] },
+    "dbo.L_INT_ExportReference.ReferenceNo": { "role": ["identifier"] },
+    "dbo.L_INT_ExportReference.ShipperCompanyId": { "role": ["identifier", "dimension"] },
+    "dbo.L_INT_ExportReference.ReceiverCompanyId": { "role": ["identifier", "dimension"] },
+    "dbo.L_INT_ExportReference.DestinationCountryCode": { "role": ["dimension", "identifier"] },
+    "dbo.L_INT_ExportReference.TransportModeCode": { "role": ["dimension"] },
+    "dbo.L_INT_ExportReference.LoadingDate": { "role": ["date"] },
+    "dbo.L_INT_ExportReference.GrossWeightKg": { "role": ["measure"] },
+    "dbo.L_INT_ExportReference.FreightAmount": { "role": ["measure"] },
+    "dbo.L_INT_ExportReference.CurrencyCode": { "role": ["dimension", "identifier"] },
+    "dbo.L_INT_ExportReference.StatusId": { "role": ["dimension", "identifier"] },
+
+    "dbo.L_INT_ImportReference.ImportReferenceId": { "role": ["identifier"] },
+    "dbo.L_INT_ImportReference.ReferenceNo": { "role": ["identifier"] },
+    "dbo.L_INT_ImportReference.SenderCompanyId": { "role": ["identifier", "dimension"] },
+    "dbo.L_INT_ImportReference.ConsigneeCompanyId": { "role": ["identifier", "dimension"] },
+    "dbo.L_INT_ImportReference.OriginCountryCode": { "role": ["dimension", "identifier"] },
+    "dbo.L_INT_ImportReference.TransportModeCode": { "role": ["dimension"] },
+    "dbo.L_INT_ImportReference.ArrivalDate": { "role": ["date"] },
+    "dbo.L_INT_ImportReference.GrossWeightKg": { "role": ["measure"] },
+    "dbo.L_INT_ImportReference.FreightAmount": { "role": ["measure"] },
+    "dbo.L_INT_ImportReference.CurrencyCode": { "role": ["dimension", "identifier"] },
+
+    "dbo.L_ROD_ExportPosition.PositionId": { "role": ["identifier"] },
+    "dbo.L_ROD_ExportPosition.ExportReferenceId": { "role": ["identifier", "dimension"] },
+    "dbo.L_ROD_ExportPosition.TruckPlate": { "role": ["dimension", "identifier"] },
+    "dbo.L_ROD_ExportPosition.DriverNationalId": { "role": ["identifier", "other"], "sensitive": true },
+    "dbo.L_ROD_ExportPosition.CarrierCompanyNo": { "role": ["identifier", "dimension"] },
+    "dbo.L_ROD_ExportPosition.DepartureDate": { "role": ["date"] },
+    "dbo.L_ROD_ExportPosition.ArrivalDate": { "role": ["date"] },
+    "dbo.L_ROD_ExportPosition.DistanceKm": { "role": ["measure"] },
+
+    "dbo.L_TRK_PositionEvent.EventId": { "role": ["identifier"] },
+    "dbo.L_TRK_PositionEvent.PostionId": { "role": ["identifier", "dimension"] },
+    "dbo.L_TRK_PositionEvent.EventCode": { "role": ["dimension"] },
+    "dbo.L_TRK_PositionEvent.EventTime": { "role": ["date"] },
+
+    "dbo.Cari.CariKod": { "role": ["identifier"] },
+    "dbo.Cari.Unvan": { "role": ["dimension"] },
+    "dbo.Cari.CariTipi": { "role": ["dimension"] },
+    "dbo.Cari.Il": { "role": ["dimension"] },
+    "dbo.Cari.VergiNo": { "role": ["identifier", "other"], "sensitive": true },
+
+    "dbo.Fatura.FaturaId": { "role": ["identifier"] },
+    "dbo.Fatura.CariKodu": { "role": ["identifier", "dimension"] },
+    "dbo.Fatura.ExportRefNo": { "role": ["identifier", "dimension"] },
+    "dbo.Fatura.FaturaTarihi": { "role": ["date"] },
+    "dbo.Fatura.Tutar": { "role": ["measure"] },
+    "dbo.Fatura.KdvTutari": { "role": ["measure"] },
+    "dbo.Fatura.ParaBirimi": { "role": ["dimension"] }
+  },
+  "relationships": [
+    { "from": "dbo.L_DEF_Company.CountryCode", "to": "dbo.L_DEF_Country.CountryCode", "kind": "name" },
+    { "from": "dbo.L_INT_ExportReference.ShipperCompanyId", "to": "dbo.L_DEF_Company.CompanyId", "kind": "name-role" },
+    { "from": "dbo.L_INT_ExportReference.ReceiverCompanyId", "to": "dbo.L_DEF_Company.CompanyId", "kind": "name-role" },
+    { "from": "dbo.L_INT_ExportReference.DestinationCountryCode", "to": "dbo.L_DEF_Country.CountryCode", "kind": "name-role" },
+    { "from": "dbo.L_INT_ExportReference.CurrencyCode", "to": "dbo.L_DEF_Currency.CurrencyCode", "kind": "name" },
+    { "from": "dbo.L_INT_ImportReference.SenderCompanyId", "to": "dbo.L_DEF_Company.CompanyId", "kind": "name-role" },
+    { "from": "dbo.L_INT_ImportReference.ConsigneeCompanyId", "to": "dbo.L_DEF_Company.CompanyId", "kind": "name-role" },
+    { "from": "dbo.L_INT_ImportReference.OriginCountryCode", "to": "dbo.L_DEF_Country.CountryCode", "kind": "name-role" },
+    { "from": "dbo.L_INT_ImportReference.CurrencyCode", "to": "dbo.L_DEF_Currency.CurrencyCode", "kind": "name" },
+    { "from": "dbo.L_ROD_ExportPosition.ExportReferenceId", "to": "dbo.L_INT_ExportReference.ExportReferenceId", "kind": "name" },
+    { "from": "dbo.L_TRK_PositionEvent.PostionId", "to": "dbo.L_ROD_ExportPosition.PositionId", "kind": "typo" },
+    { "from": "dbo.Fatura.CariKodu", "to": "dbo.Cari.CariKod", "kind": "name" },
+    { "from": "dbo.Fatura.ExportRefNo", "to": "dbo.L_INT_ExportReference.ReferenceNo", "kind": "abbreviation" },
+    { "from": "dbo.Fatura.ParaBirimi", "to": "dbo.L_DEF_Currency.CurrencyCode", "kind": "language" },
+    { "from": "dbo.L_DEF_Company.ParentCompanyId", "to": "dbo.L_DEF_Company.CompanyId", "kind": "self" },
+    { "from": "dbo.L_INT_ExportReference.TransportModeCode", "to": "dbo.L_DEF_Parameter.ParamCode", "kind": "lookup",
+      "note": "ParamGroup = 'TRN' kosuluyla" },
+    { "from": "dbo.L_INT_ImportReference.TransportModeCode", "to": "dbo.L_DEF_Parameter.ParamCode", "kind": "lookup",
+      "note": "ParamGroup = 'TRN' kosuluyla" },
+    { "from": "dbo.L_TRK_PositionEvent.EventCode", "to": "dbo.L_DEF_Parameter.ParamCode", "kind": "lookup",
+      "note": "ParamGroup = 'EVT' kosuluyla" }
+  ],
+  "nonRelationships": [
+    { "from": "dbo.L_ROD_ExportPosition.CarrierCompanyNo", "to": "dbo.L_DEF_Company.CompanyId",
+      "reason": "Dis tasiyici kaydinin sira numarasi; degerler (1-30) tesadufen firma kimlikleriyle ortusuyor." },
+    { "from": "dbo.L_INT_ImportReference.ReferenceNo", "to": "dbo.L_INT_ExportReference.ReferenceNo",
+      "reason": "Ithalat ve ihracat referanslari ayri numara uzaylari; ayni adli kolonlar birbirine baglanmamali." },
+    { "from": "dbo.L_INT_ExportReference.ReferenceNo", "to": "dbo.L_INT_ImportReference.ReferenceNo",
+      "reason": "Ayni sebep, ters yon." }
+  ]
+}
