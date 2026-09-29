@@ -27,4 +27,9 @@
     <PackageReference Include="Grafirio.Contracts.Commerce" Version="1.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Ortak olcum kurulumu (OpenTelemetry). -->
+    <ProjectReference Include="..\..\..\shared\Grafirio.Telemetry\Grafirio.Telemetry.csproj" />
+  </ItemGroup>
+
 </Project>

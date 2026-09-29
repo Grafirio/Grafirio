@@ -5,6 +5,7 @@ using Grafirio.DataAnalysis.Api.Application.Interfaces;
 using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Features.Agent;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 using Microsoft.EntityFrameworkCore;
 
 namespace Grafirio.DataAnalysis.Api.Infrastructure.Services;
@@ -173,23 +174,45 @@ public sealed class PyCaretQueryService(
 
     private async Task PersistAsync(QueryHistory query, CancellationToken ct)
     {
+        var entry = db.Entry(query);
+        var originalStatus = entry.Property(q => q.Status).OriginalValue;
+
         if (!db.Database.IsRelational())
         {
             await db.SaveChangesAsync(ct);
+            RecordTerminal(originalStatus, query);
             return;
         }
 
         // Compare-and-swap prevents an in-flight poll from undoing cancellation or a terminal result.
-        var entry = db.Entry(query);
-        var originalStatus = entry.Property(q => q.Status).OriginalValue;
         var originalResult = entry.Property(q => q.ResultJson).OriginalValue;
-        await db.QueryHistories.Where(q => q.Id == query.Id && q.Status == originalStatus && q.ResultJson == originalResult)
+        var written = await db.QueryHistories.Where(q => q.Id == query.Id && q.Status == originalStatus && q.ResultJson == originalResult)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(q => q.Status, query.Status)
                 .SetProperty(q => q.ResultJson, query.ResultJson)
                 .SetProperty(q => q.PyCaretParamsJson, query.PyCaretParamsJson)
                 .SetProperty(q => q.ClarificationQuestion, query.ClarificationQuestion)
                 .SetProperty(q => q.CompletedAt, query.CompletedAt), ct);
+        // Yalnizca yazmayi KAZANAN istek sayiyor: ayni sonucu iki ayri yoklama
+        // birden gorebiliyor, CAS'i ise yalnizca biri geciyor.
+        if (written == 1) RecordTerminal(originalStatus, query);
         await entry.ReloadAsync(ct);
+    }
+
+    /// <summary>
+    /// Sorgu etkin bir durumdan son duruma gectiyse bir kez sayar. Sure satirin
+    /// olusmasindan sayiliyor; ceviri suresi (PreparationMs) ayrica ekleniyor ki
+    /// olcum kullanicinin bekledigi sureyle ayni olsun.
+    /// </summary>
+    private static void RecordTerminal(string originalStatus, QueryHistory query)
+    {
+        if (originalStatus is not ("processing" or "queued" or "cancelling") || IsActive(query)) return;
+
+        var status = AnalysisTelemetry.Tag("query.status", query.Status);
+        AnalysisTelemetry.QueryCompleted.Add(1, status);
+
+        var finished = query.CompletedAt ?? DateTime.UtcNow;
+        var seconds = (finished - query.CreatedAt).TotalSeconds + (query.PreparationMs ?? 0) / 1000d;
+        AnalysisTelemetry.QueryEndToEnd.Record(Math.Max(0, seconds), status);
     }
 }

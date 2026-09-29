@@ -335,6 +335,22 @@ export const getAgentQueryResult = async (queryId) => {
   }
 };
 
+// Kullanıcının sonuca verdiği oy: 1 (işime yaradı) ya da -1 (yanlış/yararsız).
+// Kullanışlılığın doğrudan ölçüsü bu; ölçüm raporları bu oyları topluyor.
+export const submitQueryFeedback = async (queryId, rating, comment = null) => {
+  await axios.post(`${API_BASE_URL}/api/agent/query/${queryId}/feedback`, { rating, comment }, {
+    timeout: 10000
+  });
+};
+
+// Kullanıcı sonucu gördükten sonra grafik türünü değiştirdi. Sunucu yalnızca
+// modelin seçtiğinden FARKLI türü kaydediyor: grafik seçiminin isabet ölçüsü.
+export const submitQueryChartType = async (queryId, chartType) => {
+  await axios.post(`${API_BASE_URL}/api/agent/query/${queryId}/chart-type`, { chartType }, {
+    timeout: 10000
+  });
+};
+
 // Sorgu geçmişini getir
 export const getAgentQueryHistory = async (connectionId) => {
   try {

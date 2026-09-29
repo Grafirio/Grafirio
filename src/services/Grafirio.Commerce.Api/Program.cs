@@ -7,8 +7,13 @@ using Grafirio.Commerce.Api.Modules.Files;
 using Grafirio.Commerce.Api.Modules.Orders;
 using Grafirio.Commerce.Api.Modules.Payments;
 using Grafirio.Shared.Infrastructure.MassTransit.Extensions;
+using Grafirio.Telemetry;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Olcum (OpenTelemetry). Disari aktarim yalnizca OTEL_EXPORTER_OTLP_ENDPOINT
+// tanimliysa acilir.
+builder.AddGrafirioTelemetry("commerce-api");
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

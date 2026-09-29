@@ -153,12 +153,19 @@ public sealed record QueryChunk(
 ///
 /// <paramref name="Columns"/> burada da var cunku hic satir donmediginde kolon
 /// adlari baska hicbir yerden ogrenilemiyor.
+///
+/// <paramref name="DatabaseMs"/> bridge'in kendi olctugu sure: baglanti acma,
+/// guvenlik yoklamalari ve satirlarin okunmasi. Sunucunun olctugu toplam
+/// sureden farki ag ve kuyruk — "yavaslik musterinin veritabaninda mi, yolda
+/// mi" sorusunun cevabi. Istege bagli: eski bridge'ler gondermiyor, yeni sunucu
+/// da onlari reddetmiyor.
 /// </summary>
 public sealed record QueryCompleted(
     string RequestId,
     int RowCount,
     bool Truncated,
-    IReadOnlyList<QueryColumn> Columns);
+    IReadOnlyList<QueryColumn> Columns,
+    double? DatabaseMs = null);
 
 /// <summary>
 /// Bridge → sunucu: sorgu calistirilamadi.

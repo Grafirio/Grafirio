@@ -32,7 +32,8 @@ public sealed class DataSourceFactory(
         var session = route.ConnectionMode == ConnectionRoute.Bridge
             ? CreateBridgeSession(target, connection.Id, connection.Name, temporary: false)
             : await OpenDirectAsync(target, timeoutSeconds, ct);
-        return new ConnectionRouteSession(session, token => ValidateSavedRouteAsync(connection, route, token));
+        return new ConnectionRouteSession(Instrument(session, route),
+            token => ValidateSavedRouteAsync(connection, route, token));
     }
 
     private async Task ValidateSavedRouteAsync(SavedConnection connection, ConnectionRoute expected, CancellationToken ct)
@@ -46,10 +47,19 @@ public sealed class DataSourceFactory(
     public async Task<IDataSourceSession> OpenAsync(DataSourceTarget target, CancellationToken ct = default)
     {
         await ValidateRouteAsync(target.Route, target.CompanyId, ct);
-        return target.Route.ConnectionMode == ConnectionRoute.Bridge
+        var session = target.Route.ConnectionMode == ConnectionRoute.Bridge
             ? CreateBridgeSession(target, Guid.NewGuid(), "Connection preview", temporary: true)
             : await OpenDirectAsync(target, DataSourceTarget.ProbeConnectTimeoutSeconds, ct);
+        return Instrument(session, target.Route);
     }
+
+    /// <summary>
+    /// Olcum katmani rota dogrulamasinin ICINDE duruyor: dogrulama sorgusu
+    /// musteri veritabanina gitmiyor, sureye katilmamali.
+    /// </summary>
+    private static IDataSourceSession Instrument(IDataSourceSession session, ConnectionRoute route) =>
+        new InstrumentedDataSourceSession(session,
+            route.ConnectionMode == ConnectionRoute.Bridge ? "bridge" : "direct");
 
     private async Task ValidateRouteAsync(ConnectionRoute route, string companyId, CancellationToken ct)
     {

@@ -1,0 +1,220 @@
+/* Semantik zekâ sayfası. Renkler theme.css tokenlarından; koyu tema oradan
+   geliyor (data-bs-theme='dark'). Grafiklerde tek seri: çizgi accent, ızgara
+   hairline, veri dışında hiçbir şey dikkat çekmiyor. */
+
+.sm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.sm-toolbar .gf-label,
+.sm-detail__toolbar .gf-label { margin: 0; }
+
+.sm-page-header { flex-wrap: wrap; }
+.sm-page-header > div:first-child { flex: 1 1 320px; min-width: 0; }
+
+.gf-page > .gf-alert { margin-bottom: var(--space-3); overflow-wrap: anywhere; }
+
+/* --- Kartlar --------------------------------------------------------------- */
+.sm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-5) 0;
+}
+
+.sm-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.sm-card:hover { border-color: var(--border-strong); }
+.sm-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sm-card.is-selected { border-color: var(--accent); box-shadow: var(--shadow); }
+
+.sm-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.sm-card__title { font-weight: var(--weight-semibold); }
+
+.sm-card__value-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.sm-card__value {
+  font-size: 2rem;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+.sm-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.sm-card__metrics:empty { display: none; }
+
+.sm-card__metrics dt { font-size: var(--text-xs); color: var(--text-muted); }
+.sm-card__metrics dd { margin: 0; font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+
+.sm-card__live {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+  font-size: var(--text-sm);
+}
+
+.sm-card__live-row { display: flex; justify-content: space-between; gap: var(--space-2); }
+.sm-card__live-row span:last-child { font-variant-numeric: tabular-nums; font-weight: var(--weight-medium); }
+
+.sm-card__empty { margin: 0; }
+
+/* Fark: yön oku + işaret + renk — renk tek başına anlam taşımıyor. */
+.sm-delta {
+  display: inline-block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sm-delta--good { color: var(--success); }
+.sm-delta--bad { color: var(--danger); }
+
+/* --- Sparkline ------------------------------------------------------------- */
+.sm-spark { flex-shrink: 0; overflow: visible; }
+
+.sm-spark__line {
+  fill: none;
+  stroke: var(--text-subtle);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.sm-spark__dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+
+/* --- Ayrıntı --------------------------------------------------------------- */
+.sm-detail { margin-bottom: var(--space-6); }
+/* Vaka mesajlari ve metrik adlari uzun olabilir: tablo sayfayi degil kendi kutusunu kaydirsin. */
+.sm-detail .gf-card__body { overflow-x: auto; }
+.sm-detail .gf-card__header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+.sm-detail__title { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin: 0; }
+
+.sm-detail__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.sm-detail__toolbar .gf-select { max-width: 320px; }
+
+.sm-detail__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+}
+
+.sm-h3 {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.sm-detail__grid .sm-h3 { margin-top: 0; }
+
+.sm-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sm-hint { margin-top: var(--space-2); }
+.sm-filter { margin-bottom: var(--space-2); }
+
+.sm-detail .pa-table tbody tr { cursor: default; }
+.sm-detail .pa-table tbody tr[class~='is-selected'] td { background: var(--accent-soft); }
+.sm-detail .pa-table tbody tr.sm-case { cursor: pointer; }
+.sm-detail .pa-table tbody tr.sm-case:hover td { background: var(--surface-sunken); }
+
+.sm-case__message { color: var(--text-muted); max-width: 520px; }
+
+.sm-case__details pre {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- Trend grafiği --------------------------------------------------------- */
+.sm-trend { position: relative; }
+.sm-trend__svg { display: block; width: 100%; height: auto; cursor: crosshair; }
+
+.sm-trend__grid { stroke: var(--border); stroke-width: 1; shape-rendering: crispEdges; }
+.sm-trend__tick { fill: var(--text-muted); font-size: 11px; font-family: var(--font-sans); }
+.sm-trend__cross { stroke: var(--border-strong); stroke-width: 1; }
+
+.sm-trend__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.sm-trend__dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.sm-trend__dot.is-selected { fill: var(--surface); stroke: var(--accent); stroke-width: 3; }
+
+.sm-trend__tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+  max-width: 260px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.sm-trend__tip strong { font-size: var(--text-base); }
+
+@media (max-width: 900px) {
+  .sm-detail__grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .sm-grid { grid-template-columns: minmax(0, 1fr); }
+  .sm-card__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

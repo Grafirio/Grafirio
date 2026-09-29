@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Semantik zeka degerlendirmesi (grafirio-semantic).
+
+    DataAnalysis'in GERCEK katmanlarini surec icinde calistiriyor: sema
+    profili, iliski kesfi, LLM sozlugu ve soru cevirisi. Her katmanin ciktisi
+    evals/semantic altindaki altin veriyle karsilastiriliyor. Sonuc
+    "scenario-run/v1" belgesi (grafirio-measure ile ayni bicim).
+
+    Neden surec ici: katman katman olcum icin ara ciktilara (profil, kenar
+    listesi, sozluk) ihtiyac var ve bunlar API'den ancak kismen gorunuyor.
+    Ayrica iliski kesfi LLM gerektirmiyor; butun yigin ayakta olmadan,
+    CI'da her commit'te kosabiliyor.
+
+    Hicbir imaja girmiyor.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>grafirio-semantic</AssemblyName>
+    <RootNamespace>Grafirio.SemanticEval</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\services\Grafirio.DataAnalysis.Api\Grafirio.DataAnalysis.Api.csproj" />
+    <ProjectReference Include="..\Grafirio.Measurement\Grafirio.Measurement.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Grafirio.SemanticEval.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import BiChartNode from './BiChartNode';
 import NodeComposer from './NodeComposer';
 import CardAudit from './CardAudit';
+import CardFeedback from './CardFeedback';
 import MatchConfirmations from './MatchConfirmations';
 import { CHART_TYPES } from '../chartTypes';
 
@@ -95,14 +96,20 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
 
         <div className="bi-card-chart">
           {data?.chart ? (
-            <BiChartNode
-              data={{
-                ...data.chart,
-                // Keep the source type available for validation before conversion.
-                displayType: data.chartType,
-                evidence: data.evidence,
-              }}
-            />
+            <>
+              <BiChartNode
+                data={{
+                  ...data.chart,
+                  // Keep the source type available for validation before conversion.
+                  displayType: data.chartType,
+                  evidence: data.evidence,
+                }}
+              />
+              {!data?.loading && (
+                // key: yeni soru yeni sonuç demek; önceki sonucun oyu ona taşınmamalı.
+                <CardFeedback key={data.queryId} queryId={data.queryId} initialRating={data.feedbackRating ?? null} />
+              )}
+            </>
           ) : (
             <div className="bi-card-empty">
               {data?.loading ? 'Hesaplanıyor…' : 'Grafik burada görünecek'}

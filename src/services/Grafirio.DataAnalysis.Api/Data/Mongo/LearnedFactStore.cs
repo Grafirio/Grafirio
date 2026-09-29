@@ -82,6 +82,34 @@ public class LearnedFactStore
     /// okunursa uygulanabilir. Kullanmak isteyen taraf
     /// <see cref="LearnedFact.Accepted"/>'i kendisi suzer.
     /// </summary>
+    /// <summary>
+    /// Donem icindeki kayitlarin tur ve onay durumuna gore sayisi — butun
+    /// sirketler ve baglantilar uzerinden, yalnizca toplam.
+    ///
+    /// Admin panelinin canli sinyali: kullanicinin sozluge yaptigi her duzeltme
+    /// (anlam, es anlamli) sistemin semayi anlamada eksik kaldigi bir yer;
+    /// iliski onay/ret orani ise kesfin isabeti. Icerik (tablo/kolon adi)
+    /// disari cikmiyor.
+    /// </summary>
+    public async Task<List<(string Kind, bool Accepted, long Count)>> CountSinceAsync(
+        DateTime since, CancellationToken ct = default)
+    {
+        var groups = await _collection.Aggregate()
+            .Match(Builders<BsonDocument>.Filter.Gte("createdAt", since))
+            .Group(new BsonDocument
+            {
+                { "_id", new BsonDocument { { "kind", "$kind" }, { "accepted", "$accepted" } } },
+                { "count", new BsonDocument("$sum", 1) }
+            })
+            .ToListAsync(ct);
+
+        return groups.Select(g => (
+                g["_id"]["kind"].IsString ? g["_id"]["kind"].AsString : "unknown",
+                g["_id"]["accepted"].IsBoolean && g["_id"]["accepted"].AsBoolean,
+                (long)g["count"].ToInt64()))
+            .ToList();
+    }
+
     public async Task<List<LearnedFact>> GetAllAsync(
         Guid connectionId, string companyId, CancellationToken ct = default)
     {

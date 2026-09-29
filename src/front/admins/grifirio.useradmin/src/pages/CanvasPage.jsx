@@ -12,7 +12,7 @@ import getPendingConfirmations from '../utils/relationships/getPendingConfirmati
 import askViaAgent from '../services/askViaAgent';
 import {
   getConnectionSummary, getSelectedTables,
-  getAgentQueryHistory,
+  getAgentQueryHistory, submitQueryChartType,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
 
@@ -297,6 +297,12 @@ export default function CanvasPage() {
      değişebilmeli. */
   const handleCardChartType = useCallback((node, chartType) => {
     patchCard(node.id, { chartType });
+    // Yalnızca sonuç GELDİKTEN sonra yapılan değişiklik ölçülüyor: soru
+    // sorulmadan önce seçilen tür kullanıcının tercihi, modelin hatası değil.
+    // Kaydedilemezse görünüm yine değişir; ölçüm kullanıcıyı engellememeli.
+    if (node.data?.queryId && node.data?.chart) {
+      submitQueryChartType(node.data.queryId, chartType).catch(() => {});
+    }
   }, [patchCard]);
 
   const { handleAsk: handleCardAsk, handleConfirmMatch: handleNodeConfirmMatch } = useRelationshipConfirmations({

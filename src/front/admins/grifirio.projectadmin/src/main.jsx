@@ -6,6 +6,7 @@ import keycloak from './keycloak';
 import App from './App.jsx';
 import './styles/theme.css';
 import './styles/projectadmin.css';
+import './styles/semantic.css';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(

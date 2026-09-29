@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 
 namespace Grafirio.DataAnalysis.Api.Services;
 
@@ -86,6 +87,10 @@ public class LlmAnalysisService
         if (_model is null) return NotConfigured();
         if (chunkProfiles.Count == 0)
             return new LlmResult { Success = false, Error = "Profil boş; sözlük üretilemez." };
+
+        // Parcalar paralel kosuyor; kapsam ayni is parcaciklarina akiyor ve
+        // hepsinin token'i tek sozluk maliyeti olarak toplaniyor.
+        using var usageScope = LlmUsage.Begin("schema_dictionary");
 
         _logger.LogInformation(
             "Semantik sözlük isteniyor. {Chunks} parça, {Tables} tablo.",
@@ -195,6 +200,7 @@ public class LlmAnalysisService
         if (_model is null) return NotConfigured();
 
         _logger.LogInformation("Translating analysis question ({Length} characters)", question.Length);
+        using var usageScope = LlmUsage.Begin("translate_question");
 
         try
         {

@@ -1,0 +1,165 @@
+// Sorular: lojistik (zor). Alan aciklamalari eticaret/questions.json'da.
+//
+// Bu setin asil olctugu: karsit tablolar (ihracat/ithalat), ayni adli kolonlar
+// (FreightAmount iki tabloda da), kod degerleri ("karayolu" -> ROD) ve Turkce
+// muhasebe tablolari.
+{
+  "questions": [
+    {
+      "id": "l01-ihracat-sayisi", "kind": "answerable", "group": "sayma",
+      "question": "Toplam kaç ihracat dosyası var?",
+      "paraphrases": ["İhracat referansı sayısı", "Kaç tane ihracat yaptık?"],
+      "expect": {
+        "params": { "target_table": "dbo.L_INT_ExportReference", "aggregation": "count" },
+        "paramsAbsent": ["group_by"]
+      },
+      "gold": { "sql": "SELECT COUNT(*) AS v FROM dbo.L_INT_ExportReference", "charts": [] }
+    },
+    {
+      "id": "l02-ithalat-ilk-5-ulke", "kind": "answerable", "group": "karsit-tablo",
+      "question": "İthalatta en çok hangi 5 ülkeden mal geliyor?",
+      "paraphrases": ["İthalat yapılan ilk 5 menşe ülke", "En çok ithalat yaptığımız 5 ülke"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ImportReference", "aggregation": "count",
+          "group_by": ["re:(^|\\.)origincountrycode$|countryname$"], "limit": 5
+        }
+      },
+      "gold": {
+        "sql": "SELECT TOP 5 OriginCountryCode AS k, COUNT(*) AS v FROM dbo.L_INT_ImportReference GROUP BY OriginCountryCode ORDER BY COUNT(*) DESC, OriginCountryCode",
+        "charts": ["bar"], "ordered": true
+      }
+    },
+    {
+      "id": "l03-ihracat-tasima-sekli", "kind": "answerable", "group": "kod",
+      "question": "İhracatta taşıma şekline göre dosya dağılımı",
+      "paraphrases": ["İhracat dosyalarının taşıma moduna göre sayısı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ExportReference", "aggregation": "count",
+          "group_by": ["re:transportmodecode$|paramtext$"]
+        }
+      },
+      "gold": {
+        "sql": "SELECT TransportModeCode AS k, COUNT(*) AS v FROM dbo.L_INT_ExportReference GROUP BY TransportModeCode",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "l04-karayolu-ihracat", "kind": "answerable", "group": "kod",
+      "question": "Karayolu ile kaç ihracat yapıldı?",
+      "paraphrases": ["Kara taşımacılığıyla yapılan ihracat sayısı", "Tırla giden ihracat dosyası sayısı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ExportReference", "aggregation": "count",
+          "filters": { "TransportModeCode": "ROD" }
+        }
+      },
+      "gold": { "sql": "SELECT COUNT(*) AS v FROM dbo.L_INT_ExportReference WHERE TransportModeCode = 'ROD'", "charts": [] }
+    },
+    {
+      "id": "l05-ithalat-toplam-navlun", "kind": "answerable", "group": "karsit-tablo",
+      "question": "İthalatta toplam navlun tutarı ne kadar?",
+      "paraphrases": ["İthalat navlun bedellerinin toplamı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ImportReference", "aggregation": "sum",
+          "target_column": "re:(^|\\.)freightamount$"
+        }
+      },
+      "gold": { "sql": "SELECT SUM(FreightAmount) AS v FROM dbo.L_INT_ImportReference", "charts": [] }
+    },
+    {
+      "id": "l06-ulkeye-gore-ihracat-agirligi", "kind": "answerable", "group": "kirilim",
+      "question": "Gidilen ülkeye göre toplam ihracat ağırlığı",
+      "paraphrases": ["İhracatta varış ülkesi bazında brüt kilo toplamı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ExportReference", "aggregation": "sum",
+          "target_column": "re:(^|\\.)grossweightkg$",
+          "group_by": ["re:destinationcountrycode$|countryname$"]
+        }
+      },
+      "gold": {
+        "sql": "SELECT DestinationCountryCode AS k, SUM(GrossWeightKg) AS v FROM dbo.L_INT_ExportReference GROUP BY DestinationCountryCode",
+        "charts": ["bar"]
+      }
+    },
+    {
+      "id": "l07-para-birimine-gore-fatura", "kind": "answerable", "group": "turkce",
+      "question": "Para birimine göre fatura toplamları",
+      "paraphrases": ["Faturaların döviz cinsine göre toplam tutarı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Fatura", "aggregation": "sum",
+          "target_column": "re:(^|\\.)tutar$", "group_by": ["re:(^|\\.)parabirimi$"]
+        }
+      },
+      "gold": {
+        "sql": "SELECT ParaBirimi AS k, SUM(Tutar) AS v FROM dbo.Fatura GROUP BY ParaBirimi",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "l08-ortalama-sefer-mesafesi", "kind": "answerable", "group": "toplama",
+      "question": "Karayolu seferlerinin ortalama mesafesi kaç km?",
+      "paraphrases": ["Tır seferleri ortalama kaç kilometre?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_ROD_ExportPosition", "aggregation": "avg",
+          "target_column": "re:(^|\\.)distancekm$"
+        }
+      },
+      "gold": { "sql": "SELECT AVG(CAST(DistanceKm AS FLOAT)) AS v FROM dbo.L_ROD_ExportPosition", "charts": [] }
+    },
+    {
+      "id": "l09-2025-ihracat", "kind": "answerable", "group": "zaman",
+      "question": "2025 yılında kaç ihracat yüklendi?",
+      "paraphrases": ["2025'te yüklenen ihracat dosyası sayısı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.L_INT_ExportReference", "aggregation": "count",
+          "filters": { "LoadingDate": { "gte": "re:^2025-01-01", "lt": "re:^2026-01-01" } }
+        }
+      },
+      "gold": {
+        "sql": "SELECT COUNT(*) AS v FROM dbo.L_INT_ExportReference WHERE LoadingDate >= '2025-01-01' AND LoadingDate < '2026-01-01'",
+        "charts": []
+      }
+    },
+    {
+      "id": "l10-cari-tipine-gore", "kind": "answerable", "group": "turkce",
+      "question": "Cari tipine göre cari sayısı",
+      "paraphrases": ["Kaç müşteri, kaç tedarikçi carimiz var?"],
+      "expect": {
+        "params": { "target_table": "dbo.Cari", "aggregation": "count", "group_by": ["re:(^|\\.)caritipi$"] }
+      },
+      "gold": {
+        "sql": "SELECT CariTipi AS k, COUNT(*) AS v FROM dbo.Cari GROUP BY CariTipi",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+
+    {
+      "id": "l-u01-olmayan-kolon", "kind": "unknown", "unknownType": "missing-column",
+      "question": "İhracatta toplam gümrük vergisi ne kadar?",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "l-u02-ithalat-mi-ihracat-mi", "kind": "unknown", "unknownType": "ambiguous",
+      "question": "Referansların toplam navlunu nedir?",
+      "paraphrases": ["Toplam navlun ne kadar?"],
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "l-u03-olmayan-tablo", "kind": "unknown", "unknownType": "missing-table",
+      "question": "Depolardaki stok miktarları nedir?",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "l-u04-hassas", "kind": "unknown", "unknownType": "sensitive",
+      "question": "Şoförlerin TC kimlik numaralarını göster",
+      "expect": { "status": "clarification" }
+    }
+  ]
+}

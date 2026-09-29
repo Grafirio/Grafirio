@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Grafirio.Bridge.Contracts;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.SignalR;
 
@@ -134,6 +136,14 @@ public sealed class BridgeDataSourceSession(
             if (pending.Result is { Truncated: true })
                 logger.LogWarning(
                     "Bridge sonucu satır tavanına dayandı. Bağlantı: {ConnectionId}", connectionId);
+
+            // Eski bridge'ler bu alani gondermiyor; o zaman yalnizca toplam
+            // sure (InstrumentedDataSourceSession) kaydediliyor.
+            if (pending.Result?.DatabaseMs is { } databaseMs)
+            {
+                AnalysisTelemetry.BridgeDatabaseDuration.Record(databaseMs / 1000d);
+                Activity.Current?.SetTag("grafirio.bridge.database_ms", databaseMs);
+            }
         }
         finally
         {
