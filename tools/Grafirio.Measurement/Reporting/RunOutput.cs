@@ -31,7 +31,7 @@ public static class RunOutput
         {
             Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
         };
-        if (!string.IsNullOrEmpty(apiKey)) request.Headers.Add("X-Api-Key", apiKey);
+        Authorize(request, apiKey);
 
         using var response = await http.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -40,6 +40,21 @@ public static class RunOutput
 
         var id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString();
         Console.WriteLine($"[dashboard] Yayinlandi: {dashboardUrl.TrimEnd('/')}/scenarios/{id}");
+    }
+
+    /// <summary>
+    /// Dashboard'a giden istegin kimligi. Iki katman olabilir ve ikisi de
+    /// istege bagli:
+    ///   * X-Api-Key — dashboard'un kendi Ingest:ApiKey'i.
+    ///   * Bearer token (MEASURE_DASHBOARD_TOKEN) — Azure'da dashboard gateway'in
+    ///     arkasinda, /benchmark rotasi Keycloak'ta PLATFORM_ADMIN istiyor.
+    /// </summary>
+    public static void Authorize(HttpRequestMessage request, string? apiKey)
+    {
+        if (!string.IsNullOrEmpty(apiKey)) request.Headers.Add("X-Api-Key", apiKey);
+        var token = Environment.GetEnvironmentVariable("MEASURE_DASHBOARD_TOKEN");
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Trim());
     }
 
     public static Task PublishAsync(ScenarioRunDocument document, string dashboardUrl, string? apiKey,

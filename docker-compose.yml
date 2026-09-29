@@ -360,6 +360,8 @@ services:
       ReverseProxy__Clusters__commerce.cluster__Destinations__destination1__Address: http://commerce.api.container:5300
       ReverseProxy__Clusters__identity.cluster__Destinations__destination1__Address: http://identity.api.container:5036
       ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221
+      # Benchmark dashboard yiginin disinda (dotnet run) calisiyor.
+      ReverseProxy__Clusters__benchmark.cluster__Destinations__destination1__Address: http://host.docker.internal:5080
       # appsettings.Development.json localhost:8080 diyor — gateway'i Docker
       # DISINDA calistiranlar icin dogru, konteyner icinde degil: orada
       # localhost gateway'in kendisi. Keycloak'a servis adiyla gidilmeli.

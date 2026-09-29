@@ -24,6 +24,10 @@ builder.Services.AddSingleton<RequestMetrics>();
 
 builder.Services.AddAuthenticationAndAuthorizationExt(builder.Configuration);
 
+// Yalnizca Grafirio personeli (PLATFORM_ADMIN). Benchmark dashboard'u gibi
+// kimlik dogrulamasi olmayan ic araclar bununla disari aciliyor.
+builder.Services.AddAuthorization(Program.AddPlatformAdminPolicy);
+
 // Tarayici, Authorization basligi tasiyan her capraz kaynak istegi icin once
 // bir OPTIONS "preflight" gonderiyor ve o istege kimlik bilgisi KOYMUYOR.
 // CORS hic yapilandirilmadigi icin preflight yetki katmanina kadar gidiyor,
@@ -86,6 +90,30 @@ app.Run();
 public partial class Program
 {
     private const string InternalDataAnalysisPath = "/data-analysis/internal";
+
+    public const string PlatformAdminPolicy = "PlatformAdmin";
+
+    /// <summary>Identity servisindeki PlatformRoles.PLATFORM_ADMIN ile ayni deger.</summary>
+    public const string PlatformAdminRole = "PLATFORM_ADMIN";
+
+    /// <summary>
+    /// Sema acikca yaziliyor: paylasilan kurulum varsayilan sema vermiyor ve
+    /// semasiz bir politika her istegi sessizce 401 ile reddediyor.
+    /// </summary>
+    public static void AddPlatformAdminPolicy(Microsoft.AspNetCore.Authorization.AuthorizationOptions options) =>
+        options.AddPolicy(PlatformAdminPolicy, policy => policy
+            .AddAuthenticationSchemes(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
+            .RequireAuthenticatedUser()
+            .RequireAssertion(context => IsPlatformAdmin(context.User)));
+
+    /// <summary>
+    /// Token'daki business_roles: JSON dizisi her eleman icin ayri claim olarak
+    /// geliyor, tek deger ise duz metin (bazen virgulle ayrilmis). Ikisi de kabul.
+    /// </summary>
+    public static bool IsPlatformAdmin(System.Security.Claims.ClaimsPrincipal user) =>
+        user.FindAll("business_roles")
+            .SelectMany(claim => claim.Value.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries))
+            .Any(role => string.Equals(role, PlatformAdminRole, StringComparison.Ordinal));
 
     public static Task RejectInternalRequestsAsync(HttpContext context, RequestDelegate next)
     {

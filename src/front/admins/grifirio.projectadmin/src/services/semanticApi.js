@@ -10,13 +10,19 @@ import client, { GATEWAY } from './authClient';
  * Grafirio servisleri dashboard'a bağımlı değil; bu bağ yalnızca panelde.
  */
 
-// Yerelde `dotnet run --project src/BenchmarkPlatform.Api` varsayılan portu.
-export const BENCHMARK_URL = (import.meta.env.VITE_BENCHMARK_URL || 'http://localhost:5080').replace(/\/$/, '');
+// Varsayılan: gateway'in /benchmark rotası (yalnızca PLATFORM_ADMIN; dashboard'un
+// kendi kimlik doğrulaması yok, iç ağda duruyor). VITE_BENCHMARK_URL verilirse
+// doğrudan o adres — yerelde `dotnet run` ile açılan dashboard (http://localhost:5080).
+export const DIRECT_BENCHMARK_URL = (import.meta.env.VITE_BENCHMARK_URL || '').replace(/\/$/, '');
+export const BENCHMARK_URL = DIRECT_BENCHMARK_URL || `${GATEWAY}/benchmark`;
 
 async function benchmark(path) {
-  const response = await fetch(`${BENCHMARK_URL}${path}`);
-  if (!response.ok) throw new Error(`Benchmark dashboard: HTTP ${response.status} — ${path}`);
-  return response.json();
+  try {
+    return (await client.get(`${BENCHMARK_URL}${path}`)).data;
+  } catch (error) {
+    const status = error?.response?.status;
+    throw new Error(`Benchmark dashboard: ${status ? `HTTP ${status}` : error.message} — ${path}`);
+  }
 }
 
 /** Bir setin koşuları, en yeniden eskiye (koşu düzeyi metriklerle). */

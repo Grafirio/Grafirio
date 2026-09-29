@@ -22,6 +22,7 @@ const string Help = """
       --out <dosya>             Sonuc dosyasi (varsayilan: artifacts/olcum/<tur>-<set>-<zaman>.json)
       --publish <url>           Sonucu dashboard'a da gonder (orn. http://localhost:5080)   [MEASURE_DASHBOARD_URL]
       --publish-key <anahtar>   Dashboard Ingest:ApiKey tanimliysa                         [MEASURE_DASHBOARD_KEY]
+                                Azure (gateway /benchmark): MEASURE_DASHBOARD_TOKEN = PLATFORM_ADMIN token
       --label <metin>           Kosuya dashboard'da gorunecek ad
 
     eval:

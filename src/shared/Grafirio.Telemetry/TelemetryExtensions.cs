@@ -1,3 +1,4 @@
+using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -30,6 +31,8 @@ public static class TelemetryExtensions
         this IHostApplicationBuilder builder, string serviceName)
     {
         var exportEnabled = !string.IsNullOrWhiteSpace(builder.Configuration[OtlpEndpointKey]);
+        var azureMonitor = builder.Configuration[AzureMonitorConnectionStringKey];
+        var azureMonitorEnabled = !string.IsNullOrWhiteSpace(azureMonitor);
 
         builder.Logging.AddOpenTelemetry(logging =>
         {
@@ -37,6 +40,8 @@ public static class TelemetryExtensions
             // izinden tek tikla bulunabiliyor.
             logging.IncludeFormattedMessage = true;
             logging.IncludeScopes = true;
+            if (azureMonitorEnabled)
+                logging.AddAzureMonitorLogExporter(options => options.ConnectionString = azureMonitor);
         });
 
         var otel = builder.Services.AddOpenTelemetry()
@@ -77,8 +82,23 @@ public static class TelemetryExtensions
 
         if (exportEnabled) otel.UseOtlpExporter();
 
+        // Azure'da (Container Apps) hedef Application Insights. OTLP ile ayni anda
+        // acik olabilir: yerelde Aspire, Azure'da App Insights; ikisi de tanimliysa
+        // ikisine birden gider.
+        if (azureMonitorEnabled)
+        {
+            otel.WithTracing(tracing => tracing.AddAzureMonitorTraceExporter(o => o.ConnectionString = azureMonitor))
+                .WithMetrics(metrics => metrics.AddAzureMonitorMetricExporter(o => o.ConnectionString = azureMonitor));
+        }
+
         return builder;
     }
+
+    /// <summary>
+    /// Application Insights baglanti dizesi. Azure'un kendi SDK'lari da ayni adi
+    /// ortam degiskeni olarak okuyor.
+    /// </summary>
+    public const string AzureMonitorConnectionStringKey = "APPLICATIONINSIGHTS_CONNECTION_STRING";
 
     /// <summary>
     /// Milisaniyelik SQL'den dakikalik analize kadar ayni histogram kullaniliyor;

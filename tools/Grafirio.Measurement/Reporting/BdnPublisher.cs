@@ -33,7 +33,7 @@ public static class BdnPublisher
                 Content = new StringContent(await File.ReadAllTextAsync(file, ct), System.Text.Encoding.UTF8,
                     "application/json")
             };
-            if (!string.IsNullOrEmpty(apiKey)) request.Headers.Add("X-Api-Key", apiKey);
+            RunOutput.Authorize(request, apiKey);
 
             using var response = await http.SendAsync(request, ct);
             var body = await response.Content.ReadAsStringAsync(ct);

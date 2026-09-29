@@ -4,7 +4,7 @@ import Sparkline from '../components/semantic/Sparkline';
 import TrendChart from '../components/semantic/TrendChart';
 import { describeError } from '../services/authClient';
 import {
-  BENCHMARK_URL, CAPABILITIES, delta, formatValue, getRun, getRuns, getSignals, metricLabel, metricOf,
+  CAPABILITIES, DIRECT_BENCHMARK_URL, delta, formatValue, getRun, getRuns, getSignals, metricLabel, metricOf,
 } from '../services/semanticApi';
 
 const PERIODS = [7, 30, 90];
@@ -251,8 +251,8 @@ function CapabilityDetail({ capability, runs, signals }) {
           <h2 className="sm-detail__title">{capability.title}</h2>
           <p className="gf-muted gf-text-sm">{capability.description}</p>
         </div>
-        {selectedRun && (
-          <a className="gf-btn gf-btn--sm gf-btn--ghost" href={`${BENCHMARK_URL}/scenarios/${selectedRun.id}`}
+        {selectedRun && DIRECT_BENCHMARK_URL && (
+          <a className="gf-btn gf-btn--sm gf-btn--ghost" href={`${DIRECT_BENCHMARK_URL}/scenarios/${selectedRun.id}`}
             target="_blank" rel="noreferrer">
             Dashboard'da aç
           </a>
