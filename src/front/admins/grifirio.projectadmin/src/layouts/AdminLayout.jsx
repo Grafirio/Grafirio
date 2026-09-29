@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 
 const NAV = [
+  { to: '/semantic', label: 'Semantik zekâ' },
   { to: '/companies', label: 'Firmalar' },
   { to: '/services', label: 'Servisler' },
 ];

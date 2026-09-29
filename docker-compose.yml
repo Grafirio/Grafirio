@@ -409,6 +409,9 @@ services:
       NODE_ENV: development
       VITE_API_URL: http://gateway:5000
       VITE_SERVICE_MANAGER_API: http://service.manager.api:3001
+      # Semantik zeka sayfasi degerlendirme kosularini benchmark dashboard'undan
+      # okuyor. Istegi TARAYICI atiyor: adres tarayicinin gordugu adres olmali.
+      VITE_BENCHMARK_URL: http://localhost:5080
     ports:
       - "59265:59265"
     depends_on:

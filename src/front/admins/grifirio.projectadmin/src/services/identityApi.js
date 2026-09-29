@@ -1,35 +1,9 @@
-import axios from 'axios';
-import keycloak from '../keycloak';
+import client, { GATEWAY, describeError } from './authClient';
+
+export { describeError };
 
 // Tum cagrilar gateway uzerinden; identity rotasi orada /api/v1/... e cevriliyor.
-const GATEWAY = import.meta.env.VITE_GATEWAY_URL || '';
 const IDENTITY = `${GATEWAY}/v1/identity`;
-
-const client = axios.create({ timeout: 30000 });
-
-// Token her istekte yeniden okunur: uzun oturumlarda yenilenmis olabilir ve
-// bir kez yakalanan token sessizce suresi dolmus olarak gonderilirdi.
-client.interceptors.request.use(async (config) => {
-  if (keycloak.authenticated) {
-    try {
-      await keycloak.updateToken(30);
-    } catch {
-      // Yenilenemiyorsa istek 401 alacak ve cagiran taraf hatayi gosterecek;
-      // burada sessizce oturum kapatmak kullaniciyi is ortasinda atar.
-    }
-    config.headers.Authorization = `Bearer ${keycloak.token}`;
-  }
-  return config;
-});
-
-/** Sunucudan gelen ProblemDetails'i okunabilir tek satira indirger. */
-export const describeError = (error) => {
-  const data = error?.response?.data;
-  if (!data) return error?.message || 'Bilinmeyen hata';
-  if (typeof data === 'string') return data;
-  const parts = [data.title, data.detail].filter(Boolean);
-  return parts.length ? parts.join(' — ') : `HTTP ${error.response.status}`;
-};
 
 export const getCompanies = async () => (await client.get(`${IDENTITY}/companies`)).data;
 

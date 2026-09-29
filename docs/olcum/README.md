@@ -15,6 +15,7 @@ kanıttır. Bu yüzden her ölçüm bir *koşu* olarak saklanır ve commit bilgi
 | 2. Değerlendirme seti | Doğru mu, her seferinde aynı mı, soru başına ne kadar | `grafirio-measure eval` | Benchmark dashboard → Senaryolar |
 | 3. Yük testi | Kaç eşzamanlı kullanıcıyı kaldırıyor, nerede kırılıyor | `grafirio-measure load` | Benchmark dashboard → Senaryolar |
 | 4. Mikro-benchmark | Sıcak yollar (SQL politikası, kodlayıcılar) ne kadar hızlı | BenchmarkDotNet (`tests/Grafirio.Benchmarks`) | Benchmark dashboard → Koşular |
+| 5. Semantik zekâ | Şema, ilişki, eşleme, bilinmeyen veri, SQL, grafik — altın veriye karşı, katman katman | `grafirio-semantic`, `grafirio-measure semantic-live` | Dashboard → Senaryolar, ProjectAdmin → Semantik zekâ |
 | + Kullanım raporu | Gerçek kullanım: tamamlanma, bekleme, memnuniyet, maliyet | `grafirio-measure usage` | Benchmark dashboard → Senaryolar |
 
 Grafirio ile benchmark dashboard'u (`benchmarkt` deposu) **birbirine referans vermez**.
@@ -23,6 +24,8 @@ Aralarındaki tek bağ `scenario-run/v1` JSON belgesi ve BenchmarkDotNet'in kend
 kaybolmaz, sonradan `publish` ile gönderilir.
 
 ---
+
+Semantik zekâ ölçümü ayrı bir belgede: [semantik.md](semantik.md).
 
 ## 1. Canlı telemetri
 
