@@ -10,6 +10,7 @@
   "editUsernameAllowed": false,
   "rememberMe": true,
   "loginTheme": "grifirio",
+  "accountTheme": "grifirio",
   "emailTheme": "grifirio",
   "accessTokenLifespan": 1800,
   "ssoSessionIdleTimeout": 1800,
