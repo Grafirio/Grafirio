@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 using Dapper;
 using Grafirio.Bridge.Contracts;
 using Grafirio.QueryPolicy;
@@ -102,6 +103,12 @@ public class QueryExecutor(
         QueryValidationResult validation,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
+        // Veritabani suresi: yalnizca baglanti/yoklama ve okuma. Parcalarin
+        // sunucuya gonderilmesi (yield sonrasi gecen sure) SAYILMIYOR — o ag
+        // suresi ve sunucu onu zaten toplam sureden ayirabiliyor.
+        var databaseTime = TimeSpan.Zero;
+        var segmentStarted = Stopwatch.GetTimestamp();
+
         var rowLimit = Math.Clamp(request.MaxRows, 1, HardRowLimit);
         var timeout = Math.Clamp(request.TimeoutSeconds, 1, MaxTimeoutSeconds);
 
@@ -164,16 +171,24 @@ public class QueryExecutor(
 
                 if (buffer.Count < ChunkSize) continue;
 
+                databaseTime += Stopwatch.GetElapsedTime(segmentStarted);
                 yield return new QueryChunk(request.RequestId, sequence++, columns, buffer);
+                segmentStarted = Stopwatch.GetTimestamp();
                 buffer = new List<string?[]>(ChunkSize);
             }
         }
 
+        databaseTime += Stopwatch.GetElapsedTime(segmentStarted);
+
         if (buffer.Count > 0)
             yield return new QueryChunk(request.RequestId, sequence, columns, buffer);
 
-        audit.Completed(request, total, truncated);
-        yield return new QueryCompleted(request.RequestId, total, truncated, columns);
+        var databaseMs = Math.Round(databaseTime.TotalMilliseconds, 1);
+        logger.LogInformation(
+            "Query {RequestId} completed: {Rows} rows in {DatabaseMs} ms (database)",
+            request.RequestId, total, databaseMs);
+        audit.Completed(request, total, truncated, databaseMs);
+        yield return new QueryCompleted(request.RequestId, total, truncated, columns, databaseMs);
     }
 
     /// <summary>

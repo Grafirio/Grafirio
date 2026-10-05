@@ -11,6 +11,8 @@ COPY ["src/services/Grafirio.DataAnalysis.Api/Grafirio.DataAnalysis.Api.csproj",
 # Dockerfile'a bakmadan anlasilmazdi.
 COPY ["src/bridge/Grafirio.Bridge.Contracts/Grafirio.Bridge.Contracts.csproj", "src/bridge/Grafirio.Bridge.Contracts/"]
 COPY ["src/shared/Grafirio.QueryPolicy/Grafirio.QueryPolicy.csproj", "src/shared/Grafirio.QueryPolicy/"]
+# Ortak olcum kurulumu (OpenTelemetry) proje referansi: restore onu da gormeli.
+COPY ["src/shared/Grafirio.Telemetry/Grafirio.Telemetry.csproj", "src/shared/Grafirio.Telemetry/"]
 
 # Grafirio.Shared.* ve Grafirio.Contracts.AI paketleri ayri bir depoda:
 # github.com/Grafirio/Packages.

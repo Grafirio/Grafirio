@@ -1,0 +1,165 @@
+// Degerlendirme seti: DummyData e-ticaret veritabani
+// (src/dummydata/Grafirio.DummyData.Generator ile uretilen sema).
+//
+// Kullanmadan once:
+//   1. DummyData veritabanini Grafirio'ya baglanti olarak ekleyin.
+//   2. Su tablolari secip "Analiz Et" calistirin: dbo.Orders, dbo.Customers,
+//      dbo.Products, dbo.Categories. Analiz sorularini yanitlayin.
+//   3. connectionId'yi asagiya yazin ya da --connection ile verin.
+//
+// Beklentiler "alt kume": yalnizca cevabin DOGRULUGUNU belirleyen alanlar
+// yaziliyor (tablo, toplama, olcum, kirilim, filtre). Kolon adlari "re:" ile
+// duzenli ifade olarak yazildi; model kolonu bazen nitelikli
+// ("dbo.Orders.Status") bazen yalin yaziyor, ikisi de dogru.
+{
+  "suite": "dummydata-eticaret",
+  "description": "DummyData e-ticaret semasi uzerinde soru -> analiz parametresi dogrulugu",
+  "connectionId": null,
+  "repeat": 3,
+  "cases": [
+    // --- Sayma ve toplama ------------------------------------------------------
+    {
+      "name": "toplam-siparis",
+      "group": "sayma",
+      "question": "Toplam kaç sipariş var?",
+      "expect": {
+        "params": { "analysis_type": "aggregation", "target_table": "dbo.Orders", "aggregation": "count" },
+        // Genel toplam: sahte kirilim eklenmemeli (prompt kurali 6).
+        "paramsAbsent": ["group_by", "joins"]
+      }
+    },
+    {
+      "name": "ortalama-siparis-tutari",
+      "group": "toplama",
+      "question": "Ortalama sipariş tutarı ne kadar?",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders",
+          "aggregation": "avg",
+          "target_column": "re:(^|\\.)totalamount$"
+        },
+        "paramsAbsent": ["group_by"]
+      }
+    },
+    {
+      "name": "odeme-yontemine-gore-ciro",
+      "group": "kirilim",
+      "question": "Ödeme yöntemine göre toplam ciroyu göster",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders",
+          "aggregation": "sum",
+          "target_column": "re:(^|\\.)totalamount$",
+          "group_by": ["re:(^|\\.)paymentmethod$"]
+        }
+      }
+    },
+    {
+      "name": "durumlara-gore-siparis",
+      "group": "kirilim",
+      "question": "Siparişlerin durumlara göre dağılımı nedir?",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders",
+          "aggregation": "count",
+          "group_by": ["re:(^|\\.)status$"]
+        }
+      }
+    },
+    {
+      "name": "en-cok-musterili-5-ulke",
+      "group": "kirilim",
+      "question": "En çok müşterisi olan 5 ülke hangileri?",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Customers",
+          "aggregation": "count",
+          "group_by": ["re:(^|\\.)country$"],
+          "limit": 5
+        }
+      }
+    },
+    {
+      "name": "musteri-tipine-gore",
+      "group": "kirilim",
+      "question": "Müşteri tipine göre müşteri sayısı",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Customers",
+          "aggregation": "count",
+          "group_by": ["re:(^|\\.)customertype$"]
+        }
+      }
+    },
+    {
+      "name": "markalara-gore-ortalama-fiyat",
+      "group": "kirilim",
+      "question": "Markalara göre ortalama ürün fiyatı",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Products",
+          "aggregation": "avg",
+          "target_column": "re:(^|\\.)price$",
+          "group_by": ["re:(^|\\.)brand$"]
+        }
+      }
+    },
+
+    // --- Filtre ve zaman -------------------------------------------------------
+    {
+      "name": "iptal-edilen-siparis",
+      "group": "filtre",
+      "question": "İptal edilen kaç sipariş var?",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders",
+          "aggregation": "count",
+          "filters": { "Status": "Cancelled" }
+        }
+      }
+    },
+    {
+      "name": "bu-yil-siparis",
+      "group": "zaman",
+      "question": "Bu yıl kaç sipariş verildi?",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders",
+          "aggregation": "count",
+          // "Bu yil" araliga cevrilmeli; zaman ifadesi yok sayilirsa kullanici
+          // tum zamanlarin sonucunu gorur ve bunu anlayamaz.
+          "filters": { "OrderDate": { "gte": "re:^\\d{4}-01-01" } }
+        }
+      }
+    },
+
+    // --- Iliski (JOIN) ---------------------------------------------------------
+    {
+      "name": "kategori-adina-gore-urun",
+      "group": "iliski",
+      "question": "Kategori adına göre ürün sayısı",
+      "expect": {
+        "params": {
+          "target_table": "dbo.Products",
+          "aggregation": "count",
+          "joins": [{ "table": "dbo.Categories" }]
+        }
+      }
+    },
+
+    // --- Guvenilirlik: tahmin etmek yerine sormali -----------------------------
+    {
+      "name": "belirsiz-soru",
+      "group": "guvenilirlik",
+      "question": "Hangisi daha iyi?",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "name": "semada-olmayan-alan",
+      "group": "guvenilirlik",
+      // Semada kargo firmasi yok: model kolon uydurmak yerine sormali (kural 9).
+      "question": "Kargo firmalarına göre ortalama teslimat süresi nedir?",
+      "expect": { "status": "clarification" }
+    }
+  ]
+}

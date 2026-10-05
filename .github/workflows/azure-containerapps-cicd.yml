@@ -75,15 +75,19 @@ jobs:
             # olarak bu yasandi. Ayrintisi: shared-packages.md
             identity-api:
               - 'src/services/Grafirio.Identity.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             commerce-api:
               - 'src/services/Grafirio.Commerce.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             data-analysis-api:
               - 'src/services/Grafirio.DataAnalysis.Api/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             gateway:
               - 'src/services/Grafirio.Gateway/**'
+              - 'src/shared/Grafirio.Telemetry/**'
               - 'shared-packages.ref'
             # Paylasilan tema bu iki uygulamanin icine derleniyor; degisince
             # ikisi de yeniden yayinlanmali, yoksa renk canliya cikmaz.
@@ -105,6 +109,12 @@ jobs:
             # ihtiyaci var, container servisleriyle ayni matriste calismiyor.
             bridge-desktop:
               - 'src/bridge/**'
+              # Paylasilan sorgu politikasi masaustu exe'sinin ICINE derleniyor:
+              # okuma-only principal kontrolu de, SELECT ayristirmasi da orada
+              # calisiyor. Bu yol listede yokken, yalnizca QueryPolicy'yi
+              # degistiren bir duzeltme yayina alindi, CI yesil dondu ve
+              # musteri ayni eski exe'yi indirmeye devam etti.
+              - 'src/shared/**'
               - '.github/workflows/azure-containerapps-cicd.yml'
 
       - name: Build deployment matrix

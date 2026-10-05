@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
+using Grafirio.Telemetry;
 
 namespace Grafirio.DataAnalysis.Api.Services;
 
@@ -83,6 +86,42 @@ public sealed class LlmClient : ILlmClient
         var url = $"{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={apiVersion}";
         var client = _httpClientFactory.CreateClient(nameof(LlmClient));
 
+        // Olcum: sure, token ve sonuc. Etiketlerde prompt ya da cevap YOK —
+        // musteri semasini ve sorusunu tasirlar.
+        var operation = LlmUsage.Current?.Operation ?? "unscoped";
+        using var activity = AnalysisTelemetry.Source.StartActivity("llm.generate", ActivityKind.Client);
+        activity?.SetTag("gen_ai.system", "az.ai.openai");
+        activity?.SetTag("gen_ai.request.model", deployment);
+        activity?.SetTag("grafirio.llm.operation", operation);
+        var started = Stopwatch.GetTimestamp();
+        var outcome = "failed";
+
+        try
+        {
+            var content = await GenerateWithBudgetAsync(
+                client, url, apiKey, prompt, temperature, maxTokens, deployment, operation, activity,
+                cancellationToken);
+            outcome = "ok";
+            return content;
+        }
+        catch (Exception exception)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
+            throw;
+        }
+        finally
+        {
+            AnalysisTelemetry.LlmDuration.Record(GrafirioTelemetry.Seconds(started),
+                AnalysisTelemetry.Tag("llm.operation", operation),
+                AnalysisTelemetry.Tag("llm.outcome", outcome),
+                AnalysisTelemetry.Tag("gen_ai.request.model", deployment));
+        }
+    }
+
+    private async Task<string> GenerateWithBudgetAsync(HttpClient client, string url, string apiKey,
+        string prompt, double temperature, int maxTokens, string deployment, string operation,
+        Activity? activity, CancellationToken cancellationToken)
+    {
         // Reasoning modelleri (gpt-5 / o-serisi) dusunme adimlarini da ayni
         // tavandan harciyor. Tavan yetmezse sunucu HTTP 200 doner ama
         // finish_reason="length" ve content="" gelir — hataya benzemeyen bir
@@ -93,11 +132,22 @@ public sealed class LlmClient : ILlmClient
 
         for (var budgetAttempt = 1; ; budgetAttempt++)
         {
+            var callStarted = Stopwatch.GetTimestamp();
             var body = await SendAzureRequestAsync(
                 client, url, apiKey, prompt, temperature, budget, cancellationToken);
 
             var content = ExtractContent(body);
             var finishReason = ExtractFinishReason(body);
+
+            // Kesilen cevabin token'lari da faturaya yaziliyor; atilan cevap
+            // olculmezse maliyet oldugundan dusuk gorunur.
+            RecordUsage(body, Stopwatch.GetElapsedTime(callStarted), deployment, operation, activity);
+            activity?.SetTag("gen_ai.response.finish_reasons", finishReason);
+            activity?.SetTag("grafirio.llm.budget_attempts", budgetAttempt);
+            if (finishReason == "length")
+                AnalysisTelemetry.LlmDiscarded.Add(1,
+                    AnalysisTelemetry.Tag("llm.operation", operation),
+                    AnalysisTelemetry.Tag("gen_ai.request.model", deployment));
 
             // Butce kontrolu icerik kontrolunden ONCE. Onceden tersiydi ve
             // arada bir sinif kaciyordu: model cevabi YAZMAYA BASLAYIP
@@ -189,6 +239,8 @@ public sealed class LlmClient : ILlmClient
                 }
 
                 if (status != System.Net.HttpStatusCode.TooManyRequests) break;
+
+                AnalysisTelemetry.LlmRateLimited.Add(1);
 
                 if (++rateLimitAttempt > maxRateLimitRetries)
                 {
@@ -385,6 +437,96 @@ public sealed class LlmClient : ILlmClient
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or IndexOutOfRangeException)
         {
             throw new InvalidOperationException($"Azure OpenAI beklenmedik yanıt şekli: {Truncate(body, 300)}");
+        }
+    }
+
+    /// <summary>
+    /// Cevaptaki <c>usage</c> alanini olcumlere, etkin <see cref="LlmUsage"/>
+    /// kapsamina ve (fiyat tanimliysa) maliyet sayacina yazar.
+    ///
+    /// Fiyat koda gomulu degil: deployment'a ve sozlesmeye gore degisiyor, yanlis
+    /// bir varsayilan "kanitlanmis" bir maliyet rakami uretirdi. Tanimsizsa
+    /// yalnizca token sayiliyor; raporlama araci fiyati kendi dosyasindan
+    /// uygulayabiliyor.
+    /// </summary>
+    private void RecordUsage(string body, TimeSpan duration, string deployment, string operation,
+        Activity? activity)
+    {
+        var usage = ExtractUsage(body, duration);
+        if (usage is not { } call) return;
+
+        LlmUsage.Record(call);
+
+        var operationTag = AnalysisTelemetry.Tag("llm.operation", operation);
+        var modelTag = AnalysisTelemetry.Tag("gen_ai.request.model", deployment);
+
+        // input = onbellekten gelmeyen kisim; toplamda iki kez sayilmasin.
+        AnalysisTelemetry.LlmTokens.Add(call.InputTokens - call.CachedInputTokens,
+            operationTag, modelTag, AnalysisTelemetry.Tag("llm.token.type", "input"));
+        AnalysisTelemetry.LlmTokens.Add(call.CachedInputTokens,
+            operationTag, modelTag, AnalysisTelemetry.Tag("llm.token.type", "cached_input"));
+        AnalysisTelemetry.LlmTokens.Add(call.OutputTokens - call.ReasoningTokens,
+            operationTag, modelTag, AnalysisTelemetry.Tag("llm.token.type", "output"));
+        AnalysisTelemetry.LlmTokens.Add(call.ReasoningTokens,
+            operationTag, modelTag, AnalysisTelemetry.Tag("llm.token.type", "reasoning"));
+
+        activity?.SetTag("gen_ai.usage.input_tokens", call.InputTokens);
+        activity?.SetTag("gen_ai.usage.output_tokens", call.OutputTokens);
+
+        var cost = EstimateCost(call);
+        if (cost > 0) AnalysisTelemetry.LlmCost.Add(cost, operationTag, modelTag);
+    }
+
+    private double EstimateCost(LlmCallUsage call)
+    {
+        var input = _configuration.GetValue<double?>("Llm:Pricing:InputPerMillion") ?? 0;
+        var output = _configuration.GetValue<double?>("Llm:Pricing:OutputPerMillion") ?? 0;
+        if (input <= 0 && output <= 0) return 0;
+
+        // Onbellek fiyati tanimsizsa tam fiyat uygulanir: maliyeti olduğundan
+        // dusuk gostermektense yuksek gostermek daha guvenli bir hata.
+        var cached = _configuration.GetValue<double?>("Llm:Pricing:CachedInputPerMillion") ?? input;
+
+        return ((call.InputTokens - call.CachedInputTokens) * input
+                + call.CachedInputTokens * cached
+                + call.OutputTokens * output) / 1_000_000d;
+    }
+
+    /// <summary>
+    /// Azure'un <c>usage</c> alani. Eski API surumlerinde ayrinti alanlari
+    /// (<c>*_tokens_details</c>) yok; o zaman sifir sayiliyor.
+    /// </summary>
+    public static LlmCallUsage? ExtractUsage(string body, TimeSpan duration)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+                !doc.RootElement.TryGetProperty("usage", out var usage) ||
+                usage.ValueKind != JsonValueKind.Object)
+                return null;
+
+            return new LlmCallUsage(
+                InputTokens: ReadInt(usage, "prompt_tokens"),
+                CachedInputTokens: ReadInt(usage, "prompt_tokens_details", "cached_tokens"),
+                OutputTokens: ReadInt(usage, "completion_tokens"),
+                ReasoningTokens: ReadInt(usage, "completion_tokens_details", "reasoning_tokens"),
+                Duration: duration);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        static int ReadInt(JsonElement element, params string[] path)
+        {
+            foreach (var name in path)
+            {
+                if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out element))
+                    return 0;
+            }
+
+            return element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var value) ? value : 0;
         }
     }
 

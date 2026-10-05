@@ -520,6 +520,32 @@
 }
 .bi-card-chart .bi-node-header { display: none; }
 
+/* ── Sonuca oy ── */
+.bi-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+.bi-feedback-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.bi-feedback-btn:hover:not(:disabled) { border-color: var(--accent); }
+.bi-feedback-btn.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.bi-feedback-btn:disabled { opacity: .6; cursor: default; }
+
 /* ── Tür seçici ── */
 .bi-card-types { position: relative; }
 .bi-card-type-current {

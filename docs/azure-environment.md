@@ -87,6 +87,69 @@ Hâlâ eksik: `VITE_DJANGO_AI_URL`, `VITE_DJANGO_AI_WS_URL`, `VITE_SCHEMA_ANALYZ
 route yok, dolayısıyla tarayıcıdan erişilemiyorlar. Kullanılacaklarsa önce gateway'e route
 eklenmeli.
 
+## Ölçüm ve izleme (2026-09-29)
+
+### Application Insights — telemetri
+
+`grafirio-insights` (workspace-based, `workspace-grifiriorgEPdI`'a bağlı; günlük alım tavanı
+**1 GB**). Servisler iz, metrik ve logu `Grafirio.Telemetry` üzerinden **doğrudan** gönderiyor
+(Azure Monitor OpenTelemetry Exporter). Container Apps'in yönetilen OTel ajanı kullanılmıyor:
+App Insights'a metrik göndermiyor, oysa LLM token ve maliyet sayaçları metrik.
+
+identity-api, commerce-api, data-analysis-api ve gateway'de:
+
+```
+APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-connection
+```
+
+Bağlantı dizesi yeni kod deploy edilene kadar kullanılmıyor (eski imajlar okumaz; zararsız).
+
+### LLM maliyeti (data-analysis-api)
+
+`grafirio-llm` deployment'ı **gpt-5-mini** (GlobalStandard). Maliyet hesabı için (USD / 1M token,
+OpenAI liste fiyatı — sözleşme farklıysa güncelleyin):
+
+```
+Llm__Pricing__InputPerMillion=0.25
+Llm__Pricing__CachedInputPerMillion=0.025
+Llm__Pricing__OutputPerMillion=2.00
+```
+
+### Benchmark dashboard — değerlendirme koşuları
+
+Admin paneldeki Semantik zekâ kartlarının kaynağı (ayrı depo: `benchmarkt`).
+
+| Kaynak | Değer |
+|---|---|
+| Container App | `benchmark-dashboard` — **internal** ingress, `allowInsecure`, system-assigned managed identity |
+| İmaj | `grifirioacr.azurecr.io/benchmark-dashboard:<commit>` — `az acr build` ile (CI'da değil) |
+| Veritabanı | Azure SQL `grafirio-bench-swedencentral` / `benchmarks` — serverless, **ücretsiz teklif**, limit dolunca AutoPause |
+| Kimlik | SQL **yalnızca Entra** (parola yok). Dashboard kendi managed identity'siyle bağlanıyor; veritabanında `db_ddladmin`, `db_datareader`, `db_datawriter` |
+| Güvenlik duvarı | `AllowAzureServices` (Container Apps'in giden IP'si sabit değil) |
+| Dışarıdan erişim | Yalnızca gateway: `/benchmark/{**}` → `PlatformAdmin` politikası (token'da `business_roles` ∋ `PLATFORM_ADMIN`) |
+
+SQL sunucusu West/North Europe'ta açılamadı ("not accepting creation of new … servers"),
+Sweden Central'da.
+
+Env değişkenleri:
+
+```
+Database__Provider=SqlServer
+ConnectionStrings__Benchmarks=Server=tcp:grafirio-bench-swedencentral.database.windows.net,1433;Database=benchmarks;Authentication=Active Directory Managed Identity;Encrypt=True;Connect Timeout=60
+Ingest__ApiKey=secretref:ingest-api-key
+```
+
+Güncelleme:
+
+```bash
+az acr build -r grifirioacr -t benchmark-dashboard:<commit> <benchmarkt klasörü>
+az containerapp update -n benchmark-dashboard -g grifirio-rg --image grifirioacr.azurecr.io/benchmark-dashboard:<commit>
+```
+
+Ölçüm araçlarıyla Azure'daki dashboard'a gönderim gateway üzerinden:
+`--publish https://gateway…/benchmark`, `MEASURE_DASHBOARD_TOKEN=<PLATFORM_ADMIN token>`,
+`MEASURE_DASHBOARD_KEY=<Ingest:ApiKey>` (anahtar: `az containerapp secret show -n benchmark-dashboard -g grifirio-rg --secret-name ingest-api-key`).
+
 ## Kalıcılık
 
 Veritabanı container'larında kalıcı disk **yok**. Azure Files SMB, veritabanı motorlarının

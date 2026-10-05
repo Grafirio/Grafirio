@@ -31,6 +31,15 @@
     <!-- Bridge protokolu: sunucu ile musteri agindaki servis arasindaki sozlesme. -->
     <ProjectReference Include="..\..\bridge\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Grafirio.QueryPolicy\Grafirio.QueryPolicy.csproj" />
+    <!-- Ortak olcum kurulumu (OpenTelemetry). -->
+    <ProjectReference Include="..\..\shared\Grafirio.Telemetry\Grafirio.Telemetry.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Semantik degerlendirme araci sozlugu uretimle AYNI adimlarla kuruyor
+         (AttachProfileFacts); kopyasini yazmak, olculen seyin uretimden
+         sessizce ayrismasi demekti. -->
+    <InternalsVisibleTo Include="grafirio-semantic" />
   </ItemGroup>
 
   <ItemGroup>

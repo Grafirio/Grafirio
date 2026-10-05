@@ -3,7 +3,7 @@ namespace Grafirio.DataAnalysis.Api.Data.Entities;
 /// <summary>
 /// LLM tarafından oluşturulan PyCaret analiz konfigürasyonu
 /// </summary>
-public class AnalysisConfig
+public class AnalysisConfig : ILlmUsageColumns
 {
     public Guid Id { get; set; }
 
@@ -46,4 +46,14 @@ public class AnalysisConfig
     public string Status { get; set; } = "pending";
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>"Analiz Et" isinin kuyruktan alinip bitmesine kadar gecen sure.</summary>
+    public int? AnalysisDurationMs { get; set; }
+
+    public int? LlmCalls { get; set; }
+    public int? LlmInputTokens { get; set; }
+    public int? LlmCachedInputTokens { get; set; }
+    public int? LlmOutputTokens { get; set; }
+    public int? LlmReasoningTokens { get; set; }
+    public int? LlmDurationMs { get; set; }
 }

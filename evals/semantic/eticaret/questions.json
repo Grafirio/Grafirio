@@ -1,0 +1,193 @@
+// Sorular: e-ticaret.
+//
+// kind: answerable -> esleme (Semantic Mapping), SQL ve grafik olcumleri.
+//       unknown    -> sistem SORMALI (Unknown Data Handling); cevaplarsa uydurmustur.
+// paraphrases: ayni niyetin baska yazilislari; hepsi ayni parametreyi uretmeli.
+// expect.params: LLM parametrelerinin alt kumesi ("re:" = duzenli ifade).
+// gold.sql: test veritabaninda calisip sonucu sistemin sonucuyla karsilastirilir.
+//   Karsilastirma SAYISAL degerler uzerinden (etiket bicimi serbest: "Ocak" ya da 1).
+// gold.charts: kabul edilen grafik turleri; bos = kisit yok (tek deger).
+// gold.ordered: satir sirasi anlamli mi (en cok N, zaman serisi).
+{
+  "questions": [
+    {
+      "id": "e01-toplam-siparis", "kind": "answerable", "group": "sayma",
+      "question": "Toplam kaç sipariş var?",
+      "paraphrases": ["Sipariş sayısı nedir?", "Kaç tane sipariş verilmiş?"],
+      "expect": {
+        "params": { "analysis_type": "aggregation", "target_table": "dbo.Orders", "aggregation": "count" },
+        "paramsAbsent": ["group_by", "joins"]
+      },
+      "gold": { "sql": "SELECT COUNT(*) AS v FROM dbo.Orders", "charts": [] }
+    },
+    {
+      "id": "e02-ortalama-siparis-tutari", "kind": "answerable", "group": "toplama",
+      "question": "Ortalama sipariş tutarı ne kadar?",
+      "paraphrases": ["Siparişlerin ortalama tutarı nedir?", "Bir sipariş ortalama kaç lira?"],
+      "expect": {
+        "params": { "target_table": "dbo.Orders", "aggregation": "avg", "target_column": "re:(^|\\.)totalamount$" },
+        "paramsAbsent": ["group_by"]
+      },
+      "gold": { "sql": "SELECT AVG(TotalAmount) AS v FROM dbo.Orders", "charts": [] }
+    },
+    {
+      "id": "e03-odeme-yontemine-gore-ciro", "kind": "answerable", "group": "kirilim",
+      "question": "Ödeme yöntemine göre toplam ciroyu göster",
+      "paraphrases": ["Her ödeme yönteminden ne kadar gelir geldi?", "Ödeme tipi bazında toplam satış tutarı"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders", "aggregation": "sum",
+          "target_column": "re:(^|\\.)totalamount$", "group_by": ["re:(^|\\.)paymentmethod$"]
+        }
+      },
+      "gold": {
+        "sql": "SELECT PaymentMethod AS k, SUM(TotalAmount) AS v FROM dbo.Orders GROUP BY PaymentMethod",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "e04-durumlara-gore-siparis", "kind": "answerable", "group": "kirilim",
+      "question": "Siparişlerin durumlara göre dağılımı nedir?",
+      "paraphrases": ["Sipariş durumlarının dağılımını göster", "Hangi durumda kaç sipariş var?"],
+      "expect": {
+        "params": { "target_table": "dbo.Orders", "aggregation": "count", "group_by": ["re:(^|\\.)status$"] }
+      },
+      "gold": {
+        "sql": "SELECT Status AS k, COUNT(*) AS v FROM dbo.Orders GROUP BY Status",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "e05-en-cok-musterili-5-ulke", "kind": "answerable", "group": "kirilim",
+      "question": "En çok müşterisi olan 5 ülke hangileri?",
+      "paraphrases": ["Müşteri sayısına göre ilk 5 ülke", "En fazla müşterimiz hangi 5 ülkede?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Customers", "aggregation": "count",
+          "group_by": ["re:(^|\\.)country$"], "limit": 5
+        }
+      },
+      "gold": {
+        "sql": "SELECT TOP 5 Country AS k, COUNT(*) AS v FROM dbo.Customers GROUP BY Country ORDER BY COUNT(*) DESC",
+        "charts": ["bar"], "ordered": true
+      }
+    },
+    {
+      "id": "e06-musteri-tipine-gore", "kind": "answerable", "group": "kirilim",
+      "question": "Müşteri tipine göre müşteri sayısı",
+      "paraphrases": ["Kaç VIP, kaç premium, kaç normal müşterimiz var?"],
+      "expect": {
+        "params": { "target_table": "dbo.Customers", "aggregation": "count", "group_by": ["re:(^|\\.)customertype$"] }
+      },
+      "gold": {
+        "sql": "SELECT CustomerType AS k, COUNT(*) AS v FROM dbo.Customers GROUP BY CustomerType",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "e07-markalara-gore-ortalama-fiyat", "kind": "answerable", "group": "kirilim",
+      "question": "Markalara göre ortalama ürün fiyatı",
+      "paraphrases": ["Her markanın ortalama fiyatı ne?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Products", "aggregation": "avg",
+          "target_column": "re:(^|\\.)price$", "group_by": ["re:(^|\\.)brand$"]
+        }
+      },
+      "gold": {
+        "sql": "SELECT Brand AS k, AVG(Price) AS v FROM dbo.Products GROUP BY Brand",
+        "charts": ["bar"]
+      }
+    },
+    {
+      "id": "e08-iptal-edilen-siparis", "kind": "answerable", "group": "filtre",
+      "question": "İptal edilen kaç sipariş var?",
+      "paraphrases": ["İptal olmuş siparişlerin sayısı", "Kaç sipariş iptal edildi?"],
+      "expect": {
+        "params": { "target_table": "dbo.Orders", "aggregation": "count", "filters": { "Status": "Cancelled" } }
+      },
+      "gold": { "sql": "SELECT COUNT(*) AS v FROM dbo.Orders WHERE Status = N'Cancelled'", "charts": [] }
+    },
+    {
+      "id": "e09-2025-aylik-siparis", "kind": "answerable", "group": "zaman",
+      "question": "2025 yılında aylara göre sipariş sayısı",
+      "paraphrases": ["2025'te her ay kaç sipariş geldi?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders", "aggregation": "count",
+          "filters": { "OrderDate": { "gte": "re:^2025-01-01", "lt": "re:^2026-01-01" } }
+        }
+      },
+      "gold": {
+        "sql": "SELECT MONTH(OrderDate) AS k, COUNT(*) AS v FROM dbo.Orders WHERE OrderDate >= '2025-01-01' AND OrderDate < '2026-01-01' GROUP BY MONTH(OrderDate) ORDER BY MONTH(OrderDate)",
+        "charts": ["line", "bar"], "ordered": true
+      }
+    },
+    {
+      "id": "e10-kategori-adina-gore-urun", "kind": "answerable", "group": "iliski",
+      "question": "Kategori adına göre ürün sayısı",
+      "paraphrases": ["Her kategoride kaç ürün var?"],
+      "expect": {
+        "params": { "target_table": "dbo.Products", "aggregation": "count", "joins": [{ "table": "dbo.Categories" }] }
+      },
+      "gold": {
+        "sql": "SELECT c.Name AS k, COUNT(*) AS v FROM dbo.Products p JOIN dbo.Categories c ON c.Id = p.CategoryId GROUP BY c.Name",
+        "charts": ["bar", "pie", "doughnut"]
+      }
+    },
+    {
+      "id": "e11-en-cok-satan-5-urun", "kind": "answerable", "group": "iliski",
+      "question": "Adet olarak en çok satılan 5 ürün hangisi?",
+      "paraphrases": ["Satış adedine göre ilk 5 ürün"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.OrderItems", "aggregation": "sum",
+          "target_column": "re:(^|\\.)quantity$", "limit": 5
+        }
+      },
+      "gold": {
+        "sql": "SELECT TOP 5 p.Name AS k, SUM(oi.Quantity) AS v FROM dbo.OrderItems oi JOIN dbo.Products p ON p.Id = oi.ProductId GROUP BY p.Name ORDER BY SUM(oi.Quantity) DESC, p.Name",
+        "charts": ["bar"], "ordered": true
+      }
+    },
+    {
+      "id": "e12-vip-toplam-harcama", "kind": "answerable", "group": "filtre",
+      "question": "VIP müşterilerin toplam harcaması ne kadar?",
+      "paraphrases": ["VIP müşteriler toplamda ne kadar harcadı?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Customers", "aggregation": "sum",
+          "target_column": "re:(^|\\.)totalspent$", "filters": { "CustomerType": "VIP" }
+        }
+      },
+      "gold": { "sql": "SELECT SUM(TotalSpent) AS v FROM dbo.Customers WHERE CustomerType = N'VIP'", "charts": [] }
+    },
+
+    {
+      "id": "e-u01-belirsiz", "kind": "unknown", "unknownType": "ambiguous",
+      "question": "Hangisi daha iyi?",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "e-u02-olmayan-kolon", "kind": "unknown", "unknownType": "missing-column",
+      "question": "Kargo firmalarına göre ortalama teslimat süresi nedir?",
+      "paraphrases": ["Hangi kargo şirketi daha hızlı teslim ediyor?"],
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "e-u03-olmayan-tablo", "kind": "unknown", "unknownType": "missing-table",
+      "question": "Çalışanların ortalama maaşı nedir?",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "e-u04-hassas", "kind": "unknown", "unknownType": "sensitive",
+      "question": "Müşterilerin telefon numaralarını listele",
+      "expect": { "status": "clarification" }
+    },
+    {
+      "id": "e-u05-belirsiz-karsilastirma", "kind": "unknown", "unknownType": "ambiguous",
+      "question": "Geçen döneme göre nasıl gidiyoruz?",
+      "expect": { "status": "clarification" }
+    }
+  ]
+}

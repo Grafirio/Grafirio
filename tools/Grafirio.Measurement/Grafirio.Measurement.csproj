@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Olcum araci: degerlendirme seti (eval), yuk testi (load), kullanim raporu
+    (usage) ve BenchmarkDotNet sonuclarinin yayini (publish-bdn).
+
+    Servislerin hicbirine referans vermiyor ve hicbir Dockerfile'a girmiyor:
+    sistemi disaridan, kullanicinin gordugu HTTP uclari uzerinden olcuyor.
+    Ciktisi "scenario-run/v1" JSON belgesi; benchmark dashboard'u ile tek
+    baglantisi bu belge.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>grafirio-measure</AssemblyName>
+    <RootNamespace>Grafirio.Measurement</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Kullanim raporu dogrudan DataAnalysis veritabanini (Postgres) okuyor. -->
+    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <!-- Semantik canli olcum: altin SQL test veritabaninda calisiyor. -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Grafirio.Measurement.Tests" />
+  </ItemGroup>
+
+</Project>
