@@ -138,6 +138,7 @@ public class BridgeWorker(
         return new HubConnectionBuilder()
             .WithUrl(url, HttpTransportType.WebSockets, http =>
             {
+                http.SkipNegotiation = true;
                 // SignalR token'i her baglanti denemesinde yeniden soruyor;
                 // yeniden baglanmalarda suresi dolmus bir token kullanilmiyor.
                 http.AccessTokenProvider = async () => await tokens.GetAsync(stoppingToken);

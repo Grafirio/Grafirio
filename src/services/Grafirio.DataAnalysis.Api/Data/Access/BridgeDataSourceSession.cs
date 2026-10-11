@@ -79,7 +79,7 @@ public sealed class BridgeDataSourceSession(
             throw new DataSourceException("Yalnızca okuma sorguları çalıştırılabilir.");
 
         var requestId = Guid.NewGuid().ToString("N");
-        var connectionIdOfBridge = Resolve();
+        var connectionIdOfBridge = await ResolveAsync(ct);
         var pending = await registry.RegisterAsync(requestId, bridgeId, ct);
 
         try
@@ -183,11 +183,11 @@ public sealed class BridgeDataSourceSession(
         }
     }
 
-    private string Resolve()
+    private async Task<string> ResolveAsync(CancellationToken ct)
     {
         try
         {
-            return registry.ConnectionIdOf(bridgeId, companyId);
+            return await registry.ConnectionIdOfAsync(bridgeId, companyId, ct);
         }
         catch (BridgeUnavailableException ex)
         {

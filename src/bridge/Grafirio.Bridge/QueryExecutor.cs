@@ -217,7 +217,7 @@ public class QueryExecutor(
     {
         SqlException { Number: -2 } => (QueryFailure.Timeout, "Sorgu zaman aşımına uğradı."),
         SqlException sql => (QueryFailure.DatabaseError,
-            $"{sql.Message} (SQL hata no: {sql.Number})"),
+            SqlFailureMessage.ForNumber(sql.Number)),
         OperationCanceledException => (QueryFailure.Timeout, "Sorgu iptal edildi."),
         _ => (QueryFailure.DatabaseError, ex.Message),
     };
@@ -249,7 +249,7 @@ public class QueryExecutor(
     private static string BuildConnectionString(BridgeConnection connection, int timeoutSeconds) =>
         new SqlConnectionStringBuilder
         {
-            DataSource = $"tcp:{connection.Host},{connection.Port}",
+            DataSource = SqlServerAddress.Parse(connection.Host, connection.Port).DataSource,
             InitialCatalog = connection.Database,
             UserID = connection.Username,
             Password = connection.Password,

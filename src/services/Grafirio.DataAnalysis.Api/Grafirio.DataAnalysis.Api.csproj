@@ -40,6 +40,7 @@
          (AttachProfileFacts); kopyasini yazmak, olculen seyin uretimden
          sessizce ayrismasi demekti. -->
     <InternalsVisibleTo Include="grafirio-semantic" />
+    <InternalsVisibleTo Include="Grafirio.DataAnalysis.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -74,6 +74,7 @@ builder.Services.AddScoped<IRelationshipApprovalService, RelationshipApprovalSer
 // ya da musteri agindaki bridge uzerinden. Secimi fabrika yapiyor; cagri
 // noktalarinin hicbiri farki gormuyor.
 builder.Services.AddSingleton<IDataSourceFactory, DataSourceFactory>();
+builder.Services.AddSingleton<DirectConnectionPolicy>();
 
 // Bridge: musteri agindan disari dogru kurulan kanal.
 builder.Services.AddSingleton<BridgeRegistry>();
@@ -102,6 +103,7 @@ if (!string.IsNullOrWhiteSpace(redisConnectionString))
     builder.Services.AddSingleton<IConnectionMultiplexer>(
         _ => ConnectionMultiplexer.Connect(redisConnectionString));
     builder.Services.AddSingleton<IBridgeResponseBus, RedisBridgeResponseBus>();
+    builder.Services.AddSingleton<IBridgeConnectionDirectory, RedisBridgeConnectionDirectory>();
 }
 else
 {
@@ -331,12 +333,14 @@ app.Services.GetRequiredService<BridgeRegistry>().Start();
 // icin LLM dusmusken bile yesil gorunuyordu. Bir arizada bakilacak ilk yer
 // burasi oldugu halde hicbir sey soylemiyordu; LLM yapilandirmasi hatasinin
 // teshisi bu yuzden loglari tek tek okumaya kaldi.
-app.MapGet("/health", async (
+var readiness = async (
     DataAnalysisDbContext db,
     ILlmClient llm,
     IServiceProvider services,
-    IConfiguration configuration) =>
+    CancellationToken cancellationToken) =>
 {
+    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    deadline.CancelAfter(TimeSpan.FromSeconds(5));
     var checks = new Dictionary<string, object>();
     var healthy = true;
 
@@ -350,13 +354,14 @@ app.MapGet("/health", async (
         catch (Exception ex)
         {
             healthy = false;
-            checks[name] = new { status = "fail", error = ex.Message };
+            checks[name] = new { status = "fail", error = "Dependency unavailable" };
+            app.Logger.LogWarning("Readiness dependency {Dependency} failed ({ErrorType})", name, ex.GetType().Name);
         }
     }
 
     await Probe("postgres", async () =>
     {
-        if (!await db.Database.CanConnectAsync())
+        if (!await db.Database.CanConnectAsync(deadline.Token))
             throw new InvalidOperationException("Bağlantı kurulamadı");
     });
 
@@ -366,17 +371,15 @@ app.MapGet("/health", async (
         // baglanmis oluyor; cozumleme burada patlar ve sebebi gorunur.
         // Tablo secimi burada durdugu icin Mongo dustugunde analiz baslamaz.
         var database = services.GetRequiredService<IMongoDatabase>();
-        await database.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1));
+        await database.RunCommandAsync<MongoDB.Bson.BsonDocument>(new MongoDB.Bson.BsonDocument("ping", 1), cancellationToken: deadline.Token);
     });
 
     // LLM icin gercek bir cagri yapilmiyor: her saglik yoklamasinda token
     // harcamak istemiyoruz. Yalnizca anahtarin tanimli olup olmadigi
     // bildiriliyor — asil kacirilan sey buydu.
-    if (!llm.IsConfigured) healthy = false;
     checks["llm"] = new
     {
         status = llm.IsConfigured ? "ok" : "fail",
-        deployment = configuration["AZURE_OPENAI_DEPLOYMENT"] ?? configuration["AzureOpenAI:Deployment"] ?? "(tanımsız)",
         error = llm.IsConfigured ? null : "AZURE_OPENAI_API_KEY tanımlı değil — analiz ve sorgu çalışmaz"
     };
 
@@ -391,8 +394,11 @@ app.MapGet("/health", async (
     // Bagimliligi dusmus bir servis "ayakta" sayilmamali; ACA ve izleme
     // araclari 200'u saglikli kabul ediyor.
     return healthy ? Results.Ok(payload) : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
-})
+};
+app.MapGet("/health", readiness)
 .WithName("HealthCheck")
 .WithOpenApi();
+app.MapGet("/health/ready", readiness);
+app.MapGet("/health/live", () => Results.Ok(new { status = "Alive" }));
 
 app.Run();

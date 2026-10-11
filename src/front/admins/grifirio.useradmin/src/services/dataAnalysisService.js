@@ -7,6 +7,8 @@ import withDesktopConnectionContext from './connections/withDesktopConnectionCon
 import { DATA_ANALYSIS_API_URL as API_BASE_URL } from '../constants/dataAnalysisApi.js';
 import isDesktopApp from '../auth/desktop/isDesktopApp.js';
 import DesktopConnectionError from './connections/DesktopConnectionError.js';
+import normalizeHostAndPort from '../utils/connections/normalizeHostAndPort.js';
+export { normalizeHostAndPort };
 
 const DATABASE_OPERATION_PATH = /^\/api\/(?:connections\/[^/]+\/test|schema\/|analysis\/|agent\/(?:query$|analyze-connection\/|config\/[^/]+\/answers))/;
 
@@ -46,21 +48,6 @@ axios.interceptors.response.use((response) => {
  * Ayrı Port alanıyla birleşince sunucu adresi "sunucu,1433,1433" oluyor ve
  * bağlantı hiçbir zaman kurulamıyordu. Gömülü portu ayıklayıp tek yerde topla.
  */
-export const normalizeHostAndPort = (host, port) => {
-  const trimmed = String(host ?? '').trim();
-  const separator = Math.max(trimmed.lastIndexOf(','), trimmed.lastIndexOf(':'));
-
-  if (separator > 0) {
-    const tail = trimmed.slice(separator + 1).trim();
-    const bareHost = trimmed.slice(0, separator).trim();
-    // IPv6 adreslerinde ':' adresin parçası — yalnızca tek ayraç varsa güvenli.
-    if (/^\d+$/.test(tail) && bareHost && !bareHost.includes(':')) {
-      return { host: bareHost, port: Number(port) > 0 ? Number(port) : Number(tail) };
-    }
-  }
-
-  return { host: trimmed, port: Number(port) > 0 ? Number(port) : 1433 };
-};
 
 // Draft operations never persist credentials or rebind an existing connection.
 export const testConnectionDraft = (connectionInfo) => requestConnectionDraft('test', {
@@ -99,7 +86,8 @@ export const saveConnection = async (name, connectionInfo) => {
     database: connectionInfo.database,
     username: connectionInfo.username,
     password: connectionInfo.password,
-    trustServerCertificate: connectionInfo.trustServerCertificate
+    trustServerCertificate: connectionInfo.trustServerCertificate,
+    ...(connectionInfo.connectionMode != null ? { connectionMode: connectionInfo.connectionMode, bridgeId: connectionInfo.bridgeId ?? null } : {})
   });
   const response = await axios.post(`${API_BASE_URL}/api/connections`, payload, {
     timeout: 10000

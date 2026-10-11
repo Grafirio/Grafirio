@@ -227,6 +227,11 @@ jobs:
       - name: ACR Login
         run: az acr login --name "$ACR_NAME"
 
+      - name: Verify Bridge provisioner before deployment
+        if: matrix.service.app == 'data-analysis-api' || matrix.service.app == 'useradmin'
+        shell: pwsh
+        run: ./scripts/Repair-BridgeProvisioner.ps1 -ResourceGroup $env:RESOURCE_GROUP
+
       - name: Build, Push, and Deploy Service
         env:
           TAG: ${{ github.sha }}

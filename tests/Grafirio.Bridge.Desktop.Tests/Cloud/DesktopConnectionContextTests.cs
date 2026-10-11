@@ -168,6 +168,42 @@ public sealed class DesktopConnectionContextTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PermanentFailureBlocksBackgroundRetriesUntilExplicitRecovery(bool stopBeforeRecovery)
+    {
+        var sessions = SignedIn();
+        var failed = new ContextBridgeHost
+        {
+            StartFailure = new DesktopBridgeException("Identity configuration required", "BRIDGE_IDENTITY_UNAVAILABLE", false)
+        };
+        var recovered = new ContextBridgeHost();
+        recovered.Ready();
+        var hosts = new Queue<ContextBridgeHost>([failed, recovered]);
+        await using var controller = new DesktopBridgeController(sessions, Options.Create(new BridgeOptions()),
+            NullLoggerFactory.Instance, (_, _, _) => hosts.Dequeue());
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var error = await Assert.ThrowsAsync<DesktopBridgeException>(() =>
+                controller.ConnectAsync(sessions.Current!, CancellationToken.None));
+            Assert.False(error.Retryable);
+            Assert.Equal("BRIDGE_IDENTITY_UNAVAILABLE", error.Code);
+        }
+        Assert.Equal(1, failed.Starts);
+        Assert.True(failed.Disposed);
+        Assert.Equal(0, recovered.Starts);
+        if (stopBeforeRecovery)
+        {
+            await controller.StopAsync(CancellationToken.None);
+            await controller.ConnectAsync(sessions.Current!, CancellationToken.None);
+        }
+        Assert.Equal(recovered.BridgeId,
+            await controller.GetConnectionContextAsync(sessions.Current!, CancellationToken.None));
+        Assert.Equal(1, recovered.Starts);
+        Assert.Empty(hosts);
+    }
+
     private static ContextSessionManager SignedIn()
     {
         var sessions = new ContextSessionManager();

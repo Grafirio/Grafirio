@@ -10,6 +10,7 @@ internal sealed class ContextBridgeHost : IDesktopBridgeHost
     public bool IsConnected { get; set; }
     public bool Disposed { get; private set; }
     public int Starts { get; private set; }
+    public Exception? StartFailure { get; init; }
 
     public void Ready()
     {
@@ -21,6 +22,7 @@ internal sealed class ContextBridgeHost : IDesktopBridgeHost
     {
         Starts++;
         Started.TrySetResult();
+        if (StartFailure is not null) throw StartFailure;
         await _ready.Task.WaitAsync(cancellationToken);
     }
 

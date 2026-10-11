@@ -250,7 +250,14 @@ public static class SavedConnectionEndpoints
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting connections");
-            return Results.Problem("Bağlantılar getirilemedi.");
+            var unavailable = ex is MongoDB.Driver.MongoException or Npgsql.NpgsqlException;
+            return Results.Problem("Bağlantı listesi şu anda alınamıyor. Bu hata SQL hedefinizin parolasıyla ilgili değildir.",
+                statusCode: unavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "CATALOG_UNAVAILABLE", ["stage"] = "catalog", ["retryable"] = true,
+                    ["traceId"] = System.Diagnostics.Activity.Current?.Id
+                });
         }
     }
 

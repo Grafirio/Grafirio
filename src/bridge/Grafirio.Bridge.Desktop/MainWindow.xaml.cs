@@ -68,7 +68,8 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             _logger.LogWarning("Cloud bridge connection failed with {ErrorType}", exception.GetType().Name);
-            SetStatus("Veri bağlantısı kurulamadı. Şirket üyeliğinizi ve internet bağlantınızı kontrol edip yeniden deneyin.");
+            SetStatus(exception is DesktopBridgeException failure ? failure.Message
+                : "Veri bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.");
         }
     }
 

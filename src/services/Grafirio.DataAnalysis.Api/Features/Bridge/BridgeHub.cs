@@ -52,7 +52,7 @@ public class BridgeHub(
             return;
         }
 
-        registry.Attach(bridgeId, Context.ConnectionId, companyId, version);
+        await registry.AttachAsync(bridgeId, Context.ConnectionId, companyId, version, Context.ConnectionAborted);
         await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
 
         // Baglanti tanimlarini gonder. Bunsuz bridge baglanir, kalp atisi
@@ -89,7 +89,7 @@ public class BridgeHub(
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var (bridgeId, _) = Identify();
-        registry.Detach(bridgeId, Context.ConnectionId);
+        await registry.DetachAsync(bridgeId, Context.ConnectionId, CancellationToken.None);
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -124,6 +124,11 @@ public class BridgeHub(
     public async Task Heartbeat(BridgeHeartbeat heartbeat)
     {
         var (bridgeId, _) = Identify();
+        if (!await registry.RefreshAsync(bridgeId, Context.ConnectionId, Context.ConnectionAborted))
+        {
+            Context.Abort();
+            return;
+        }
         await presence.TouchAsync(bridgeId, heartbeat.BridgeVersion, Context.ConnectionAborted);
     }
 

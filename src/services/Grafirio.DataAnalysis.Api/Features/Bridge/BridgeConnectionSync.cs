@@ -87,10 +87,10 @@ public class BridgeConnectionSync(
         if (route.ConnectionMode != ConnectionRoute.Bridge) return;
         await bridges.ValidateRouteAsync(route, companyId, ct);
         var bridgeId = route.BridgeId!.Value;
-        if (!registry.IsOnline(bridgeId)) return;
+        if (!await registry.IsOnlineAsync(bridgeId, companyId, ct)) return;
 
         await SendAsync(
-            registry.ConnectionIdOf(bridgeId, companyId), bridgeId, connection, ct);
+            await registry.ConnectionIdOfAsync(bridgeId, companyId, ct), bridgeId, connection, ct);
     }
 
     /// <summary>Baglantiyi bridge'e unutturur. Silme sonrasi cagriliyor.</summary>
@@ -100,8 +100,8 @@ public class BridgeConnectionSync(
         // Remove stale copies from previous routes as well as the current route.
         foreach (var bridge in await bridges.ListAsync(companyId, ct))
         {
-            if (!registry.IsOnline(bridge.Id)) continue;
-            await hub.Clients.Client(registry.ConnectionIdOf(bridge.Id, companyId))
+            if (!await registry.IsOnlineAsync(bridge.Id, companyId, ct)) continue;
+            await hub.Clients.Client(await registry.ConnectionIdOfAsync(bridge.Id, companyId, ct))
                 .SendAsync(BridgeProtocol.ServerToBridge.RemoveConnection,
                     new RemoveConnectionRequest(connectionId), ct);
         }
