@@ -124,7 +124,14 @@ public static class BridgeEndpoints
             logger.LogError(ex, "Bridge kimliği açılamadı. Şirket: {CompanyId}", companyId);
             return Results.Problem(
                 detail: "Kimlik sunucusunda bridge hesabı açılamadı.",
-                statusCode: StatusCodes.Status502BadGateway);
+                statusCode: StatusCodes.Status502BadGateway,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "BRIDGE_IDENTITY_UNAVAILABLE",
+                    ["stage"] = "enrollment",
+                    ["retryable"] = false,
+                    ["traceId"] = System.Diagnostics.Activity.Current?.Id
+                });
         }
 
         await store.RegisterAsync(
@@ -152,7 +159,7 @@ public static class BridgeEndpoints
 
         var bridges = await store.ListAsync(companyId, ct);
 
-        return Results.Ok(bridges.Select(bridge => new
+        return Results.Ok(await Task.WhenAll(bridges.Select(async bridge => new
         {
             bridge.Id,
             bridge.Name,
@@ -162,8 +169,8 @@ public static class BridgeEndpoints
             bridge.LastSeenAt,
             // "Çevrimiçi" bu ornege bagli olmak demek. Cok replikali calismada
             // bu bilgi eksik kalir; BridgeRegistry'deki nota bakin.
-            online = registry.IsOnline(bridge.Id)
-        }));
+            online = await registry.IsOnlineAsync(bridge.Id, companyId, ct)
+        })));
     }
 
     private static async Task<IResult> RevokeBridge(

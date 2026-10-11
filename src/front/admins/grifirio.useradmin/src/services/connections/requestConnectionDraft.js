@@ -35,7 +35,13 @@ export default async function requestConnectionDraft(operation, connectionInfo) 
       }
       const connectionFailure = readConnectionFailure(error.response);
       if (connectionFailure !== null) throw new Error(connectionFailure);
-      throw new DesktopConnectionError();
+      if (error instanceof DesktopConnectionError) throw error;
+      const status = error.response?.status;
+      const reason = status === 401 ? 'Oturumunuz doğrulanamadı (HTTP 401). Yeniden giriş yapın.'
+        : status === 403 ? 'Bağlantı testi için yetkiniz yok (HTTP 403). Şirket yöneticinizle görüşün.'
+          : Number.isInteger(status) ? `Bağlantı testi servisi HTTP ${status} döndürdü. Sunucu ve Bridge durumu kontrol edilmeli.`
+            : 'Bağlantı testi servisine ulaşılamadı veya istek zaman aşımına uğradı.';
+      throw new DesktopConnectionError('testUnavailable', reason, status !== 401 && status !== 403);
     }
     throw error;
   }

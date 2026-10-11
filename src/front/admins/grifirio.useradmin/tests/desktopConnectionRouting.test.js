@@ -159,6 +159,22 @@ test('browser payloads and saved request paths remain unchanged without native r
   assert.equal('password' in calls[1].data, false);
 });
 
+test('browser explicit routes survive draft test and save without native routing', async (context) => {
+  const { calls, sent } = fixture(context, false);
+  for (const route of [{ connectionMode: 'direct', bridgeId: null }, { connectionMode: 'bridge', bridgeId: OTHER_BRIDGE_ID }]) {
+    const info = { ...INFO, ...route };
+    await service.testConnectionDraft(info);
+    assert.match(calls.at(-1).url, /\/api\/connections\/test$/);
+    assert.equal(calls.at(-1).data.connectionMode, route.connectionMode);
+    assert.equal(calls.at(-1).data.bridgeId, route.bridgeId);
+    await service.saveConnection('Source', info);
+    assert.equal(calls.at(-1).data.connectionMode, route.connectionMode);
+    assert.equal(calls.at(-1).data.bridgeId, route.bridgeId);
+  }
+  assert.equal(calls.length, 4);
+  assert.equal(sent.length, 0);
+});
+
 test('unavailable draft API fails clearly without save or direct fallback', async (context) => {
   const { sent } = fixture(context);
   let attempts = 0;
@@ -284,8 +300,10 @@ test('desktop form retains ordinary workflow without bridge controls or implicit
   const source = await readFile(new URL('../src/pages/SqlConnectionSettings.jsx', import.meta.url), 'utf8');
   assert.match(source, /if \(!isDesktop\) loadBridges\(\)/);
   assert.match(source, /\{!isDesktop && <div className="bridge-section">/);
-  assert.match(source, /\{!isDesktop && <div className="form-group">\s*<small className="form-hint">/);
-  assert.match(source, /const result = isDesktop\s*\? await testDesktopConnectionForm\(formData, savedConnectionId\)\s*: await testConnection\(await persistConnection\(\)\)/);
+  assert.match(source, /\{!isDesktop && <div className="form-group">\s*<label htmlFor="connection-mode">/);
+  assert.match(source, /const result = isDesktop\s*\? await testDesktopConnectionForm\(formData, savedConnectionId\)\s*: await testConnectionDraft\(/);
+  const testHandler = source.slice(source.indexOf('const handleTest'), source.indexOf('const handleSave'));
+  assert.doesNotMatch(testHandler, /persistConnection\(/);
   assert.match(source, /onClick=\{handleTest\}/);
   assert.match(source, /onClick=\{handleSave\}/);
   assert.doesNotMatch(source, /<select[^>]*name="(?:connectionMode|bridgeId)"/);

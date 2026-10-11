@@ -43,7 +43,9 @@ export default function requestDesktopConnectionContext() {
       if (data.error || typeof data.bridgeId !== 'string'
         || !GUID_PATTERN.test(data.bridgeId) || data.bridgeId === EMPTY_GUID) {
         finish(new DesktopConnectionError(
-          data.error === 'signedOut' ? 'signedOut' : 'unavailable', readReason(data)));
+          data.error === 'signedOut' ? 'signedOut'
+            : typeof data.code === 'string' && /^[A-Z_]{1,64}$/.test(data.code) ? data.code : 'unavailable',
+          readReason(data), data.retryable !== false));
         return;
       }
       finish(null, { bridgeId: data.bridgeId });

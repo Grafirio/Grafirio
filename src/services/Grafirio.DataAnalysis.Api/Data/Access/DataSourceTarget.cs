@@ -1,5 +1,6 @@
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Microsoft.Data.SqlClient;
+using Grafirio.Bridge.Contracts;
 
 namespace Grafirio.DataAnalysis.Api.Data.Access;
 
@@ -26,6 +27,7 @@ public sealed record DataSourceTarget(
 {
     public ConnectionRoute Route { get; init; } = new();
     public string CompanyId { get; init; } = string.Empty;
+    public string? CertificateHost { get; init; }
 
     /// <summary>Explicit authorization scope; an empty collection permits metadata only.</summary>
     public IReadOnlyList<string> AllowedTables { get; init; } = [];
@@ -55,20 +57,12 @@ public sealed record DataSourceTarget(
     /// </summary>
     internal static (string Host, int Port) NormalizeHostAndPort(string? host, int port)
     {
-        var trimmed = (host ?? string.Empty).Trim();
-        var separator = trimmed.LastIndexOfAny([',', ':']);
-
-        if (separator > 0 && int.TryParse(trimmed[(separator + 1)..].Trim(), out var embeddedPort))
+        try
         {
-            var bareHost = trimmed[..separator].Trim();
-            // IPv6 adreslerinde ':' zaten adresin parcasi — yalnizca tek ayrac varsa guvenli.
-            if (bareHost.Length > 0 && !bareHost.Contains(':'))
-            {
-                return (bareHost, port > 0 ? port : embeddedPort);
-            }
+            var endpoint = SqlServerAddress.Parse(host, port);
+            return (endpoint.Host, endpoint.Port);
         }
-
-        return (trimmed, port > 0 ? port : 1433);
+        catch (ArgumentException exception) { throw new DataSourceException(exception.Message); }
     }
 
     /// <summary>
@@ -83,7 +77,7 @@ public sealed record DataSourceTarget(
         var builder = new SqlConnectionStringBuilder
         {
             // tcp: prefix ile Named Pipes yerine TCP zorla (Docker container'lar icin gerekli)
-            DataSource = $"tcp:{host},{port}",
+            DataSource = new SqlServerAddress(host, port).DataSource,
             InitialCatalog = Database,
             UserID = Username,
             Password = Password,
@@ -95,6 +89,7 @@ public sealed record DataSourceTarget(
             Pooling = true
         };
 
+        if (CertificateHost is not null) builder.HostNameInCertificate = CertificateHost;
         return builder.ConnectionString;
     }
 

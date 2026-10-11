@@ -14,7 +14,9 @@ internal sealed record ConnectionContextResponse(
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("bridgeId")] Guid? BridgeId = null,
     [property: JsonPropertyName("error")] string? Error = null,
-    [property: JsonPropertyName("reason")] string? Reason = null)
+    [property: JsonPropertyName("reason")] string? Reason = null,
+    [property: JsonPropertyName("code")] string? Code = null,
+    [property: JsonPropertyName("retryable")] bool? Retryable = null)
 {
     [JsonPropertyName("type")]
     public string Type => "connectionContext";

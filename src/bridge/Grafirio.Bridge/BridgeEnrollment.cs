@@ -21,6 +21,7 @@ public class BridgeEnrollment(
     private const string EnrollmentFailureMessage = "Bridge kaydı tamamlanamadı. Lütfen bağlantı ayarlarını kontrol edip yeniden deneyin.";
     private readonly BridgeOptions _options = options.Value;
     private readonly Func<HttpClient> _createClient = BridgeEndpointSecurity.CreateClient;
+    public BridgeEnrollmentFailure? LastFailure { get; private set; }
 
     internal BridgeEnrollment(
         IOptions<BridgeOptions> options, BridgeState state, BridgeDeviceLogin deviceLogin,
@@ -77,6 +78,7 @@ public class BridgeEnrollment(
     /// </summary>
     public async Task<bool> EnrollWithTokenAsync(string installerToken, CancellationToken ct)
     {
+        LastFailure = null;
         if (!TryGetEnrollmentEndpoint(out var endpoint)) return false;
 
         display.ShowStatus(BridgeStatus.Registering);
@@ -99,6 +101,7 @@ public class BridgeEnrollment(
 
             if (!response.IsSuccessStatusCode)
             {
+                LastFailure = BridgeEnrollmentFailure.FromStatus(response.StatusCode);
                 logger.LogError("Bridge enrollment rejected ({StatusCode}).", (int)response.StatusCode);
                 display.ShowStatus(
                     BridgeStatus.EnrollmentFailed,

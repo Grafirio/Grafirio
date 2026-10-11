@@ -9,9 +9,9 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 ///
 /// Iki ayri sorumluluk var ve ikisi farkli yerlerde yasiyor:
 ///
-///   * <b>Hangi bridge nereye bagli</b> — sureclere ozel. Bridge tek bir
-///     replikaya baglaniyor. Sorgu istegi baska bir replikada dogduysa
-///     SignalR'in Redis backplane'i istegi yine de ulastirir.
+///   * <b>Hangi bridge nereye bagli</b> — Redis yapilandirildiginda sureli
+///     ortak dizinde, aksi halde tek surecte tutulur. SignalR backplane
+///     istegi bu dizinden bulunan baglantiya ulastirir.
 ///   * <b>Cevabi kim bekliyor</b> — <see cref="IBridgeResponseBus"/>. Backplane
 ///     yalnizca sunucudan istemciye gideni tasidigi icin cevap yolu ayrica
 ///     kuruluyor.
@@ -21,7 +21,8 @@ namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 /// degil — teshis edilemeyen bir askida kalma, gorulebilen bir hatadan cok
 /// daha kotudur.
 /// </summary>
-public class BridgeRegistry(IBridgeResponseBus responses, ILogger<BridgeRegistry> logger)
+public class BridgeRegistry(IBridgeResponseBus responses, ILogger<BridgeRegistry> logger,
+    IBridgeConnectionDirectory? directory = null)
 {
     /// <summary>Bridge kimligi → SignalR baglanti kimligi.</summary>
     private readonly ConcurrentDictionary<Guid, BridgeConnection> _connected = new();
@@ -41,13 +42,14 @@ public class BridgeRegistry(IBridgeResponseBus responses, ILogger<BridgeRegistry
 
     public void Detach(Guid bridgeId, string connectionId)
     {
+        if (_connected.TryGetValue(bridgeId, out var current) && current.ConnectionId != connectionId) return;
         // Kosul onemli: bridge yeniden baglandiktan SONRA eski baglantinin
         // kapanma bildirimi gelebiliyor. Kosulsuz silmek, yeni ve saglikli
         // baglantiyi defterden dusururdu.
         if (_connected.TryGetValue(bridgeId, out var existing)
             && existing.ConnectionId == connectionId)
         {
-            _connected.TryRemove(bridgeId, out _);
+            if (!_connected.TryRemove(new KeyValuePair<Guid, BridgeConnection>(bridgeId, existing))) return;
         }
 
         // Bu bridge'e gonderilmis suren sorgular sonsuza kadar beklemesin.
@@ -64,6 +66,46 @@ public class BridgeRegistry(IBridgeResponseBus responses, ILogger<BridgeRegistry
     }
 
     public bool IsOnline(Guid bridgeId) => _connected.ContainsKey(bridgeId);
+
+    public async Task AttachAsync(Guid bridgeId, string connectionId, string companyId, string version, CancellationToken ct)
+    {
+        if (directory is not null) await directory.SetAsync(bridgeId, new(connectionId, companyId, version), ct);
+        Attach(bridgeId, connectionId, companyId, version);
+    }
+
+    public async Task DetachAsync(Guid bridgeId, string connectionId, CancellationToken ct)
+    {
+        try
+        {
+            if (directory is not null && _connected.TryGetValue(bridgeId, out var connection) && connection.ConnectionId == connectionId)
+                await directory.RemoveAsync(bridgeId, new(connectionId, connection.CompanyId, connection.Version), ct);
+        }
+        finally { Detach(bridgeId, connectionId); }
+    }
+
+    public async Task<bool> RefreshAsync(Guid bridgeId, string connectionId, CancellationToken ct)
+    {
+        if (!_connected.TryGetValue(bridgeId, out var connection) || connection.ConnectionId != connectionId) return false;
+        return directory is null || await directory.RefreshAsync(bridgeId, new(connectionId, connection.CompanyId, connection.Version), ct);
+    }
+
+    public async Task<string> ConnectionIdOfAsync(Guid bridgeId, string companyId, CancellationToken ct = default)
+    {
+        if (directory is null) return ConnectionIdOf(bridgeId, companyId);
+        BridgeConnectionLease? lease;
+        try { lease = await directory.FindAsync(bridgeId, ct); }
+        catch (StackExchange.Redis.RedisException)
+        { throw new BridgeUnavailableException("Bridge yönlendirme servisine ulaşılamıyor; başka bağlantı yoluna geçilmedi."); }
+        if (lease is null || lease.CompanyId != companyId || string.IsNullOrWhiteSpace(lease.ConnectionId))
+            throw new BridgeUnavailableException("Seçilen Bridge çevrimdışı veya bu şirkete ait değil.");
+        return lease.ConnectionId;
+    }
+
+    public async Task<bool> IsOnlineAsync(Guid bridgeId, string companyId, CancellationToken ct = default)
+    {
+        try { await ConnectionIdOfAsync(bridgeId, companyId, ct); return true; }
+        catch (BridgeUnavailableException) { return false; }
+    }
 
     public IReadOnlyCollection<Guid> OnlineBridgeIds => _connected.Keys.ToList();
 

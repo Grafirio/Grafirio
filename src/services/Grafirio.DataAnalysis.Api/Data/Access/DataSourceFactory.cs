@@ -12,8 +12,10 @@ public sealed class DataSourceFactory(
     BridgeRegistry registry,
     IHubContext<BridgeHub> hub,
     ILoggerFactory loggerFactory,
-    ConnectionProfileStore profiles) : IDataSourceFactory
+    ConnectionProfileStore profiles,
+    DirectConnectionPolicy? directPolicy = null) : IDataSourceFactory
 {
+    private readonly DirectConnectionPolicy _directPolicy = directPolicy ?? new(new ConfigurationBuilder().Build());
     public Task<IDataSourceSession> OpenAsync(SavedConnection connection, CancellationToken ct = default) =>
         OpenSavedAsync(connection, DataSourceTarget.DefaultConnectTimeoutSeconds, ct);
 
@@ -67,7 +69,7 @@ public sealed class DataSourceFactory(
         if (route.ConnectionMode != ConnectionRoute.Bridge) return;
         try
         {
-            registry.ConnectionIdOf(route.BridgeId!.Value, companyId);
+            await registry.ConnectionIdOfAsync(route.BridgeId!.Value, companyId, ct);
         }
         catch (BridgeUnavailableException exception)
         {
@@ -83,16 +85,17 @@ public sealed class DataSourceFactory(
                 target.Database, target.Username, target.Password, target.TrustServerCertificate,
                 target.AllowedTables), temporary);
 
-    private static async Task<IDataSourceSession> OpenDirectAsync(
+    private async Task<IDataSourceSession> OpenDirectAsync(
         DataSourceTarget target, int timeoutSeconds, CancellationToken ct)
     {
         try
         {
-            return await DirectDataSourceSession.OpenAsync(target, timeoutSeconds, ct);
+            var approved = await _directPolicy.AuthorizeAsync(target, ct);
+            return await DirectDataSourceSession.OpenAsync(approved, timeoutSeconds, ct);
         }
         catch (SqlException exception)
         {
-            throw new DataSourceException($"Bağlantı kurulamadı: {exception.Message}", exception);
+            throw new DataSourceException(SqlFailureMessage.ForNumber(exception.Number), exception);
         }
     }
 

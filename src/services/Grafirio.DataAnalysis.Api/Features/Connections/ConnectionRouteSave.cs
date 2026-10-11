@@ -33,6 +33,9 @@ internal static class ConnectionRouteSave
         try
         {
             mutate();
+            var endpoint = DataSourceTarget.NormalizeHostAndPort(connection.Host, connection.Port);
+            connection.Host = endpoint.Host;
+            connection.Port = endpoint.Port;
             if (!isNew && (recovering || unbound || SourceChanged(original, connection, previous, requested)) &&
                 original.EncryptedPassword == connection.EncryptedPassword)
                 throw new DataSourceException("Bağlantı hedefi değiştiğinde parola yeniden girilmelidir.");

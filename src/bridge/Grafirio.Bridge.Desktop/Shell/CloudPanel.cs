@@ -174,7 +174,9 @@ public sealed class CloudPanel : System.Windows.Controls.UserControl, IDisposabl
             _logger.LogWarning("Desktop connection context failed with {ErrorType}", exception.GetType().Name);
             response = new(requestId,
                 Error: _sessions.Current is null ? "signedOut" : "unavailable",
-                Reason: DescribeFailure(exception));
+                Reason: DescribeFailure(exception),
+                Code: (exception as DesktopBridgeException)?.Code,
+                Retryable: (exception as DesktopBridgeException)?.Retryable);
         }
         if (_disposed || navigation != _navigation) return;
         if (response.BridgeId is not null && (!ReferenceEquals(response.Session, _sessions.Current)

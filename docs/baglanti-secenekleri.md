@@ -16,7 +16,7 @@ bağlanır, biz değil.
 | --- | --- |
 | Firewall'da hangi portu açacağız? | **Hiçbirini.** Yalnızca giden 443 gerekiyor — zaten açık. |
 | Bağlantıyı kim başlatır? | Sizin sunucunuz. Grafirio sizin ağınıza hiç bağlanmaz, bağlanamaz. |
-| Veritabanı şifresi nerede duruyor? | Sizin diskinizde, Windows DPAPI ile ve **makineye bağlı** olarak. Dosya başka bir makineye kopyalansa çözülemez. |
+| Veritabanı şifresi nerede duruyor? | Panelden kaydedilen bağlantının parolası bulut PostgreSQL kaydında şifreli tutulur ve ilgili Bridge'e TLS üzerinden iletilir. Bridge'in yerel kopyası Windows DPAPI ile korunur. Bu akış için "parola yalnızca cihazınızda kalır" garantisi verilmez. |
 | Buluttan gelen bir sorgu verimizi değiştirebilir mi? | Hayır. Bridge yalnızca `SELECT`/`WITH` kabul eder ve bu kontrolü **sizin makinenizde** yapar. `DROP`, `DELETE`, `UPDATE`, hatta `SELECT ... INTO` reddedilir. |
 | Hangi tablolara erişilir? | İzin listesi tanımlarsanız yalnızca onlara. Listede olmayan bir tabloya giden sorgu, bulut ne gönderirse göndersin reddedilir. |
 | Ne yapıldığını nereden görürüz? | `audit.tsv` — her sorgu, zamanı, dönen satır sayısı. Sizin diskinizde, bizim erişimimiz olmadan. |
@@ -84,7 +84,7 @@ En büyük ve en muhafazakâr kurumlar için.
 | | Bridge | Doğrudan | VPN | Yerinde |
 | --- | --- | --- | --- | --- |
 | Firewall'da port açılır mı | Hayır | Evet (1433) | Evet (IPsec) | Hayır |
-| Şifre nerede | Sizde | Bizde (şifreli) | Bizde (şifreli) | Sizde |
+| Şifre nerede | Panelden kayıtta bulutta şifreli ve Bridge'de korumalı kopya | Bizde (şifreli) | Bizde (şifreli) | Sizde |
 | Veri nereye gider | Sorgu sonucu buluta | Sorgu sonucu buluta | Sorgu sonucu buluta | Hiçbir yere |
 | Kurulum yükü | Tek `.exe` | Yok | Ağ ekibi | Tam kurulum |
 | Okuma zorlaması sizde mi | **Evet** | Hayır | Hayır | — |
@@ -99,10 +99,11 @@ sonucu döndürür. Uzaktan komut çalıştırma, dosya erişimi ya da başka bi
 yetenek yoktur.
 
 **Şifreyi panele girersek buluta gitmiş olmuyor mu?**
-Panelden girilen şifre kurulu TLS kanalından bridge'e iner ve orada kalıcı
-olarak saklanır; bulutta kalıcı bir kopyası tutulmaz. Bu bile fazla geliyorsa
-şifreyi hiç panele girmeden, doğrudan bridge'in yerel yapılandırmasına
-yazabilirsiniz — panel yalnızca bağlantının adını görür.
+Evet. Mevcut panelden kaydetme akışı parolayı API'ye iletir, bulut
+PostgreSQL kaydında şifreli saklar ve ilgili Bridge'e TLS üzerinden gönderir.
+Bridge yerel kopyayı Windows DPAPI ile korur. Yalnızca yerelde parola saklama
+gereksinimi ayrı bir akış olarak tasarlanıp doğrulanmalıdır; mevcut panel
+akışı bu güvenceyi vermez. Parolalar günlük veya destek çıktısına eklenmemelidir.
 
 **Bridge çökerse ne olur?**
 Analizler durur ve panelde bağlantı "Çevrimdışı" görünür; sessizce yanlış

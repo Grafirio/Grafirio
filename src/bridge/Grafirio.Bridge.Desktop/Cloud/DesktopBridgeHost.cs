@@ -52,7 +52,9 @@ internal sealed class DesktopBridgeHost(
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (!enrolled || !state.IsEnrolled)
-                throw new DesktopBridgeException(ConnectionFailureMessage);
+                throw enrollment.LastFailure is { } failure
+                    ? new DesktopBridgeException(failure.Message, failure.Code, failure.Retryable)
+                    : new DesktopBridgeException(ConnectionFailureMessage);
         }
 
         await host.StartAsync(cancellationToken).ConfigureAwait(false);

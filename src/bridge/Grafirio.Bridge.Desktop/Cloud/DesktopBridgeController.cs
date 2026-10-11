@@ -17,6 +17,8 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
     private IDesktopBridgeHost? _host;
     private string? _identityDirectory;
     private bool _disposed;
+    private string? _blockedIdentity;
+    private DesktopBridgeException? _blockedFailure;
 
     public DesktopBridgeController(IDesktopSessionManager sessions,
         IOptions<BridgeOptions> options, ILoggerFactory loggerFactory)
@@ -51,6 +53,7 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        string? attemptIdentity = null;
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -58,6 +61,11 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
             var connectionToken = connectionCancellation.Token;
             connectionToken.ThrowIfCancellationRequested();
             var directory = ValidateSession(session);
+            attemptIdentity = directory;
+            if (!requireContext && _blockedIdentity == directory && _blockedFailure is not null)
+                throw _blockedFailure;
+            _blockedIdentity = null;
+            _blockedFailure = null;
             if (_host is not null && directory == _identityDirectory)
             {
                 if (requireContext) return ReadConnectionContext(session);
@@ -88,6 +96,11 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
             await StopCoreAsync().ConfigureAwait(false);
             _logger.LogWarning("Desktop cloud bridge connection failed ({ErrorType}).", exception.GetType().Name);
             var failure = exception as DesktopBridgeException ?? new DesktopBridgeException(ConnectionFailureMessage);
+            if (!failure.Retryable)
+            {
+                _blockedIdentity = attemptIdentity;
+                _blockedFailure = failure;
+            }
             _display.Publish(BridgeStatus.Disconnected, failure.Message);
             throw failure;
         }
@@ -123,6 +136,8 @@ public sealed class DesktopBridgeController : IDesktopBridgeController
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _blockedIdentity = null;
+            _blockedFailure = null;
             await StopCoreAsync().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }

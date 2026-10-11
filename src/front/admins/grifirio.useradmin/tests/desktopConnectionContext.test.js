@@ -41,6 +41,19 @@ test('context uses only native channel, UUID correlation and exact message contr
   assert.equal(listeners.size, 0);
 });
 
+test('native permanent failure preserves safe diagnostic code and retry policy', async (context) => {
+  const { reply, listeners } = fixture(context);
+  const pending = requestContext();
+  reply({ error: 'unavailable', code: 'BRIDGE_IDENTITY_UNAVAILABLE', retryable: false, reason: 'Sunucu yapılandırması gerekiyor.' });
+  await assert.rejects(pending, (error) => {
+    assert.equal(error.code, 'BRIDGE_IDENTITY_UNAVAILABLE');
+    assert.equal(error.retryable, false);
+    assert.equal(error.reason, 'Sunucu yapılandırması gerekiyor.');
+    return true;
+  });
+  assert.equal(listeners.size, 0);
+});
+
 test('context never caches the bridge and correlates concurrent requests', async (context) => {
   const { sent, reply, listeners } = fixture(context);
   const first = requestContext();
@@ -79,7 +92,7 @@ test('reported reason reaches the message, trimmed, capped and never invented', 
   const withReason = requestContext();
   reply({ error: 'unavailable', reason: '  Oturum gerekli. Lütfen yeniden giriş yapın.  ' });
   await assert.rejects(withReason, (error) => {
-    assert.match(error.message, /\(Oturum gerekli\. Lütfen yeniden giriş yapın\.\)$/);
+    assert.match(error.message, /Oturum gerekli\. Lütfen yeniden giriş yapın\.$/);
     assert.equal(error.reason, 'Oturum gerekli. Lütfen yeniden giriş yapın.');
     return true;
   });

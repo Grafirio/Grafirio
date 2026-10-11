@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  testConnection, saveConnection, updateConnection, deleteConnection,
+  testConnectionDraft, saveConnection, updateConnection, deleteConnection,
   getSavedConnections,
   getDataQuality, getStatistics, getMissingData, getRelationships,
   saveSelectedTables, getSelectedTables,
@@ -10,6 +10,7 @@ import {
 } from '../services/dataAnalysisService';
 import isDesktopApp from '../auth/desktop/isDesktopApp.js';
 import testDesktopConnectionForm from '../services/connections/testDesktopConnectionForm.js';
+import requestDesktopConnectionContext from '../services/connections/requestDesktopConnectionContext.js';
 import TableList from '../components/DataAnalysis/TableList';
 import LearnedFactsPanel from '../components/Analysis/LearnedFactsPanel';
 import { useAnalysis } from '../contexts/AnalysisContext';
@@ -60,7 +61,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     database: '',
     username: '',
     password: '',
-    trustServerCertificate: true
+    trustServerCertificate: true,
+    connectionMode: 'direct',
+    bridgeId: null
   });
 
   const [testStatus, setTestStatus] = useState({ type: '', message: '' });
@@ -115,6 +118,12 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
   const describeLoadFailure = (error) => {
     const status = error?.response?.status;
     const serverSaid = error?.response?.data?.error;
+    const problem = error?.response?.data;
+    if (problem?.code === 'CATALOG_UNAVAILABLE') {
+      const trace = typeof problem.traceId === 'string' && /^[a-zA-Z0-9|._-]{1,128}$/.test(problem.traceId)
+        ? ` Destek kodu: ${problem.traceId}` : '';
+      return `Bağlantı listesi servisi şu anda kullanılamıyor (HTTP ${status}). SQL ayarlarınızı değiştirmeyin.${trace}`;
+    }
 
     if (serverSaid) return `${serverSaid} (HTTP ${status})`;
 
@@ -158,6 +167,8 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
         trustServerCertificate: conn.trustServerCertificate,
         connectionMode: conn.connectionMode,
         bridgeId: conn.bridgeId,
+        routeAvailable: conn.routeAvailable,
+        routeError: conn.routeError,
         createdAt: conn.createdAt,
         updatedAt: conn.updatedAt,
         lastConnectedAt: conn.lastConnectedAt,
@@ -198,6 +209,19 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
 
   // Desktop tests preview the draft without invoking this save path.
   const persistConnection = async () => {
+    if (isDesktop && editingConnection) {
+      const { bridgeId } = await requestDesktopConnectionContext();
+      if (editingConnection.connectionMode !== 'bridge'
+        || editingConnection.bridgeId?.toLowerCase() !== bridgeId.toLowerCase()) {
+        if (!formData.password) throw new Error('Bağlantıyı bu bilgisayara taşımak için parolayı yeniden girin.');
+        if (!window.confirm('Bu bağlantının erişim yolu bu bilgisayara taşınacak. Onaylıyor musunuz?')) {
+          throw new Error('Bağlantı taşıma iptal edildi; kayıt değiştirilmedi.');
+        }
+      }
+    }
+    if (!isDesktop && (!formData.connectionMode || (formData.connectionMode === 'bridge' && !formData.bridgeId))) {
+      throw new Error('Bağlantı yolunu ve gerekiyorsa Bridge cihazını seçin.');
+    }
     const name = formData.name?.trim() || `${formData.host}-${formData.database}`;
     let connectionId = savedConnectionId;
 
@@ -230,7 +254,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     try {
       const result = isDesktop
         ? await testDesktopConnectionForm(formData, savedConnectionId)
-        : await testConnection(await persistConnection());
+        : await testConnectionDraft({ ...formData, connectionId: savedConnectionId ?? undefined });
 
       setTestStatus(result.success
         ? { type: 'success', message: `✅ ${result.message}` }
@@ -267,7 +291,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: connection.database,
       username: connection.username,
       password: '',
-      trustServerCertificate: connection.trustServerCertificate
+      trustServerCertificate: connection.trustServerCertificate,
+      connectionMode: connection.connectionMode ?? '',
+      bridgeId: connection.bridgeId ?? null
     });
     setSavedConnectionId(connection.savedConnectionId || connection.id); // Edit modunda connection ID'yi sakla
     setIsFormOpen(true);
@@ -308,7 +334,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
       database: '',
       username: '',
       password: '',
-      trustServerCertificate: true
+      trustServerCertificate: true,
+      connectionMode: 'direct',
+      bridgeId: null
     });
     setTestStatus({ type: '', message: '' });
   };
@@ -799,11 +827,39 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
 
             {/* Bridge availability does not select or change the saved route. */}
             {!isDesktop && <div className="form-group">
+              <label htmlFor="connection-mode">Bağlantı nereden açılacak?</label>
+              <select id="connection-mode" className="form-control" value={formData.connectionMode}
+                onChange={(event) => setFormData(previous => ({ ...previous,
+                  connectionMode: event.target.value, bridgeId: null }))}>
+                <option value="" disabled>Bağlantı yolunu seçin</option>
+                <option value="direct">Grafirio bulutundan doğrudan</option>
+                <option value="bridge">Kayıtlı Bridge cihazından</option>
+              </select>
+              {formData.connectionMode === 'bridge' && <>
+                <label htmlFor="connection-bridge">Bridge cihazı</label>
+                <select id="connection-bridge" className="form-control" value={formData.bridgeId ?? ''}
+                  onChange={(event) => setFormData(previous => ({ ...previous, bridgeId: event.target.value || null }))}>
+                  <option value="">Cihaz seçin</option>
+                  {formData.bridgeId && !bridges.some(item => item.id === formData.bridgeId)
+                    && <option value={formData.bridgeId}>Kayıtlı cihaz — erişilemiyor</option>}
+                  {bridges.map(bridge => <option key={bridge.id} value={bridge.id}>
+                    {bridge.name || bridge.machineName} — {bridge.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+                  </option>)}
+                </select>
+              </>}
+              <small className="form-hint">
+                {formData.connectionMode === 'direct'
+                  ? 'Bağlantıyı Grafirio sunucusu açar. localhost sizin bilgisayarınız değildir; yerel ağ için Bridge seçin.'
+                  : 'Hedef adrese seçilen Bridge cihazından erişilir. localhost o cihazı ifade eder.'}
+              </small>
               <small className="form-hint">
                 Sorgular bağlantının kayıtlı erişim yolunu kullanır; başka bir masaüstü uygulamasına
                 veya doğrudan bağlantıya otomatik geçiş yapılmaz. Bu bilgisayardan erişmek için
                 masaüstü uygulamasında bağlantıyı açıp kaydedin.
               </small>
+            </div>}
+            {isDesktop && <div className="form-group">
+              <small className="form-hint">Bağlantı bu bilgisayarın Bridge’i üzerinden açılır. localhost bu bilgisayarı ifade eder.</small>
             </div>}
           </div>
 
@@ -916,6 +972,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                     </div>
                   )}
 
+                  {connection.routeAvailable === false && <div className="detail-item" role="alert">
+                    <span>{connection.routeError || 'Bağlantı yolu doğrulanamadı. Bağlantıyı düzenleyip yeniden kaydedin.'}</span>
+                  </div>}
                   {/* Only the bridge bound to this connection describes its availability. */}
                   {!isDesktop && (() => {
                     const bridge = bridges.find((item) => item.id === connection.bridgeId);
@@ -941,6 +1000,7 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                   <button
                     className="gf-btn gf-btn--sm"
                     onClick={() => handleOpenModal(connection)}
+                    disabled={connection.routeAvailable === false}
                   >
                     <i className="ti ti-table"></i> Tablo Seç
                   </button>
@@ -949,12 +1009,14 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
                   <button
                     className="gf-btn gf-btn--sm gf-btn--primary"
                     onClick={() => openAnalysis(connection)}
+                    disabled={connection.routeAvailable === false}
                   >
                     <i className="ti ti-sparkles"></i> Analiz Et
                   </button>
                   <button
                     className="gf-btn gf-btn--sm"
                     onClick={() => navigate(`/canvas?connectionId=${connection.savedConnectionId || connection.id}`)}
+                    disabled={connection.routeAvailable === false}
                   >
                     <i className="ti ti-brain"></i> AI Sorgulama
                   </button>

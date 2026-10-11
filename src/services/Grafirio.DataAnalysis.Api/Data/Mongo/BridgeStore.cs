@@ -27,15 +27,27 @@ public class BridgeStore(IMongoDatabase database, ILogger<BridgeStore> logger)
         Guid connectionId, string companyId, CancellationToken ct = default)
     {
         var document = await Routes.Find(RouteFilter(connectionId, companyId)).FirstOrDefaultAsync(ct);
-        return document is null ? new ConnectionRoute() : new ConnectionRoute(
-            document["connectionMode"].AsString,
-            document["bridgeId"].IsBsonNull ? null : Guid.Parse(document["bridgeId"].AsString))
+        return ReadRoute(document);
+    }
+
+    internal static ConnectionRoute ReadRoute(BsonDocument? document)
+    {
+        try
         {
-            Fingerprint = document.GetValue("fingerprint", BsonNull.Value) is BsonString fingerprint ? fingerprint.Value : null,
-            Revision = document.GetValue("revision", BsonNull.Value) is BsonString revision ? revision.Value : null,
-            Pending = document.GetValue("pending", false).AsBoolean,
-            Failed = document.GetValue("failed", false).AsBoolean
-        };
+            return document is null ? new ConnectionRoute() : new ConnectionRoute(
+                document["connectionMode"].AsString,
+                document["bridgeId"].IsBsonNull ? null : Guid.Parse(document["bridgeId"].AsString))
+            {
+                Fingerprint = document.GetValue("fingerprint", BsonNull.Value) is BsonString fingerprint ? fingerprint.Value : null,
+                Revision = document.GetValue("revision", BsonNull.Value) is BsonString revision ? revision.Value : null,
+                Pending = document.GetValue("pending", false).AsBoolean,
+                Failed = document.GetValue("failed", false).AsBoolean
+            };
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidCastException or KeyNotFoundException)
+        {
+            return new ConnectionRoute("invalid");
+        }
     }
 
     public virtual async Task ReserveConnectionRouteAsync(
