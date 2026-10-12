@@ -860,6 +860,29 @@ public class LlmAnalysisService
           geçmiş kalsın; model ne kadar geçmiş görürse o kadar iyi.
         - `chart_type: "line"`.
 
+        ## Birden fazla ölçü — `measures`
+
+        Kullanıcı aynı kırılımda İKİ YA DA DAHA FAZLA ölçü istiyorsa ("ciro
+        VE sipariş sayısı aylara göre", "toplam tutar ile ortalama tutarı
+        ülke bazında göster"):
+
+        ```json
+        "measures": [
+          { "column": "Tutar", "aggregation": "sum", "label": "Toplam Tutar" },
+          { "column": null, "aggregation": "count", "label": "Sevkiyat Sayısı" }
+        ]
+        ```
+
+        - YALNIZCA birden fazla ölçü istendiğinde kullan; tek ölçü için
+          `target_column` + `aggregation` yeterli. `measures` varken
+          `target_column` ve `aggregation` alanlarını hiç yazma.
+        - İlk ölçü esastır: sıralama, `having` ve `window` ona uygulanır.
+        - `label` grafikte görünecek Türkçe seri adıdır; her ölçüye farklı
+          bir ad ver.
+        - En fazla 5 ölçü. `group_by` ya da `time_axis` ile birlikte
+          çalışır; `union`, `period_compare` ve `forecast` ile çalışmaz.
+          Dönem + ek kırılım + çoklu ölçü bir arada çizilemez.
+
         ## Zaman ifadeleri
 
         `filters` üç biçim kabul eder:
@@ -893,6 +916,7 @@ public class LlmAnalysisService
               "preAggregate": { "aggregation": "sum", "column": "Tutar" } }
           ],
           "target_column": "kolon_adı veya null",
+          "measures": [ { "column": "Tutar", "aggregation": "sum", "label": "Toplam Tutar" } ],
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
           "time_axis": { "column": "tarih_kolonu", "granularity": "day|month|quarter|year" },
@@ -912,10 +936,10 @@ public class LlmAnalysisService
         }
         ```
 
-        `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`
-        ve `horizon` isteğe bağlıdır: soru gerektirmiyorsa hiç yazma.
-        Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union`
-        söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
+        `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`,
+        `measures` ve `horizon` isteğe bağlıdır: soru gerektirmiyorsa hiç
+        yazma. Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır,
+        `union` söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
 
         JSON'dan sonra ### Açıklama başlığıyla, hangi kolonu neden seçtiğini
         tek cümleyle yaz.

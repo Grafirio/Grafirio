@@ -85,9 +85,17 @@ müşteri sorularının en büyük açığı.
 "Ciro **ve** sipariş sayısı aylara göre" — Power BI'ın "sales vs cost"
 karşılığı.
 
-- `QuerySpec`'e ek ölçü listesi (`extra_aggregates`); çıktı adı çakışma
-  denetimi mevcut pencere denetimine eklenir.
-- Çeviri prompt'una `measures` dizisi; grafikte ölçü başına dataset.
+- `QuerySpec.extra_aggregates`: ek ölçüler projeksiyona girer; sıralama,
+  `having` varsayılanı ve pencereler İLK ölçüye bağlı kalır. Çıktı adı
+  çakışması (ölçü↔ölçü, ölçü↔kırılım) SQL üretilmeden reddedilir.
+- Çeviri sözleşmesi `measures: [{column, aggregation, label}]` — yalnızca
+  kullanıcı 2+ ölçü istediğinde; en fazla 5 ölçü; `group_by` ya da
+  `time_axis` ile çalışır, büyüme yorumu ilk ölçü üzerinden döner.
+- Bilerek reddedilen bileşimler: `union`, `period_compare`, `forecast` ve
+  "dönem + ek kırılım + çoklu ölçü" (pivot tek değer kolonunu serilere açar;
+  ikinci ölçü hangi kolonun pivotlanacağını belirsizleştirir).
+- Ölçek notu: seriler tek eksende çizilir; birimleri çok farklı iki ölçü
+  için ikinci y-ekseni ileride önyüz işi olarak ele alınabilir.
 
 ## Faz 5 — Eksik toplulaştırmalar: distinct count, medyan, yüzdelik
 
