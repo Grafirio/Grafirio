@@ -5,6 +5,7 @@ MassTransit'ten gelen mesajları işler ve sonuçları geri gönderir.
 
 import json
 import logging
+import re
 import pandas as pd
 from typing import Dict, Any, List, Optional
 
@@ -14,8 +15,9 @@ from chart_validation import validate_charts, validate_chart_type
 from query_spec import (
     AliasFactory, Aggregate, ColumnRef, DerivedTable, FRAME_CUMULATIVE,
     FRAME_MOVING, HavingPredicate, Join, JoinCondition, MANY_TO_ONE, OrderBy,
-    Predicate, QuerySpec, QuerySpecError, TableRef, UnionBranch, UnionSpec,
-    WindowExpr, render, render_group_count, render_union,
+    PERIOD_GRANULARITIES, PeriodBucket, Predicate, QuerySpec, QuerySpecError,
+    TableRef, UnionBranch, UnionSpec, WindowExpr, render, render_group_count,
+    render_union,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,6 +172,7 @@ class AgentAnalyzer:
         having = params.get("having")
         window = params.get("window")
         union = params.get("union")
+        time_axis = params.get("time_axis")
 
         if not target_table:
             # Tek tablo varsa bu bir secim degil, zorunluluk. Birden fazlaysa
@@ -238,6 +241,13 @@ class AgentAnalyzer:
                     "hesaplanamıyor: bu hesaplar dal başına değil birleşimin "
                     "tamamı üzerinde anlamlı. Soruyu tek kaynak üzerinden "
                     "sorun ya da bu hesabı bırakın."))
+            if time_axis:
+                # Donem yuvarlama dallarin HER IKISINDE de ayni bicimde
+                # kurulmali; yarim destek, iki dali farkli eksende cizmek
+                # olur. Destek gelene kadar acikca reddediliyor.
+                return self._with_audit(self._error_result(
+                    "Dönem kırılımı (aylara/yıllara göre) birleşimle birlikte "
+                    "henüz desteklenmiyor. Soruyu tek kaynak üzerinden sorun."))
             try:
                 return self._with_audit(self._sql_union(
                     config, union, target_table, group_by, target_column,
@@ -290,6 +300,26 @@ class AgentAnalyzer:
         self.audit["appliedFilters"] = filter_notes
         self._record_learned_codes(config, filters, scope)
 
+        # Zaman ekseni yalnizca donem uzerinde calisan tiplerde cozulur.
+        # Ham tarih kolonuyla gruplama (eski davranis) group_by uzerinden
+        # hala mumkun; time_axis onun yuvarlanmis, sirali hâli.
+        period_ref = None
+        if analysis_type in ("aggregation", "forecast"):
+            try:
+                period_ref = self._resolve_time_axis(time_axis, scope)
+            except ValueError as error:
+                return self._with_audit(self._error_result(str(error)))
+            if period_ref is not None:
+                # NULL tarih bir donem degildir: '(Bos)' diye bir donem
+                # cizmek seriyi de tahmini de bozar.
+                predicates = list(predicates) + [
+                    Predicate(ColumnRef(period_ref.alias, period_ref.name),
+                              "IS NOT NULL")]
+                self.audit["timeAxis"] = {
+                    "column": period_ref.name,
+                    "granularity": period_ref.granularity,
+                }
+
         try:
             # Gruplama/sayma sorulari SQL'de calisir: sonuc tablonun tamami
             # uzerinden ve kesindir. Onceden tablodan TOP 50000 satir cekilip
@@ -299,7 +329,22 @@ class AgentAnalyzer:
                 return self._with_audit(self._sql_aggregation(
                     base, joins, scope, target_column, group_by, aggregation,
                     sort_order, limit, predicates, where_params, chart_type,
-                    chart_title, description, having, window))
+                    chart_title, description, having, window,
+                    period_ref=period_ref))
+
+            if analysis_type == "forecast":
+                # Esik ve pencere tahminle birlesmez: esik donemleri eler ve
+                # seride delik acar, pencere ise zaten turetilmis bir seridir
+                # — tahmini tahmin uzerine kurmak olur.
+                if having is not None or window:
+                    return self._with_audit(self._error_result(
+                        "Tahminle birlikte eşik (having) veya birikim/pencere "
+                        "hesabı kullanılamıyor; bunlar seriyi deler ya da "
+                        "türetir. Soruyu sade ölçüyle sorun."))
+                return self._with_audit(self._sql_forecast(
+                    base, joins, scope, period_ref, target_column, group_by,
+                    aggregation, predicates, where_params, params,
+                    chart_title, description))
 
             # Kalan tipler (PyCaret modelleri, korelasyon, ozet istatistik)
             # satir bazli veri istiyor; bunlar icin okuma tavani kacinilmaz.
@@ -383,7 +428,7 @@ class AgentAnalyzer:
     # ------------------------------------------------------------------
 
     ANALYSIS_TYPES = (
-        "aggregation", "statistics", "correlation",
+        "aggregation", "forecast", "statistics", "correlation",
         "regression", "classification", "anomaly", "clustering",
     )
 
@@ -1166,7 +1211,8 @@ class AgentAnalyzer:
                          aggregation: str, sort_order: str, limit: int,
                          predicates: List[Predicate], where_params: Dict,
                          chart_type: str, title: str, desc: str,
-                         having: Any = None, window: Any = None) -> Dict:
+                         having: Any = None, window: Any = None,
+                         period_ref: Optional[PeriodBucket] = None) -> Dict:
         """
         Gruplama ve toplama — veritabaninda.
 
@@ -1178,6 +1224,10 @@ class AgentAnalyzer:
         """
         try:
             group_refs: List[ColumnRef] = []
+            if period_ref is not None:
+                # Donem her zaman ilk kirilim: seri ekseni odur, kalan
+                # kirilimlar pencere hesaplarinda bolum olur.
+                group_refs.append(period_ref)
             for col in group_by:
                 ref = scope.resolve(col)
                 if ref is None:
@@ -1226,6 +1276,12 @@ class AgentAnalyzer:
                 window, measure, group_refs, direction)
         except ValueError as e:
             return self._error_result(str(e))
+
+        # Donem kirilimli sonuc bir SERIDIR: kronolojik okunur, olcuye gore
+        # siralanmaz ve "ilk 10" tavani uygulanmaz — kesilmis bir zaman
+        # serisi dogru gorunur ama yanlistir.
+        if period_ref is not None:
+            is_series = True
 
         # Kosulun degeri de bagli parametre; cagiranin sozlugunu bozmadan
         # ustune ekleniyor.
@@ -1307,6 +1363,14 @@ class AgentAnalyzer:
                 if having_note else
                 "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
 
+        if period_ref is not None and len(group_refs) > 1 and not windows:
+            # "Ulke bazinda aylik ciro": satirlar donem×kirilim geliyor.
+            # Hepsini tek seriye dizmek aylari tekrarlayan, okunamaz bir
+            # grafik uretir — kirilim degerleri ayri serilere acilir.
+            return self._period_pivot_chart(
+                grouped, group_refs, alias, value_label, total_groups,
+                chart_type, title, desc)
+
         if group_refs:
             labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
             values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
@@ -1379,6 +1443,343 @@ class AgentAnalyzer:
             "insights": insights,
             "summary": desc or f"{result_label} hesaplandı.",
         }
+
+    # ------------------------------------------------------------------
+    # Zaman ekseni ve tahmin
+    # ------------------------------------------------------------------
+
+    #: Donem pivotunda en fazla kac seri cizilir. Ustu okunamaz bir grafik;
+    #: kullanicinin filtrelemesi ya da "ilk N" istemesi gerekir.
+    MAX_PIVOT_SERIES = 12
+
+    #: Donem kolonunun cikti adi. ASCII kaliyor: satirlar JSON uzerinden
+    #: birden fazla katman geciyor ve kolon adi surucuden surucuye tasiniyor.
+    PERIOD_LABEL = "Donem"
+
+    FORECAST_DEFAULT_HORIZON = 6
+    FORECAST_MAX_HORIZON = 36
+
+    def _resolve_time_axis(self, time_axis: Any,
+                           scope: ColumnScope) -> Optional[PeriodBucket]:
+        """
+        `time_axis` istegini `PeriodBucket`e cevirir. Yoksa None.
+
+        Kolon adi da birim de dogrulanir: taninmayan birimle sessizce "ay"
+        varsaymak, kullanicinin "yillara gore" sorusuna aylik cevap vermek
+        olurdu.
+        """
+        if not time_axis:
+            return None
+        if isinstance(time_axis, str):
+            # Modelin kisayolu: yalnizca kolon adi. Birim varsayilani ay.
+            time_axis = {"column": time_axis}
+        if not isinstance(time_axis, dict):
+            raise ValueError(
+                "Zaman ekseni bir nesne olmalı: "
+                "{\"column\": \"...\", \"granularity\": \"month\"}.")
+
+        granularity = str(time_axis.get("granularity") or "month").strip().lower()
+        if granularity not in PERIOD_GRANULARITIES:
+            raise ValueError(
+                f"Bilinmeyen dönem birimi: '{granularity}'. Kullanılabilir: "
+                f"{', '.join(PERIOD_GRANULARITIES)}.")
+
+        column = time_axis.get("column")
+        ref = scope.resolve(column)
+        if ref is None:
+            raise ValueError(
+                f"Zaman ekseni kurulamadı — "
+                f"{self._column_missing(str(column), scope)}")
+
+        return PeriodBucket(ref.alias, ref.name, self.PERIOD_LABEL, granularity)
+
+    def _period_pivot_chart(self, grouped, group_refs: List[ColumnRef],
+                            alias: str, value_label: str, total_groups: int,
+                            chart_type: str, title: str, desc: str) -> Dict:
+        """
+        Donem × kirilim sonucunu seri basina bir veri kumesine acar.
+
+        Eksik hucre None kalir, sifir degil: (ulke, ay) grubunun yoklugu
+        olculmus bir sifir degildir ve seri tavanina takilan sorguda sifir
+        cizmek olmayan bir olcum uydurmak olur. Grafikte bosluk durust olan.
+        """
+        axis_name = group_refs[0].output_name
+        series_name = group_refs[1].output_name
+
+        if len(group_refs) > 2:
+            return self._error_result(
+                "Dönem kırılımıyla birlikte en fazla bir ek kırılım "
+                "çizilebiliyor; fazlasını filtreyle daraltın.")
+
+        periods: List[str] = []
+        order: List[str] = []
+        cells: Dict[str, Dict[str, Any]] = {}
+        for _, row in grouped.iterrows():
+            period = self._label(row[axis_name])
+            key = self._label(row[series_name])
+            if period not in periods:
+                periods.append(period)
+            if key not in cells:
+                cells[key] = {}
+                order.append(key)
+            cells[key][period] = row[alias]
+        # Satirlar kirilim-once sirali geldigi icin donemler ilk goruldugu
+        # sirada kronolojik olmayabilir; donem metni sozluksel=kronolojik.
+        periods.sort()
+
+        if len(order) > self.MAX_PIVOT_SERIES:
+            return self._error_result(
+                f"{group_refs[1].name} kırılımında {len(order)} ayrı seri "
+                f"oluştu; en fazla {self.MAX_PIVOT_SERIES} seri çizilebiliyor. "
+                "Filtreyle daraltın ya da dönem kırılımı olmadan sorun.")
+
+        datasets = [{
+            "label": key,
+            "data": [self._number_or_none(cells[key].get(p)) for p in periods],
+        } for key in order]
+
+        insights = [{
+            "type": "info", "title": "Kapsam",
+            "description": (f"{len(periods)} dönem × {len(order)} "
+                            f"{group_refs[1].name} serisi gösteriliyor"),
+        }]
+        if (total_groups or 0) > self.SERIES_LIMIT:
+            insights.insert(0, {
+                "type": "warning", "title": "Seri kesildi",
+                "description": f"Sonuç {self.SERIES_LIMIT} satırla sınırlandı "
+                               f"(toplam {total_groups}). Tarih aralığını ya da "
+                               "kırılımı daraltarak tamamını görebilirsiniz.",
+            })
+
+        return {
+            "success": True,
+            "charts": [{
+                "type": chart_type,
+                "title": title or f"{group_refs[1].name} bazında dönemsel {value_label}",
+                "data": {"labels": periods, "datasets": datasets},
+            }],
+            "insights": insights,
+            "summary": desc or (
+                f"{group_refs[1].name} bazında dönemsel {value_label} hesaplandı."),
+        }
+
+    def _sql_forecast(self, base: TableRef, joins: List[Join],
+                      scope: ColumnScope, period_ref: Optional[PeriodBucket],
+                      target_col: Optional[str], group_by: List[str],
+                      aggregation: str, predicates: List[Predicate],
+                      where_params: Dict, params: Dict,
+                      title: str, desc: str) -> Dict:
+        """
+        Ileriye donuk tahmin: aylik seri SQL'de toplanir, gelecegi
+        `forecaster` uretir.
+
+        Seri eksiksiz ve kronolojik olmak zorunda — tahmincinin donemleri esit
+        aralikli saydigi yerde delik birakmak, modeli sessizce yanlis bir
+        takvimle egitmek olur. Bu yuzden sayim/toplamda bos aylar sifirla
+        doldurulur ve kesilmis seriyle tahmin REDDEDILIR.
+        """
+        if period_ref is None:
+            return self._error_result(
+                "Tahmin için zaman ekseni gerekiyor: hangi tarih alanına göre "
+                "ilerleyeceğimi söyleyin (örneğin sevk tarihi).")
+        if period_ref.granularity != "month":
+            return self._error_result(
+                "Tahmin şimdilik yalnızca aylık seride yapılabiliyor; dönem "
+                "birimi 'month' olmalı.")
+        if group_by:
+            return self._error_result(
+                "Tahmin tek seri üzerinde çalışır; ek kırılım kullanılamıyor. "
+                "Belirli bir kırılım için filtreyle daraltıp tekrar sorun.")
+
+        agg_key = str(aggregation or "count").strip().lower()
+        try:
+            target_ref = scope.resolve(target_col)
+        except ValueError as error:
+            return self._error_result(str(error))
+        if target_col and target_ref is None:
+            return self._error_result(
+                f"Hesaplanacak alan bulunamadı — "
+                f"{self._column_missing(str(target_col), scope)}")
+        if agg_key in self._NUMERIC_AGGS:
+            if target_ref is None:
+                return self._error_result(
+                    f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
+                    "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
+            value_label = f"{agg_key.upper()}({target_ref.name})"
+        else:
+            agg_key = "count"
+            target_ref = None
+            value_label = "Adet"
+
+        horizon = params.get("horizon", self.FORECAST_DEFAULT_HORIZON)
+        try:
+            horizon = int(horizon)
+        except (TypeError, ValueError):
+            horizon = self.FORECAST_DEFAULT_HORIZON
+        horizon = min(max(horizon, 1), self.FORECAST_MAX_HORIZON)
+
+        taken = {c.lower() for c in scope.known_columns()} | {self.PERIOD_LABEL.lower()}
+        alias = "value"
+        while alias.lower() in taken:
+            alias = "_" + alias
+
+        spec = QuerySpec(
+            base=base,
+            joins=joins,
+            group_by=[period_ref],
+            aggregate=Aggregate(agg_key, target_ref, alias),
+            where=predicates,
+            order_by=[OrderBy(period_ref, "asc")],
+            limit=self.SERIES_LIMIT,
+        )
+        try:
+            sql = render(spec)
+        except QuerySpecError as error:
+            return self._error_result(str(error))
+
+        logger.info(f"FORECAST SQL: {sql}")
+        grouped = self.data.read_sql(sql, where_params)
+
+        self.audit["executedSql"] = sql
+        self.audit["aggregationPerformedIn"] = "sql"
+        self.audit["rowsRead"] = None
+        self.audit["resolvedTargetColumn"] = target_ref.name if target_ref else None
+        self.audit["horizon"] = horizon
+
+        if grouped.empty:
+            return self._error_result(
+                "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
+        if len(grouped) >= self.SERIES_LIMIT:
+            return self._error_result(
+                f"Seri {self.SERIES_LIMIT} dönemi aşıyor; kesilmiş bir geçmişle "
+                "tahmin yapılmaz. Tarih aralığını filtreyle daraltın.")
+
+        zero_fill = agg_key in ("count", "sum")
+        series: List[Dict[str, Any]] = []
+        for period, value in zip(grouped[self.PERIOD_LABEL].tolist(),
+                                 grouped[alias].tolist()):
+            number = self._number_or_none(value)
+            if number is None:
+                # Bos SUM NULL'dur; sayim/toplam anlaminda bu "hic yok"
+                # demektir. Ortalama/uc degerde ise olcum yoktur — nokta
+                # uydurulmaz, atlanir.
+                if not zero_fill:
+                    continue
+                number = 0.0
+            series.append({"period": self._label(period), "value": number})
+
+        try:
+            series, filled_gaps = self._fill_month_gaps(series, zero_fill)
+        except ValueError as error:
+            return self._error_result(str(error))
+        self.audit["periodCount"] = len(series)
+        self.audit["filledGaps"] = filled_gaps
+
+        if len(series) < 4:
+            return self._error_result(
+                f"Tahmin için en az 4 dönemlik geçmiş gerekir (eldeki: "
+                f"{len(series)}). Tarih aralığını genişletmeyi deneyin.")
+
+        from forecaster import ForecastError, forecast_series
+        try:
+            outcome = forecast_series(series, horizon=horizon, seasonality=12)
+        except ForecastError as error:
+            return self._error_result(str(error))
+
+        forecast = outcome["forecast"]
+        model_name = outcome["model_name"]
+        self.audit["forecastModel"] = model_name
+
+        history = len(series)
+        labels = ([p["period"] for p in series]
+                  + [f["period"] for f in forecast])
+        actual = ([round(float(p["value"]), 2) for p in series]
+                  + [None] * len(forecast))
+        # Tahmin serisi son gerceklesen noktadan baslatiliyor ki cizgi
+        # kopmasin; o nokta tahmin degil, baglanti.
+        predicted = ([None] * (history - 1) + [actual[history - 1]]
+                     + [f["value"] for f in forecast])
+        lower = [None] * history + [f["lower"] for f in forecast]
+        upper = [None] * history + [f["upper"] for f in forecast]
+
+        last = forecast[-1]
+        insights = [
+            {"type": "info", "title": "Model",
+             "description": f"{model_name} — {history} aylık geçmişten "
+                            f"{horizon} ay ileriye"},
+            {"type": "success", "title": "Tahmin",
+             "description": f"{last['period']}: {last['value']} "
+                            f"(aralık {last['lower']} – {last['upper']})"},
+            {"type": "warning", "title": "Öngörü",
+             "description": "Bu bir kesinlik değil öngörüdür: geçmiş desenin "
+                            "devam ettiğini varsayar ve aralık ileriye "
+                            "gittikçe genişler."},
+        ]
+        if filled_gaps:
+            insights.insert(1, {
+                "type": "info", "title": "Boş dönemler",
+                "description": f"{filled_gaps} ayda kayıt yoktu; bu aylar 0 "
+                               "sayıldı.",
+            })
+
+        return {
+            "success": True,
+            "charts": [{
+                # Tahmin yalnizca cizgide okunur; istenen tip ne olursa olsun
+                # pasta/sutunda guven bandi cizilemez.
+                "type": "line",
+                "title": title or f"{value_label} — {horizon} aylık tahmin",
+                "data": {"labels": labels, "datasets": [
+                    {"label": "Gerçekleşen", "data": actual},
+                    {"label": "Tahmin", "data": predicted},
+                    {"label": "Alt sınır (%95)", "data": lower},
+                    {"label": "Üst sınır (%95)", "data": upper},
+                ]},
+            }],
+            "insights": insights,
+            "summary": desc or (f"{value_label} için {horizon} aylık ileri "
+                                f"tahmin üretildi (model: {model_name})."),
+        }
+
+    _MONTH_PERIOD = re.compile(r"^(\d{4})-(\d{2})$")
+
+    def _fill_month_gaps(self, series: List[Dict[str, Any]],
+                         zero_fill: bool) -> tuple:
+        """
+        Ilk ve son donem arasindaki eksik aylari tamamlar.
+
+        Sayim/toplamda eksik ay olculmus bir sifirdir ve sifirla doldurulur.
+        Ortalama/uc degerde doldurulacak dogru bir deger yok; seri oldugu
+        gibi birakilir — tahminci donemleri esit aralikli sayacagi icin bu
+        bir yaklasiklamadir ve cagiran denetim izinde gorur.
+
+        Doner: (seri, doldurulan ay sayisi)
+        """
+        if len(series) < 2:
+            return series, 0
+
+        out = [series[0]]
+        filled = 0
+        for point in series[1:]:
+            previous = self._MONTH_PERIOD.fullmatch(str(out[-1]["period"]))
+            current = self._MONTH_PERIOD.fullmatch(str(point["period"]))
+            if zero_fill and previous and current:
+                year, month = int(previous.group(1)), int(previous.group(2))
+                while True:
+                    month += 1
+                    if month > 12:
+                        month, year = 1, year + 1
+                    expected = f"{year:04d}-{month:02d}"
+                    if expected >= str(point["period"]):
+                        break
+                    out.append({"period": expected, "value": 0.0})
+                    filled += 1
+                    if filled > self.SERIES_LIMIT:
+                        raise ValueError(
+                            "Seri dönemleri tutarsız: boşluklar seri "
+                            "tavanını aşıyor. Tarih aralığını daraltın.")
+            out.append(point)
+        return out, filled
 
     # ------------------------------------------------------------------
     # Birlesim
