@@ -67,6 +67,9 @@ class PeriodBucketSqlTests(unittest.TestCase):
             ("day", "CONVERT(char(10), [t0].[CreatedDate], 126)"),
             ("quarter", "CONCAT(YEAR([t0].[CreatedDate]), '-Q', "
                         "(MONTH([t0].[CreatedDate]) + 2) / 3)"),
+            ("month_of_year", "CONCAT(MONTH([t0].[CreatedDate]) / 10, "
+                              "MONTH([t0].[CreatedDate]) % 10)"),
+            ("quarter_of_year", "CONCAT('Q', (MONTH([t0].[CreatedDate]) + 2) / 3)"),
         ]:
             with self.subTest(granularity=granularity):
                 sql = render(self.spec(granularity))
@@ -151,6 +154,104 @@ class TimeAxisTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("birleşim", result["error"].lower())
         self.assertEqual(port.queries, [])
+
+    def test_single_series_reports_growth_against_previous_and_last_year(self):
+        result, _ = self.analyze([
+            {"Donem": "2025-02", "value": 10},
+            {"Donem": "2026-01", "value": 15},
+            {"Donem": "2026-02", "value": 30},
+        ])
+        self.assertTrue(result["success"], result)
+        text = str(result["insights"])
+        self.assertIn("Önceki döneme göre", text)
+        self.assertIn("%+100.0", text)
+        self.assertIn("Geçen yılın aynı ayına göre", text)
+        self.assertIn("%+200.0", text)
+
+    def test_growth_skips_zero_and_missing_baselines(self):
+        for rows in [
+            [{"Donem": "2026-01", "value": 0}, {"Donem": "2026-02", "value": 30}],
+            [{"Donem": "2026-01", "value": None}, {"Donem": "2026-02", "value": 30}],
+        ]:
+            with self.subTest(rows=rows):
+                result, _ = self.analyze(rows)
+                self.assertTrue(result["success"], result)
+                self.assertNotIn("Önceki döneme göre", str(result["insights"]))
+
+
+class PeriodCompareTests(unittest.TestCase):
+    def analyze(self, rows, **overrides):
+        port = TimePort(rows)
+        analyzer = AgentAnalyzer(port)
+        params = {"target_table": "dbo.Calculations", "aggregation": "sum",
+                  "target_column": "Amount", "group_by": [], "chart_title": "",
+                  "time_axis": {"column": "CreatedDate", "granularity": "month"},
+                  "period_compare": {"unit": "year"}}
+        params.update(overrides)
+        config = {
+            "tables": [{"name": f"dbo.{table}"} for table in port.TABLES],
+            "columns": [{"table": f"dbo.{table}", "column": column}
+                        for table, columns in port.TABLES.items() for column in columns],
+            "relationships": [],
+        }
+        return analyzer.run_analysis(config, params), port
+
+    def test_years_align_on_calendar_position_and_report_change(self):
+        result, port = self.analyze([
+            {"Donem": "01", "Seri": "2025", "value": 10},
+            {"Donem": "02", "Seri": "2025", "value": 20},
+            {"Donem": "01", "Seri": "2026", "value": 15},
+        ])
+        self.assertTrue(result["success"], result)
+
+        sql = port.queries[0][0]
+        axis = ("CONCAT(MONTH([t0].[CreatedDate]) / 10, "
+                "MONTH([t0].[CreatedDate]) % 10)")
+        series = "CONVERT(char(4), [t0].[CreatedDate], 126)"
+        self.assertIn(f"{axis} AS [Donem]", sql)
+        self.assertIn(f"{series} AS [Seri]", sql)
+        self.assertIn(f"GROUP BY {axis}, {series}", sql)
+        self.assertIn(f"ORDER BY {series} ASC, {axis} ASC", sql)
+
+        chart = result["charts"][0]["data"]
+        self.assertEqual(chart["labels"], ["01", "02"])
+        self.assertEqual(chart["datasets"], [
+            {"label": "2025", "data": [10.0, 20.0]},
+            {"label": "2026", "data": [15.0, None]},
+        ])
+
+        text = str(result["insights"])
+        # Change is measured over shared periods only: comparing a finished
+        # year with a running year's partial total fakes a decline.
+        self.assertIn("Ortak 1 dönem", text)
+        self.assertIn("%+50.0", text)
+        self.assertIn("Kapsam notu", text)
+        self.assertEqual(result["audit"]["periodCompare"],
+                         {"unit": "year", "alignment": "month_of_year"})
+
+    def test_compare_requires_monthly_or_quarterly_axis(self):
+        for overrides in [
+            {"time_axis": None},
+            {"time_axis": {"column": "CreatedDate", "granularity": "year"}},
+            {"time_axis": {"column": "CreatedDate", "granularity": "day"}},
+        ]:
+            with self.subTest(overrides=overrides):
+                result, port = self.analyze([], **overrides)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
+
+    def test_compare_rejects_other_shapes(self):
+        for overrides in [
+            {"period_compare": {"unit": "month"}},
+            {"group_by": ["Country"]},
+            {"window": "running_total"},
+            {"analysis_type": "forecast"},
+            {"union": {"with": [{"table": "dbo.ImportCalculations"}]}},
+        ]:
+            with self.subTest(overrides=overrides):
+                result, port = self.analyze([], **overrides)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
 
 
 class ForecastTests(unittest.TestCase):

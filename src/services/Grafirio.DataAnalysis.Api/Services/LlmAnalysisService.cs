@@ -816,6 +816,30 @@ public class LlmAnalysisService
         - `running_total` / `moving_average` isteniyorsa zaman ekseni için
           yine `time_axis` kullan.
         - `union` ile birlikte kullanılamaz.
+        - Zaman kırılımlı her cevapta son dönemin önceki döneme (aylık seride
+          ayrıca geçen yılın aynı ayına) göre değişim yüzdesi otomatik
+          hesaplanır; "geçen aya göre ne durumdayız" için ek alan GEREKMEZ.
+
+        ## Dönem karşılaştırma — `period_compare`
+
+        "Bu yıl ile geçen yılı karşılaştır", "2024 vs 2025 aylara göre",
+        "geçen yılın aynı dönemine göre nasıl gidiyor" gibi sorularda:
+
+        ```json
+        "time_axis": { "column": "SevkTarihi", "granularity": "month" },
+        "period_compare": { "unit": "year" },
+        "filters": { "SevkTarihi": { "gte": "2025-01-01", "lt": "2027-01-01" } }
+        ```
+
+        - Eksen takvim konumu olur (aylar `01`–`12` ya da çeyrekler
+          `Q1`–`Q4`), her yıl ayrı bir seri olarak çizilir ve iki yıl varsa
+          ortak dönemler üzerinden değişim yüzdesi hesaplanır.
+        - `time_axis.granularity` yalnızca `month` ya da `quarter` olabilir.
+        - Karşılaştırılacak yılları `filters` ile sınırla — filtre yoksa
+          verideki BÜTÜN yıllar seri olur.
+        - `group_by` boş kalır; başka kırılımla, `union`, `window` ve
+          `forecast` ile birleştirilemez.
+        - `chart_type` olarak `line` ya da `bar` seç.
 
         ## İleriye dönük tahmin — `forecast`
 
@@ -872,6 +896,7 @@ public class LlmAnalysisService
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
           "time_axis": { "column": "tarih_kolonu", "granularity": "day|month|quarter|year" },
+          "period_compare": { "unit": "year" },
           "horizon": 6,
           "having": { "op": ">", "value": 1000 },
           "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
@@ -887,10 +912,10 @@ public class LlmAnalysisService
         }
         ```
 
-        `joins`, `having`, `window`, `union`, `time_axis` ve `horizon`
-        isteğe bağlıdır: soru gerektirmiyorsa hiç yazma. Gereksiz yere
-        eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union` söz konusu
-        olduğunda ise grafiğe olmayan bir seri ekler.
+        `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`
+        ve `horizon` isteğe bağlıdır: soru gerektirmiyorsa hiç yazma.
+        Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union`
+        söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
 
         JSON'dan sonra ### Açıklama başlığıyla, hangi kolonu neden seçtiğini
         tek cümleyle yaz.

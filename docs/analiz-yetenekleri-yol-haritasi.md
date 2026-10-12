@@ -64,12 +64,21 @@ hiçbir ürün akışı çağırmıyor. Power BI'daki çizgi grafik Forecast'ın
 "Bu yıl vs geçen yıl aylara göre", "geçen aya göre % değişim" — karşılaştırmalı
 müşteri sorularının en büyük açığı.
 
-- Aynı tablonun iki dönemini mevcut `union` makinesiyle karşılaştır: dallar
-  aynı tablo, farklı tarih filtresi, etiketler dönem adı ("2025"/"2026"),
-  kırılım ay-parçası (`DATEPART(month, ...)`) — hizalı iki seri tek grafikte.
-- Büyüme yüzdesi SQL'e girmez; hizalanmış serilerden Python'da hesaplanır ve
-  insight + isteğe bağlı ek seri olarak döner (YoY/MoM).
-- Tek serinin dönemden döneme % değişimi de aynı yoldan (seri zaten elde).
+- `period_compare: {"unit": "year"}` + `time_axis` (ay ya da çeyrek): eksen
+  takvim konumu olur ('01'..'12' / 'Q1'..'Q4'), her yıl ayrı seri olarak
+  çizilir (mevcut pivot makinesiyle, union'a gerek kalmadı). Ay dolgusu
+  `CONCAT(MONTH(x)/10, MONTH(x)%10)` ile üretilir — `RIGHT`/`LEFT`
+  kullanılamaz, ScriptDom bunları özel `RightFunctionCall` düğümü olarak
+  ayrıştırır ve politika reddeder (`PeriodBucketPolicyTests` sabitler).
+- İki yıl varsa değişim yüzdesi **yalnızca iki yılda da veri olan dönemler**
+  üzerinden hesaplanır: devam eden yılın eksik aylarını tam yılla kıyaslamak
+  sahte bir düşüş gösterir; kapsam farkı ayrıca not edilir.
+- Tek dönem serisinde büyüme otomatiktir (parametresiz): son dönem önceki
+  döneme ve aylık seride geçen yılın aynı ayına göre % değişim insight olarak
+  döner; içinde bulunulan dönem bitmediyse bu açıkça söylenir. Payda sıfır ya
+  da ölçüm yoksa yüzde uydurulmaz, atlanır.
+- `period_compare` ek kırılım, `union`, `window` ve `forecast` ile açık
+  hatayla reddedilir.
 
 ## Faz 4 — Çift ölçü (iki seri tek grafikte)
 
