@@ -16,6 +16,7 @@ public sealed class PyCaretQueryService(
 {
     private const int DefaultMaxDurationMinutes = 15;
     private const int MaxClarificationLength = 2000;
+    private const int MaxResubmits = 3;
     public bool IsConfigured => client.IsConfigured;
 
     public async Task SubmitAsync(QueryHistory query, AnalysisConfig config, CancellationToken ct)
@@ -34,12 +35,68 @@ public sealed class PyCaretQueryService(
         await ExchangeAsync(query, scope, async () =>
         {
             // Retry cancellation rather than reopening SQL authority after a transient failure.
-            var response = query.Status == "cancelling"
-                ? await client.CancelAsync(scope, ct)
-                : await client.GetStatusAsync(scope, ct);
+            if (query.Status == "cancelling") return await CancelAcknowledgingLostJobAsync(scope, ct);
+            JsonObject response;
+            try
+            {
+                response = await client.GetStatusAsync(scope, ct);
+            }
+            catch (PyCaretClientException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return await ResubmitLostJobAsync(query, scope, ct);
+            }
             return PyCaretExecutionContext.Text(response, "status") == "completed"
                 ? await client.GetResultAsync(scope, ct) : response;
         }, ct);
+    }
+
+    /// <summary>
+    /// Motorun tanımadığı iş (404) kalıcı hataya çevrilmiyor: submit idempotent
+    /// (aynı query_id + aynı payload mevcut işi döndürür), bu yüzden kaybolan iş
+    /// aynı yetkiyle yeniden gönderiliyor. Motorun yeniden başlaması ya da ilk
+    /// submit'in hiç ulaşmaması böylece kullanıcıya "job was not found" olarak
+    /// yansımıyor. Sözlük bu arada değiştiyse eski sorgunun yetkisiyle yeni
+    /// payload üretilmez; tekrar sayısı da sınırlı ki iş deposunu sürekli
+    /// kaybeden bir kurulum her yoklamada analizi baştan koşturmasın.
+    /// </summary>
+    private async Task<JsonObject> ResubmitLostJobAsync(QueryHistory query, PyCaretExecutionContext scope, CancellationToken ct)
+    {
+        var stored = JsonNode.Parse(query.ResultJson) as JsonObject;
+        var resubmits = stored?["resubmits"] is JsonValue value && value.TryGetValue<int>(out var count) ? count : 0;
+        var config = resubmits < MaxResubmits
+            ? await db.AnalysisConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == scope.ConfigId, ct)
+            : null;
+        if (config is null || InternalQueryScope.ComputeConfigHash(config.ConfigJson) != scope.ConfigHash)
+            throw new PyCaretClientException("PyCaret worker job was not found; submit a new query.",
+                System.Net.HttpStatusCode.NotFound);
+        logger.LogWarning("PyCaret job {QueryId} is unknown to the worker; resubmitting (attempt {Attempt})",
+            query.Id, resubmits + 1);
+        var response = await client.SubmitAsync(scope, config.ConfigJson, query.PyCaretParamsJson, query.Question, ct);
+        response["resubmits"] = resubmits + 1;
+        return response;
+    }
+
+    /// <summary>
+    /// İptal edilmek istenen işi motor tanımıyorsa (404) çalışan bir şey de yok
+    /// demektir: iptal tamamlanmış sayılır. Kalıcı hataya düşürmek, kullanıcının
+    /// kendi durdurduğu sorguyu "bulunamadı" hatasıyla göstermek olurdu.
+    /// </summary>
+    private async Task<JsonObject> CancelAcknowledgingLostJobAsync(PyCaretExecutionContext scope, CancellationToken ct)
+    {
+        try { return await client.CancelAsync(scope, ct); }
+        catch (PyCaretClientException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new JsonObject
+            {
+                ["query_id"] = scope.QueryId.ToString(),
+                ["company_id"] = scope.CompanyId,
+                ["connection_id"] = scope.ConnectionId.ToString(),
+                ["config_id"] = scope.ConfigId.ToString(),
+                ["config_hash"] = scope.ConfigHash,
+                ["status"] = "cancelled",
+                ["message"] = "Worker no longer has this job; cancellation is complete."
+            };
+        }
     }
 
     public async Task CancelAsync(QueryHistory query, CancellationToken ct)
@@ -61,7 +118,7 @@ public sealed class PyCaretQueryService(
         }
         else await db.SaveChangesAsync(ct);
         if (query.Status != "cancelling") return;
-        await ExchangeAsync(query, scope, () => client.CancelAsync(scope, ct), ct);
+        await ExchangeAsync(query, scope, () => CancelAcknowledgingLostJobAsync(scope, ct), ct);
     }
 
     private async Task ExchangeAsync(QueryHistory query, PyCaretExecutionContext scope,

@@ -153,7 +153,6 @@ public sealed class PyCaretIntegrationTests
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.NotFound, "not found")]
     [InlineData(HttpStatusCode.Unauthorized, "authentication")]
     [InlineData(HttpStatusCode.Forbidden, "authentication")]
     public async Task MissingWorkerOrAuthErrorTerminatesInsteadOfPollingForever(HttpStatusCode status, string message)
@@ -164,6 +163,96 @@ public sealed class PyCaretIntegrationTests
         Assert.Equal("failed", harness.Query.Status);
         Assert.NotNull(harness.Query.CompletedAt);
         Assert.Contains(message, harness.Query.ResultJson);
+    }
+
+    [Fact]
+    public async Task LostWorkerJobIsResubmittedIdempotentlyWithOriginalPayload()
+    {
+        using var harness = new Harness();
+        harness.Handler.Respond = async request =>
+        {
+            if (harness.Handler.Calls == 1)
+            {
+                harness.AssertScopedRequest(request, "status");
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/agent/analyze", request.RequestUri!.AbsolutePath);
+            var body = (await request.Content!.ReadFromJsonAsync<JsonObject>())!;
+            Assert.Equal(harness.Query.Id.ToString(), body["query_id"]!.GetValue<string>());
+            Assert.Equal(DictionaryJson, body["config_json"]!.GetValue<string>());
+            Assert.Equal(harness.Query.PyCaretParamsJson, body["analysis_params_json"]!.GetValue<string>());
+            Assert.Equal(harness.Query.Question, body["user_question"]!.GetValue<string>());
+            Assert.Equal(InternalQueryScope.ComputeConfigHash(DictionaryJson), body["config_hash"]!.GetValue<string>());
+            return harness.Response("queued");
+        };
+
+        await harness.Service.RefreshAsync(harness.Query, default);
+
+        Assert.Equal(2, harness.Handler.Calls);
+        Assert.Equal("processing", harness.Query.Status);
+        Assert.Null(harness.Query.CompletedAt);
+        Assert.Equal(1, JsonNode.Parse(harness.Query.ResultJson)!["resubmits"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task RepeatedlyLostJobStopsResubmittingAfterTheCap()
+    {
+        using var harness = new Harness();
+        // Her durum yoklaması 404, her yeniden gönderim kabul: iş deposunu
+        // sürekli kaybeden bir kurulum. Sayaç yanıtla birlikte saklandığı için
+        // tekrarlar doğal olarak birikmeli ve sınırda durmalı.
+        harness.Handler.Respond = request => Task.FromResult(request.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.NotFound)
+            : harness.Response("queued"));
+
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            await harness.Service.RefreshAsync(harness.Query, default);
+            Assert.Equal(attempt * 2, harness.Handler.Calls);
+            Assert.Equal("processing", harness.Query.Status);
+            Assert.Equal(attempt, JsonNode.Parse(harness.Query.ResultJson)!["resubmits"]!.GetValue<int>());
+        }
+
+        await harness.Service.RefreshAsync(harness.Query, default);
+        Assert.Equal(7, harness.Handler.Calls);
+        Assert.Equal("failed", harness.Query.Status);
+        Assert.NotNull(harness.Query.CompletedAt);
+        Assert.Contains("not found", harness.Query.ResultJson);
+    }
+
+    [Fact]
+    public async Task LostJobIsNotResubmittedWithAChangedDictionary()
+    {
+        using var harness = new Harness();
+        harness.Config.ConfigJson += " ";
+        await harness.Db.SaveChangesAsync();
+        harness.Handler.Respond = _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        await harness.Service.RefreshAsync(harness.Query, default);
+
+        Assert.Equal(1, harness.Handler.Calls);
+        Assert.Equal("failed", harness.Query.Status);
+        Assert.NotNull(harness.Query.CompletedAt);
+        Assert.Contains("not found", harness.Query.ResultJson);
+    }
+
+    [Fact]
+    public async Task CancellingALostJobCompletesAsCancelledInsteadOfFailing()
+    {
+        using var harness = new Harness();
+        harness.Handler.Respond = request =>
+        {
+            harness.AssertScopedRequest(request, "cancel");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        };
+
+        await harness.Service.CancelAsync(harness.Query, default);
+
+        Assert.Equal(1, harness.Handler.Calls);
+        Assert.Equal("cancelled", harness.Query.Status);
+        Assert.NotNull(harness.Query.CompletedAt);
+        Assert.Null(JsonNode.Parse(harness.Query.ResultJson)!["error"]);
     }
 
     [Fact]
