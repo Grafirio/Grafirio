@@ -556,7 +556,7 @@ public class LlmAnalysisService
            `aggregation: "count"`, `target_column: null` yeterlidir.
         7. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
            Kimlik numarasının ortalaması anlamsızdır; onları yalnızca saymak
-           (`count`) için kullan.
+           (`count`) ya da benzersiz saymak (`count_distinct`) için kullan.
         8. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
         9. Soruyu karşılayan TABLOYU ya da KOLONU sözlükte bulamıyorsan
            uydurma — `target_table` alanını boş bırak ve `description` içinde
@@ -582,6 +582,21 @@ public class LlmAnalysisService
             gibi mesajlar sıfırdan yeni bir analiz değil, en son turun ÜZERİNE
             yapılan değişikliktir: değişmeyen alanları (tablo, join'ler,
             kırılım, ölçüm) olduğu gibi taşı, yalnızca istenen alanı değiştir.
+
+        ## Benzersiz sayım — `count_distinct`
+
+        Sayım iki türlüdür ve karıştırılmamalıdır:
+
+        - "Kaç sevkiyat", "kaç kayıt" SATIR sayar → `aggregation: "count"`.
+        - "Kaç FARKLI müşteri", "kaç benzersiz ülke", "tekil ürün sayısı"
+          DEĞER sayar → `aggregation: "count_distinct"` ve sayılacak alan
+          `target_column`'da ZORUNLU.
+
+        `count_distinct` ölçü listesinde (`measures`), eşikte (`having`:
+        `{ "aggregation": "count_distinct", "column": "...", ... }`) ve
+        tahminde de kullanılabilir. Birikim/hareketli ortalama/genel toplam
+        (`window`) ile birleştirilemez: aynı değer birden fazla dönemde
+        sayılır ve toplam şişer.
 
         ## Birden fazla tablo — `joins`
 
@@ -925,7 +940,7 @@ public class LlmAnalysisService
           "having": { "op": ">", "value": 1000 },
           "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
           "union": { "label": "İthalat", "with": [ { "table": "dbo.Ihracat", "label": "İhracat" } ] },
-          "aggregation": "sum|avg|count|min|max|none",
+          "aggregation": "sum|avg|count|count_distinct|min|max|none",
           "group_by": ["kolon_adı"],
           "sort_by": "kolon_adı",
           "sort_order": "desc",

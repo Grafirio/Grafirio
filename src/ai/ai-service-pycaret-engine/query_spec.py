@@ -238,6 +238,12 @@ class Aggregate:
         fonksiyonunda: `SUM(SUM(...)) OVER (...)` — ic toplulastirma grup
         degerini, dis pencere onlarin uzerindeki birikimi verir.
         """
+        if self.func == "count_distinct":
+            # "Kac FARKLI musteri" satir degil deger sayar; kolonsuz hali
+            # (DISTINCT *) gecerli SQL degildir.
+            if self.column is None:
+                raise QuerySpecError("Benzersiz sayım için bir kolon gerekiyor.")
+            return f"COUNT(DISTINCT {self.column.sql()})"
         func = self._FUNCS.get(self.func)
         if func is None:
             raise QuerySpecError(f"Bilinmeyen toplulaştırma: '{self.func}'")

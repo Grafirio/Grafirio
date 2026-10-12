@@ -99,15 +99,28 @@ karşılığı.
 
 ## Faz 5 — Eksik toplulaştırmalar: distinct count, medyan, yüzdelik
 
-- "Kaç **farklı** müşteri" → `COUNT(DISTINCT kolon)`: `Aggregate`'e
-  `count_distinct`; ScriptDom bunu `FunctionCall(COUNT)` olarak gördüğünden
-  politika değişikliği beklenmiyor (testle doğrulanacak).
-- Medyan/yüzdelik → `PERCENTILE_CONT ... WITHIN GROUP`: düğüm
-  (`WithinGroupClause`) politikada izinli ama fonksiyon adı
-  `AllowedFunctions`'ta yok. **Paylaşılan `Grafirio.QueryPolicy` değişir** →
-  `shared-packages.ref` sürümü, dört servisin yeniden derlenmesi ve Bridge
-  exe'nin yeniden yayımlanması gerekir. Bu operasyonel maliyet yüzünden ayrı
-  faz; eski Bridge'ler yeni fonksiyonu reddederse hata açık olmalı.
+İki parçaya bölündü; operasyonel maliyetleri farklı.
+
+**5a — Benzersiz sayım (count_distinct): yapıldı.**
+- "Kaç **farklı** müşteri" → `aggregation: "count_distinct"` + zorunlu
+  `target_column`. `COUNT(DISTINCT kolon)` ScriptDom'da düz `FunctionCall`
+  olarak ayrışır ve mevcut politikadan geçer (`PeriodBucketPolicyTests`
+  doğrular) — **politika/Bridge değişikliği gerekmedi.**
+- Ölçü listesi (`measures`), eşik (`having`), birleşim (`union`) ve tahmin
+  (`forecast`, boş aylar 0) yollarının hepsinde çalışır; birleşimde sessizce
+  `COUNT(*)`'a düşmek yerine dal başına DISTINCT korunur.
+- Birikim/hareketli ortalama/genel toplam (`window`) ile açık hatayla
+  reddedilir: aynı değer birden fazla dönemde sayılır ve toplam şişer.
+
+**5b — Medyan/yüzdelik: ertelendi (ayrı PR + Bridge yayını ister).**
+- `PERCENTILE_CONT` SQL Server'da GROUP BY toplulaştırması DEĞİL analitik
+  fonksiyondur: `WITHIN GROUP (...) OVER (PARTITION BY ...)` ister ve satır
+  başına döner — mevcut QuerySpec GROUP BY modeline oturmaz, `SELECT
+  DISTINCT + OVER` biçiminde ayrı bir sorgu şekli gerekir.
+- Ayrıca fonksiyon adı paylaşılan `Grafirio.QueryPolicy` izin listesinde yok:
+  ekleme dört servisin yeniden derlenmesi + Bridge exe'nin yeniden
+  yayımlanması demek. Eski Bridge'ler yeni sorguyu reddeder; rollout
+  sıralaması (önce Bridge, sonra motor) planlanmadan çıkılmamalı.
 
 ## Faz 6 — Satır listesi cevabı (tablo görseli)
 

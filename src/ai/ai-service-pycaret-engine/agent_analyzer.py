@@ -485,6 +485,24 @@ class AgentAnalyzer:
     # cevaplaniyor.
     _NUMERIC_AGGS = frozenset({"sum", "avg", "min", "max"})
 
+    #: "Kac farkli / benzersiz / tekil" sayiminin modelden gelebilecek
+    #: yazimlari. Hepsi tek kanonik ada iner; o da kolon ister.
+    _DISTINCT_ALIASES = frozenset(
+        {"count_distinct", "distinct_count", "distinct", "unique", "nunique"})
+
+    @classmethod
+    def _normalize_agg(cls, raw: Any) -> str:
+        """
+        Toplulastirma adini kanonik hale getirir; taninmayan ad `count`a
+        duser (ceviri prompt'unun varsayilani da bu).
+        """
+        key = str(raw or "count").strip().lower()
+        if key in cls._DISTINCT_ALIASES:
+            return "count_distinct"
+        if key in cls._NUMERIC_AGGS:
+            return key
+        return "count"
+
     @staticmethod
     def _split_table(table_name: str) -> tuple:
         return table_parts(table_name)
@@ -1137,10 +1155,12 @@ class AgentAnalyzer:
             return default, label
 
         func = wanted_agg or default.func
-        if func not in self._NUMERIC_AGGS and func != "count":
+        if func in self._DISTINCT_ALIASES:
+            func = "count_distinct"
+        if func not in self._NUMERIC_AGGS and func not in ("count", "count_distinct"):
             raise ValueError(
                 f"'{func}' koşulda kullanılamaz. Kullanılabilir: "
-                f"count, {', '.join(sorted(self._NUMERIC_AGGS))}.")
+                f"count, count_distinct, {', '.join(sorted(self._NUMERIC_AGGS))}.")
 
         column = None
         if wanted_col:
@@ -1294,7 +1314,7 @@ class AgentAnalyzer:
             # Belirsiz kolon adi: birden fazla tabloda ayni ad var.
             return self._error_result(str(e))
 
-        agg_key = str(aggregation or "count").strip().lower()
+        agg_key = self._normalize_agg(aggregation)
         real_target = target_ref.name if target_ref else None
 
         extra_measures: List[Aggregate] = []
@@ -1317,6 +1337,13 @@ class AgentAnalyzer:
                     f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
                     "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
             value_label = f"{agg_key.upper()}({real_target})"
+        elif agg_key == "count_distinct":
+            if real_target is None:
+                return self._error_result(
+                    "Benzersiz sayım için hangi alanın sayılacağı "
+                    "belirtilmemiş. Örneğin \"kaç farklı müşteri\" için "
+                    "müşteri alanını belirtin.")
+            value_label = f"Benzersiz({real_target})"
         else:
             # Sayma: belirli bir kolon verildiyse o kolonun dolu oldugu
             # satirlar, verilmediyse tum satirlar sayilir.
@@ -1347,6 +1374,15 @@ class AgentAnalyzer:
         # serisi dogru gorunur ama yanlistir.
         if period_ref is not None:
             is_series = True
+
+        if agg_key == "count_distinct" and any(not w.is_ranking() for w in windows):
+            # SUM(COUNT(DISTINCT ...)) OVER gecerli SQL'dir ama anlami yanlis:
+            # ayni deger birden fazla donemde sayilir ve "birikimli benzersiz"
+            # gibi gorunen sayi sessizce siser.
+            return self._error_result(
+                "Benzersiz sayım üzerinde birikim, hareketli ortalama ya da "
+                "genel toplam hesaplanamıyor: aynı değer birden fazla dönemde "
+                "sayılır ve toplam şişer. Sıralama (rank) kullanılabilir.")
 
         # Kosulun degeri de bagli parametre; cagiranin sozlugunu bozmadan
         # ustune ekleniyor.
@@ -1607,7 +1643,7 @@ class AgentAnalyzer:
                 raise ValueError(f"{index + 1}. ölçü bir nesne olmalı: "
                                  "{\"column\": ..., \"aggregation\": ...}.")
 
-            func = str(entry.get("aggregation") or "count").strip().lower()
+            func = self._normalize_agg(entry.get("aggregation"))
             column = entry.get("column")
             ref = scope.resolve(column)
             if column and ref is None:
@@ -1615,12 +1651,13 @@ class AgentAnalyzer:
                     f"{index + 1}. ölçünün alanı bulunamadı — "
                     f"{self._column_missing(str(column), scope)}")
 
-            if func in self._NUMERIC_AGGS:
+            if func in self._NUMERIC_AGGS or func == "count_distinct":
                 if ref is None:
                     raise ValueError(
                         f"'{func}' işlemi için {index + 1}. ölçüde hangi "
                         "alanın hesaplanacağı belirtilmemiş.")
-                default_label = f"{func.upper()}({ref.name})"
+                default_label = (f"Benzersiz({ref.name})" if func == "count_distinct"
+                                 else f"{func.upper()}({ref.name})")
             else:
                 func = "count"
                 default_label = f"Adet({ref.name})" if ref is not None else "Adet"
@@ -1890,7 +1927,7 @@ class AgentAnalyzer:
                 "Tahmin tek seri üzerinde çalışır; ek kırılım kullanılamıyor. "
                 "Belirli bir kırılım için filtreyle daraltıp tekrar sorun.")
 
-        agg_key = str(aggregation or "count").strip().lower()
+        agg_key = self._normalize_agg(aggregation)
         try:
             target_ref = scope.resolve(target_col)
         except ValueError as error:
@@ -1905,6 +1942,13 @@ class AgentAnalyzer:
                     f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
                     "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
             value_label = f"{agg_key.upper()}({target_ref.name})"
+        elif agg_key == "count_distinct":
+            if target_ref is None:
+                return self._error_result(
+                    "Benzersiz sayım için hangi alanın sayılacağı "
+                    "belirtilmemiş. Örneğin \"kaç farklı müşteri\" için "
+                    "müşteri alanını belirtin.")
+            value_label = f"Benzersiz({target_ref.name})"
         else:
             agg_key = "count"
             target_ref = None
@@ -1953,7 +1997,7 @@ class AgentAnalyzer:
                 f"Seri {self.SERIES_LIMIT} dönemi aşıyor; kesilmiş bir geçmişle "
                 "tahmin yapılmaz. Tarih aralığını filtreyle daraltın.")
 
-        zero_fill = agg_key in ("count", "sum")
+        zero_fill = agg_key in ("count", "sum", "count_distinct")
         series: List[Dict[str, Any]] = []
         for period, value in zip(grouped[self.PERIOD_LABEL].tolist(),
                                  grouped[alias].tolist()):
@@ -2163,9 +2207,7 @@ class AgentAnalyzer:
                     "kullanılmış; kaynaklar ancak farklı etiketlerle ayrılabilir.")
             seen_labels.add(branch["label"])
 
-        agg_key = str(aggregation or "count").strip().lower()
-        if agg_key not in self._NUMERIC_AGGS:
-            agg_key = "count"
+        agg_key = self._normalize_agg(aggregation)
 
         aliases = AliasFactory()
         params: Dict[str, Any] = {}
@@ -2223,12 +2265,15 @@ class AgentAnalyzer:
                 raise ValueError(
                     f"'{branch['table']}' tablosunda hesaplanacak alan "
                     f"bulunamadı — {self._column_missing(str(branch['target_column']), scope)}")
-            if agg_key in self._NUMERIC_AGGS and measure_ref is None:
+            if ((agg_key in self._NUMERIC_AGGS or agg_key == "count_distinct")
+                    and measure_ref is None):
                 raise ValueError(
                     f"'{agg_key}' işlemi için '{branch['table']}' tablosunda "
                     "hangi alanın hesaplanacağı belirtilmemiş.")
             if index == 0 and measure_ref is not None:
-                value_label = f"{agg_key.upper()}({measure_ref.name})"
+                value_label = (f"Benzersiz({measure_ref.name})"
+                               if agg_key == "count_distinct"
+                               else f"{agg_key.upper()}({measure_ref.name})")
 
             predicates, branch_params, filter_notes = self._build_where(
                 branch["filters"], scope, prefix=f"u{index}_")

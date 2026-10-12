@@ -478,5 +478,112 @@ class MultiMeasureTests(unittest.TestCase):
                 self.assertEqual(port.queries, [])
 
 
+class DistinctCountTests(unittest.TestCase):
+    def analyze(self, rows, fake=None, **overrides):
+        port = TimePort(rows)
+        analyzer = AgentAnalyzer(port)
+        params = {"target_table": "dbo.Calculations", "group_by": ["Country"],
+                  "chart_title": "", "aggregation": "count_distinct",
+                  "target_column": "ReferenceId"}
+        params.update(overrides)
+        config = {
+            "tables": [{"name": f"dbo.{table}"} for table in port.TABLES],
+            "columns": [{"table": f"dbo.{table}", "column": column}
+                        for table, columns in port.TABLES.items() for column in columns],
+            "relationships": [],
+        }
+        if fake is None:
+            return analyzer.run_analysis(config, params), port
+        with patch.dict(sys.modules, {"forecaster": fake}):
+            return analyzer.run_analysis(config, params), port
+
+    def test_expression_requires_a_column(self):
+        self.assertEqual(
+            Aggregate("count_distinct", ColumnRef("t0", "Amount"), "v").expression(),
+            "COUNT(DISTINCT [t0].[Amount])")
+        with self.assertRaises(QuerySpecError):
+            Aggregate("count_distinct", None, "v").expression()
+
+    def test_grouped_distinct_count_counts_values_not_rows(self):
+        for alias in ["count_distinct", "distinct_count", "unique"]:
+            with self.subTest(alias=alias):
+                result, port = self.analyze(
+                    [{"Country": "DE", "value": 7}], aggregation=alias)
+                self.assertTrue(result["success"], result)
+                self.assertIn("COUNT(DISTINCT [t0].[ReferenceId]) AS [value]",
+                              port.queries[0][0])
+                self.assertEqual(
+                    result["charts"][0]["data"]["datasets"][0]["label"],
+                    "Benzersiz(ReferenceId)")
+
+    def test_distinct_count_requires_target_column(self):
+        result, port = self.analyze([], target_column=None)
+        self.assertFalse(result["success"])
+        self.assertIn("Benzersiz", result["error"])
+        self.assertEqual(port.queries, [])
+
+    def test_distinct_count_rejects_accumulating_windows(self):
+        for window in ["running_total", {"function": "total"}]:
+            with self.subTest(window=window):
+                result, port = self.analyze(
+                    [], group_by=["CreatedDate", "Country"], window=window)
+                self.assertFalse(result["success"])
+                self.assertIn("şişer", result["error"])
+                self.assertEqual(port.queries, [])
+
+    def test_having_can_filter_on_distinct_count(self):
+        result, port = self.analyze(
+            [{"Country": "DE", "value": 100}],
+            aggregation="sum", target_column="Amount",
+            having={"aggregation": "count_distinct", "column": "ReferenceId",
+                    "op": ">", "value": 5})
+        self.assertTrue(result["success"], result)
+        self.assertIn("HAVING COUNT(DISTINCT [t0].[ReferenceId]) > :h0",
+                      port.queries[0][0])
+
+    def test_union_keeps_distinct_count_per_branch(self):
+        result, port = self.analyze(
+            [{"ReferenceId": "A", "value": 3, "Kaynak": "Export"}],
+            group_by=["ReferenceId"], target_column="Amount",
+            union={"label": "Export", "with": [
+                {"table": "dbo.ImportCalculations", "label": "Import"}]})
+        self.assertTrue(result["success"], result)
+        sql = port.queries[0][0]
+        # Silently downgrading to COUNT(*) would answer a different question.
+        self.assertEqual(sql.count("COUNT(DISTINCT"), 2)
+        self.assertIn("Benzersiz(Amount)", str(result["charts"]))
+
+    def test_forecast_supports_distinct_count_with_zero_fill(self):
+        fake = FakeForecasterModule()
+        result, port, = None, None
+        result, port = self.analyze(self.month_rows([
+            ("2026-01", 5), ("2026-02", 6), ("2026-04", 8), ("2026-05", 9),
+        ]), fake=fake, analysis_type="forecast", group_by=[],
+            time_axis={"column": "CreatedDate", "granularity": "month"})
+        self.assertTrue(result["success"], result)
+        self.assertIn("COUNT(DISTINCT [t0].[ReferenceId])", port.queries[0][0])
+        series = fake.calls[0]["series"]
+        self.assertEqual([p["value"] for p in series], [5, 6, 0.0, 8, 9])
+
+    @staticmethod
+    def month_rows(pairs):
+        return [{"Donem": period, "value": value} for period, value in pairs]
+
+    def test_measures_accept_distinct_count(self):
+        result, port = self.analyze(
+            [{"Country": "DE", "value": 100, "Benzersiz(ReferenceId)": 4}],
+            aggregation=None, target_column=None,
+            measures=[
+                {"column": "Amount", "aggregation": "sum", "label": "Toplam"},
+                {"column": "ReferenceId", "aggregation": "count_distinct"},
+            ])
+        self.assertTrue(result["success"], result)
+        self.assertIn("COUNT(DISTINCT [t0].[ReferenceId]) AS [Benzersiz(ReferenceId)]",
+                      port.queries[0][0])
+        self.assertEqual(
+            [d["label"] for d in result["charts"][0]["data"]["datasets"]],
+            ["Toplam", "Benzersiz(ReferenceId)"])
+
+
 if __name__ == "__main__":
     unittest.main()

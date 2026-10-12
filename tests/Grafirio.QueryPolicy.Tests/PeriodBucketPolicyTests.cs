@@ -43,6 +43,23 @@ public class PeriodBucketPolicyTests
     }
 
     [Fact]
+    public void DistinctCountShapePassesValidation()
+    {
+        // "Kac farkli musteri" — motor COUNT(DISTINCT ...) uretir; hem olcu
+        // hem HAVING konumunda politikadan gecmek zorunda.
+        var sql = "SELECT TOP (10) [t0].[Country], "
+                  + "COUNT(DISTINCT [t0].[ReferenceId]) AS [value] "
+                  + "FROM [dbo].[Calculations] AS [t0] "
+                  + "GROUP BY [t0].[Country] "
+                  + "HAVING COUNT(DISTINCT [t0].[ReferenceId]) > @h0 "
+                  + "ORDER BY [value] DESC, [t0].[Country] ASC";
+
+        var result = SqlPolicy.Validate(sql, ["dbo.Calculations"]);
+
+        Assert.Equal("[dbo].[Calculations]", Assert.Single(result.Tables).CanonicalName);
+    }
+
+    [Fact]
     public void YearComparisonShapePassesValidation()
     {
         // period_compare: eksen takvim konumu, seri yil — ikisi birlikte
