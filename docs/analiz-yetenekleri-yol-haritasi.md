@@ -137,12 +137,20 @@ Power BI'ın "Anomalies + explain by" karşılığı.
   sürer. Sapma modeli anomaliyi de içeren seriye uyduğu için eşik
   yaklaşıktır; bu bilinen ve kabul edilen bir sınırlılıktır.
 
-## Faz 8 — Key influencers sunumu
+## Faz 8 — Key influencers sunumu **[yapıldı]**
 
-Mevcut `regression`/`classification` çıktısı model metrikleri (MAE/R²);
-iş kullanıcısı için anlamsız. PyCaret'in feature importance'ı "X'i en çok
-etkileyenler" sıralamasına ve sade insight'lara çevrilir. Yeni model eğitimi
-gerekmez, sunum katmanı işi.
+Mevcut `regression`/`classification` çıktısı model metrikleriydi (MAE/R²);
+iş kullanıcısı için anlamsızdı. Artık asıl cevap ETKİ SIRALAMASI:
+
+- En iyi modelden `feature_importances_` (ağaç) ya da standart sapmayla
+  ölçeklenmiş `|coef|` (doğrusal; çok sınıfta sınıf ortalaması) okunur ve
+  normalize edilmiş "etki payı (%)" grafiği + "en etkili alan" insight'ları
+  döner. Yön ipucu yalnızca ilk etkenler için ve korelasyon işaretinden.
+- Model kalitesi (MAE/R² ya da doğruluk) tek satırlık güven notuna indirildi;
+  "etki ≠ nedensellik" uyarısı her cevapta.
+- Model içe bakışa izin vermiyorsa (ensemble sarmalayıcı, KNN) etki
+  UYDURULMAZ — eski model karşılaştırma grafiğine açıkça geri düşülür.
+  Sınıf dağılımı pastası her iki sunumda da korunur. Yeni model eğitimi yok.
 
 ## Bilinçli kapsam dışı
 
