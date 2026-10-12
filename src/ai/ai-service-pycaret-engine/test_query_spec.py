@@ -119,6 +119,19 @@ check(
     "ORDER BY [value] DESC, [t0].[ReceiverCompanyCountryName] ASC",
 )
 
+check(
+    "ek ölçüler percentile dışındaki toplulaştırmalara eklenir",
+    render(QuerySpec(
+        base=base,
+        group_by=[country],
+        aggregate=Aggregate("sum", amount, "value"),
+        extra_aggregates=[Aggregate("count", None, "orders")],
+    )),
+    "SELECT [t0].[ReceiverCompanyCountryName], SUM([t0].[Tutar]) AS [value], "
+    "COUNT(*) AS [orders] FROM [dbo].[Shipments] AS [t0] "
+    "GROUP BY [t0].[ReceiverCompanyCountryName]",
+)
+
 filtered_sum = QuerySpec(
     base=base,
     group_by=[country],
@@ -230,6 +243,16 @@ expect_error(
         aggregate=Aggregate("percentile", amount, "value", percentile=101),
     )),
     "0 ile 100 arasında olmalı", QuerySpecError,
+)
+
+expect_error(
+    "yüzdelik ek ölçüyle birleştirilemez",
+    lambda: render(QuerySpec(
+        base=base,
+        aggregate=Aggregate("median", amount, "value"),
+        extra_aggregates=[Aggregate("count", None, "orders")],
+    )),
+    "ek ölçülerle birleştirilemiyor", QuerySpecError,
 )
 
 if "[Bad]]Name]" not in render(QuerySpec(

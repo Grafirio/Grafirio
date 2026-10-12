@@ -176,6 +176,7 @@ class AgentAnalyzer:
         union = params.get("union")
         time_axis = params.get("time_axis")
         period_compare = params.get("period_compare")
+        measures = params.get("measures")
 
         if not target_table:
             # Tek tablo varsa bu bir secim degil, zorunluluk. Birden fazlaysa
@@ -252,6 +253,10 @@ class AgentAnalyzer:
                     "Dönem kırılımı ve dönem karşılaştırması birleşimle "
                     "birlikte henüz desteklenmiyor. Soruyu tek kaynak "
                     "üzerinden sorun."))
+            if measures:
+                return self._with_audit(self._error_result(
+                    "Birleşimle birlikte birden fazla ölçü henüz "
+                    "desteklenmiyor; her ölçüyü ayrı soru olarak sorun."))
             try:
                 return self._with_audit(self._sql_union(
                     config, union, target_table, group_by, target_column,
@@ -348,6 +353,22 @@ class AgentAnalyzer:
                     "alignment": period_ref.granularity,
                 }
 
+        if measures and analysis_type in ("aggregation", "forecast"):
+            if analysis_type == "forecast":
+                return self._with_audit(self._error_result(
+                    "Tahmin tek ölçü üzerinde çalışır; her ölçü için ayrı "
+                    "tahmin sorusu sorun."))
+            if compare_ref is not None:
+                return self._with_audit(self._error_result(
+                    "Dönem karşılaştırmasıyla birden fazla ölçü birlikte "
+                    "çizilemiyor; ölçülerden birini seçin."))
+            if period_ref is not None and group_by:
+                # Donem pivotu tek deger kolonunu serilere aciyor; ikinci
+                # olcu eklendiginde hangi kolonun pivotlanacagi belirsizlesir.
+                return self._with_audit(self._error_result(
+                    "Dönem, ek kırılım ve birden fazla ölçü aynı grafikte "
+                    "çizilemiyor; kırılımı ya da ölçülerden birini bırakın."))
+
         try:
             # Gruplama/sayma sorulari SQL'de calisir: sonuc tablonun tamami
             # uzerinden ve kesindir. Onceden tablodan TOP 50000 satir cekilip
@@ -359,7 +380,7 @@ class AgentAnalyzer:
                     sort_order, limit, predicates, where_params, chart_type,
                     chart_title, description, having, window,
                     period_ref=period_ref, compare_ref=compare_ref,
-                    percentile=percentile))
+                    percentile=percentile, measures=measures))
 
             if analysis_type == "forecast":
                 # Esik ve pencere tahminle birlesmez: esik donemleri eler ve
@@ -1245,7 +1266,8 @@ class AgentAnalyzer:
                          having: Any = None, window: Any = None,
                          period_ref: Optional[PeriodBucket] = None,
                          compare_ref: Optional[PeriodBucket] = None,
-                         percentile: Any = None) -> Dict:
+                         percentile: Any = None,
+                         measures: Any = None) -> Dict:
         """
         Gruplama ve toplama — veritabaninda.
 
@@ -1280,11 +1302,21 @@ class AgentAnalyzer:
         agg_key = str(aggregation or "count").strip().lower()
         real_target = target_ref.name if target_ref else None
 
-        if target_col and target_ref is None:
+        extra_measures: List[Aggregate] = []
+        if measures:
+            # Coklu olcu istegi target_column/aggregation ciftinin yerine
+            # gecer: iki ayri kaynaktan yari yariya okumak, hangisinin
+            # gecerli oldugunu belirsiz birakir.
+            try:
+                agg_key, target_ref, value_label, extra_measures = (
+                    self._resolve_measures(measures, scope))
+            except ValueError as e:
+                return self._error_result(str(e))
+            real_target = target_ref.name if target_ref else None
+        elif target_col and target_ref is None:
             return self._error_result(
                 f"Hesaplanacak alan bulunamadı — {self._column_missing(str(target_col), scope)}")
-
-        if agg_key in self._MEASURE_AGGS:
+        if not measures and agg_key in self._MEASURE_AGGS:
             if real_target is None:
                 return self._error_result(
                     f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
@@ -1316,10 +1348,13 @@ class AgentAnalyzer:
                 return self._error_result(
                     "Medyan, yüzdelik dilim ve farklı sayım pencere hesabıyla "
                     "birleştirilemiyor.")
-        elif agg_key in ("count", "none"):
+            if agg_key in self._PERCENTILE_AGGS and extra_measures:
+                return self._error_result(
+                    "Medyan ve yüzdelik dilim ek ölçülerle birleştirilemiyor.")
+        elif not measures and agg_key in ("count", "none"):
             agg_key = "count"
             value_label = "Adet"
-        else:
+        elif not measures:
             return self._error_result(
                 f"Bilinmeyen toplulaştırma: '{agg_key}'. "
                 "Kullanılabilir: count, count_distinct, sum, avg, min, max, "
@@ -1328,6 +1363,7 @@ class AgentAnalyzer:
         # Sonuc kolonunun adi sorgudaki hicbir kolonla cakismamali; cakisirsa
         # pandas iki ayni adli kolon gorur ve grafige yanlis seri girer.
         taken = {c.lower() for c in scope.known_columns()}
+        taken |= {extra.label.lower() for extra in extra_measures}
         alias = "value"
         while alias.lower() in taken:
             alias = "_" + alias
@@ -1390,6 +1426,7 @@ class AgentAnalyzer:
             joins=joins,
             group_by=group_refs,
             aggregate=measure,
+            extra_aggregates=extra_measures,
             where=predicates,
             having=having_predicates,
             windows=windows,
@@ -1417,6 +1454,8 @@ class AgentAnalyzer:
         self.audit["groupCount"] = int(total_groups or 0)
         self.audit["resolvedGroupBy"] = [r.name for r in group_refs]
         self.audit["resolvedTargetColumn"] = real_target
+        if extra_measures:
+            self.audit["measures"] = [value_label] + [e.label for e in extra_measures]
         if having_note:
             self.audit["having"] = having_note
         if window_note:
@@ -1457,6 +1496,15 @@ class AgentAnalyzer:
         # "birikimli ciro" ayni grafikte yan yana okunmali, ikisi ayri
         # grafikte durursa karsilastirilamaz.
         datasets = [{"label": value_label, "data": values}]
+        # Ek olculer birincinin yanina ayri seri olarak girer: "ciro VE
+        # siparis sayisi" ayni eksende yan yana okunmali.
+        for extra in extra_measures:
+            datasets.append({
+                "label": extra.label,
+                "data": ([round(float(v), 2) for v in grouped[extra.label].fillna(0).tolist()]
+                         if group_refs else
+                         [self._number_or_none(v) for v in grouped[extra.label].tolist()]),
+            })
         for expr in windows:
             datasets.append({
                 "label": expr.label,
@@ -1570,6 +1618,67 @@ class AgentAnalyzer:
                 f"{self._column_missing(str(column), scope)}")
 
         return PeriodBucket(ref.alias, ref.name, self.PERIOD_LABEL, granularity)
+
+    #: Tek grafikte yan yana cizilebilecek en fazla olcu sayisi.
+    MAX_MEASURES = 5
+
+    def _resolve_measures(self, measures: Any, scope: ColumnScope) -> tuple:
+        """
+        `measures` listesini (ilk olcu, ek olculer) olarak cozer.
+
+        Ilk olcu siralamayi, HAVING'in varsayilanini ve pencereyi tasir;
+        digerleri yalnizca yan yana cizilir. Etiketler sonuc kumesinin kolon
+        adi oldugu icin burada benzersizligi de denetlenir — ayni adli iki
+        seri grafikte sessizce birbirine karisir.
+
+        Doner: (islem, kolon, etiket, ek `Aggregate` listesi)
+        """
+        if not isinstance(measures, list) or not measures:
+            raise ValueError(
+                "Ölçü listesi boş olamaz: her ölçü için işlem ve alan "
+                "belirtin.")
+        if len(measures) > self.MAX_MEASURES:
+            raise ValueError(
+                f"En fazla {self.MAX_MEASURES} ölçü birlikte çizilebiliyor "
+                f"({len(measures)} istendi); ölçüleri bölerek sorun.")
+
+        resolved = []
+        seen = set()
+        for index, entry in enumerate(measures):
+            if not isinstance(entry, dict):
+                raise ValueError(f"{index + 1}. ölçü bir nesne olmalı: "
+                                 "{\"column\": ..., \"aggregation\": ...}.")
+
+            func = str(entry.get("aggregation") or "count").strip().lower()
+            column = entry.get("column")
+            ref = scope.resolve(column)
+            if column and ref is None:
+                raise ValueError(
+                    f"{index + 1}. ölçünün alanı bulunamadı — "
+                    f"{self._column_missing(str(column), scope)}")
+
+            if func in self._NUMERIC_AGGS:
+                if ref is None:
+                    raise ValueError(
+                        f"'{func}' işlemi için {index + 1}. ölçüde hangi "
+                        "alanın hesaplanacağı belirtilmemiş.")
+                default_label = f"{func.upper()}({ref.name})"
+            else:
+                func = "count"
+                default_label = f"Adet({ref.name})" if ref is not None else "Adet"
+
+            label = str(entry.get("label") or "").strip() or default_label
+            if label.lower() in seen:
+                raise ValueError(
+                    f"'{label}' etiketi birden fazla ölçüde kullanılmış; "
+                    "her ölçünün kendi etiketi olmalı.")
+            seen.add(label.lower())
+            resolved.append((func, ref, label))
+
+        head_func, head_ref, head_label = resolved[0]
+        extras = [Aggregate(func, ref, label)
+                  for func, ref, label in resolved[1:]]
+        return head_func, head_ref, head_label, extras
 
     def _period_pivot_chart(self, grouped, group_refs: List[ColumnRef],
                             alias: str, value_label: str, total_groups: int,

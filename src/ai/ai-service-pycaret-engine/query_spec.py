@@ -546,6 +546,10 @@ class QuerySpec:
     joins: List[Join] = field(default_factory=list)
     group_by: List[ColumnRef] = field(default_factory=list)
     aggregate: Optional[Aggregate] = None
+    #: Ayni kirilimda yan yana okunacak EK olculer ("ciro VE siparis
+    #: sayisi"). Siralama, HAVING'in varsayilan olcusu ve pencereler ilk
+    #: olcuye (aggregate) baglidir; ek olculer yalnizca projeksiyona girer.
+    extra_aggregates: List[Aggregate] = field(default_factory=list)
     where: List[Predicate] = field(default_factory=list)
     #: Toplulastirma sonrasi kosullar. WHERE'in yerine gecmez: bkz.
     #: `HavingPredicate`.
@@ -578,6 +582,7 @@ class QuerySpec:
             return []
         names = [c.output_name for c in self.group_by]
         names.append(self.aggregate.label)
+        names.extend(a.label for a in self.extra_aggregates)
         names.extend(w.label for w in self.windows)
         return names
 
@@ -678,7 +683,8 @@ def _validate_windows(spec: QuerySpec, check, visible: set) -> None:
             "Medyan, yüzdelik ve farklı sayım pencere hesabıyla birleştirilemiyor.")
 
     grouped = {c.alias + "." + c.name for c in spec.group_by}
-    labels = {spec.aggregate.label} | {c.output_name for c in spec.group_by}
+    labels = ({spec.aggregate.label} | {c.output_name for c in spec.group_by}
+              | {a.label for a in spec.extra_aggregates})
 
     for window in spec.windows:
         if window.label in labels:
@@ -786,6 +792,28 @@ def validate(spec: QuerySpec) -> None:
     if spec.aggregate is not None and spec.aggregate.column is not None:
         check(spec.aggregate.column, "toplulaştırma", visible)
 
+    if spec.extra_aggregates:
+        if spec.aggregate is None:
+            raise QuerySpecError(
+                "Ek ölçü yalnızca toplulaştırmalı sorguda kullanılabilir.")
+        if spec.aggregate.func in Aggregate._PERCENTILE_FUNCS:
+            raise QuerySpecError(
+                "Medyan ve yüzdelik dilim ek ölçülerle birleştirilemiyor.")
+        # Ayni adli iki kolon pandas'ta tek isim altinda birlesir ve grafige
+        # yanlis seri girer; cakisma SQL'den once yakalanmali.
+        seen = {spec.aggregate.label} | {c.output_name for c in spec.group_by}
+        for extra in spec.extra_aggregates:
+            if extra.label in seen:
+                raise QuerySpecError(
+                    f"'{extra.label}' adı sonuçta iki kez kullanılmış; her "
+                    "ölçünün kendi adı olmalı.")
+            seen.add(extra.label)
+            if extra.column is not None:
+                check(extra.column, "ölçü", visible)
+            # Bilinmeyen islem ya da kolonsuz SUM metin uretiminde degil
+            # burada patlasin.
+            extra.expression()
+
     _validate_having(spec, check, visible)
     _validate_windows(spec, check, visible)
 
@@ -839,6 +867,7 @@ def _render_select(spec: QuerySpec, extra_projections: Optional[List[str]] = Non
     else:
         parts = [c.projection_sql() for c in spec.group_by]
         parts.append(spec.aggregate.sql(spec.group_by))  # type: ignore[union-attr]
+        parts.extend(a.sql() for a in spec.extra_aggregates)
         parts.extend(w.sql() for w in spec.windows)
         projection = ", ".join(parts)
 
@@ -1048,7 +1077,8 @@ def render_group_count(spec: QuerySpec) -> str:
         if spec.aggregate is None:
             raise QuerySpecError("Toplulaştırması olmayan sorguda grup sayısı istenemez.")
         # HAVING can suppress the implicit group, including on empty input.
-        scalar_spec = replace(spec, order_by=[], limit=None, windows=[])
+        scalar_spec = replace(spec, order_by=[], limit=None, windows=[],
+                              extra_aggregates=[])
         return "SELECT COUNT(*) FROM (" + _render_select(scalar_spec) + ") AS g"
 
     # Ic projeksiyon cikti adini tasimali: donem gibi ifade kolonlari adsiz
