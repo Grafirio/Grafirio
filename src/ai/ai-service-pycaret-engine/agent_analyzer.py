@@ -2886,6 +2886,139 @@ class AgentAnalyzer:
             "summary": desc or f"{len(cols)} kolon arasındaki ilişkiler incelendi.",
         }
 
+    # ------------------------------------------------------------------
+    # Etki siralamasi (key influencers)
+    # ------------------------------------------------------------------
+
+    #: Etki grafiginde gosterilecek en fazla etken.
+    MAX_INFLUENCERS = 10
+
+    @staticmethod
+    def _rank_influence(features: List[str], importances: Any = None,
+                        coef: Any = None, stds: Any = None) -> Optional[List]:
+        """
+        Modelin ogrendigi agirliklardan normalize edilmis etki siralamasi.
+
+        Agac modelleri `feature_importances_` verir ve dogrudan kullanilir.
+        Dogrusal modellerde katsayi tek basina yaniltir — olcegi buyuk kolon
+        kucuk katsayi alir — bu yuzden katsayi kolonun standart sapmasiyla
+        carpilir (standartlastirilmis katsayi). Cok sinifli modellerde
+        katsayi matrisinin sinif ortalamasi alinir.
+
+        Ikisi de yoksa None doner: etki UYDURULMAZ, cagiran taraf model
+        karsilastirma grafigine geri duser.
+
+        Doner: [(alan, yuzde payi), ...] buyukten kucuge.
+        """
+        if importances is not None:
+            weights = [abs(float(value)) for value in importances]
+        elif coef is not None:
+            rows = ([list(map(float, row)) for row in coef]
+                    if hasattr(coef[0], "__iter__")
+                    else [list(map(float, coef))])
+            weights = [sum(abs(row[i]) for row in rows) / len(rows)
+                       for i in range(len(rows[0]))]
+            if stds is not None:
+                weights = [weight * abs(float(std))
+                           for weight, std in zip(weights, stds)]
+        else:
+            return None
+
+        if len(weights) != len(features):
+            return None
+        total = sum(weights)
+        if not total or not math.isfinite(total):
+            return None
+
+        ranked = sorted(zip(features, weights), key=lambda p: p[1], reverse=True)
+        return [(name, round(100.0 * weight / total, 1))
+                for name, weight in ranked]
+
+    def _extract_influence(self, model: Any, features: List[str],
+                           frame: Any, target: str) -> tuple:
+        """
+        En iyi modelden etki siralamasi + yon ipucu (korelasyon isareti).
+
+        Hicbir kosulda analizi dusurmez: model ice bakisa izin vermiyorsa
+        (ensemble sarmalayicilar, KNN) (None, {}) doner.
+        """
+        try:
+            # Oznitelik erisimi de try icinde: sklearn disi sarmalayicilar
+            # property'de bile patlayabilir ve bu, analizi dusurmemeli.
+            coef = getattr(model, "coef_", None)
+            ranked = self._rank_influence(
+                features,
+                importances=getattr(model, "feature_importances_", None),
+                coef=coef,
+                stds=([frame[f].std() for f in features]
+                      if coef is not None else None))
+        except Exception as error:
+            logger.warning("Etki sıralaması çıkarılamadı: %s", error)
+            return None, {}
+        if not ranked:
+            return None, {}
+
+        # Yon yalnizca IPUCU ve yalnizca ilk etkenler icin: modelden degil
+        # hedefle duz korelasyondan okunur; sinifsal hedefte hic verilmez.
+        directions: Dict[str, int] = {}
+        try:
+            target_series = frame[target]
+            for name, _ in ranked[:3]:
+                corr = float(target_series.corr(frame[name]))
+                if math.isfinite(corr) and abs(corr) >= 0.05:
+                    directions[name] = 1 if corr > 0 else -1
+        except Exception:
+            directions = {}
+        return ranked, directions
+
+    def _influence_presentation(self, target: str, ranked: List,
+                                directions: Dict[str, int], quality: Dict,
+                                rows: int, feature_count: int) -> tuple:
+        """
+        "Neyi etkiliyor" cevabinin kullanici yuzu.
+
+        MAE/R² tablolari is kullanicisina bir sey soylemiyordu; asil cevap
+        ETKI SIRALAMASIDIR, model metrigi yalnizca guven notu olarak kalir.
+        """
+        top = ranked[:self.MAX_INFLUENCERS]
+        arrows = {1: " (arttıkça hedef artıyor)", -1: " (arttıkça hedef azalıyor)"}
+
+        lead_name, lead_share = top[0]
+        insights = [{
+            "type": "success", "title": "En etkili alan",
+            "description": f"{lead_name}: etki payı %{lead_share}"
+                           f"{arrows.get(directions.get(lead_name), '')}",
+        }]
+        if len(top) > 1:
+            insights.append({
+                "type": "info", "title": "İlk etkenler",
+                "description": " · ".join(
+                    f"{name} %{share}{arrows.get(directions.get(name), '')}"
+                    for name, share in top[:3]),
+            })
+        insights.append(quality)
+        insights.append({
+            "type": "info", "title": "Veri Boyutu",
+            "description": f"{rows} satır, {feature_count} özellik",
+        })
+        insights.append({
+            "type": "warning", "title": "Etki ≠ nedensellik",
+            "description": "Sıralama modelin öğrendiği birlikte değişimi "
+                           "gösterir; sebep-sonuç kanıtı değildir ve veri "
+                           "değişince değişebilir.",
+        })
+
+        chart = {
+            "type": "bar",
+            "title": f"{target} üzerinde etki payları (%)",
+            "data": {
+                "labels": [name for name, _ in top],
+                "datasets": [{"label": "Etki payı (%)",
+                              "data": [share for _, share in top]}],
+            },
+        }
+        return chart, insights
+
     def _regression_analysis(self, df: pd.DataFrame, target_col: Optional[str],
                              features: List[str], chart_type: str, title: str, desc: str) -> Dict:
         """PyCaret regression analizi."""
@@ -2911,6 +3044,33 @@ class AgentAnalyzer:
             best = compare_models(n_select=1, sort="MAE", verbose=False)
             results_df = pull()
 
+            best_name = type(best).__name__
+            mae = float(results_df["MAE"].iloc[0])
+            r2 = float(results_df["R2"].iloc[0])
+            quality = {
+                "type": "info", "title": "Model güveni",
+                "description": f"{best_name} — ortalama mutlak hata ~{mae:,.2f}, "
+                               f"R² {r2:.2f} (1'e yakınsa ilişki güçlü, 0'a "
+                               "yakınsa zayıf)",
+            }
+
+            # Asil cevap etki siralamasi: "neyi etkiliyor" diye soran
+            # kullaniciya MAE tablosu degil etkenler gosterilir.
+            ranked, directions = self._extract_influence(
+                best, feature_cols, use_df, target_col)
+            if ranked:
+                chart, insights = self._influence_presentation(
+                    target_col, ranked, directions, quality,
+                    len(use_df), len(feature_cols))
+                if title:
+                    chart["title"] = title
+                return {"success": True, "charts": [chart], "insights": insights,
+                        "summary": desc or (
+                            f"{target_col} alanını en çok etkileyenler: "
+                            + ", ".join(name for name, _ in ranked[:3]) + ".")}
+
+            # Model ice bakisa izin vermiyor: etki uydurmak yerine model
+            # karsilastirmasi gosterilir.
             model_names = results_df.index.tolist()[:5]
             mae_values = results_df["MAE"].head(5).tolist()
             r2_values = results_df["R2"].head(5).tolist()
@@ -2976,6 +3136,41 @@ class AgentAnalyzer:
             best = compare_models(n_select=1, sort="Accuracy", verbose=False)
             results_df = pull()
 
+            best_name = type(best).__name__
+            accuracy = float(results_df["Accuracy"].iloc[0])
+            quality = {
+                "type": "info", "title": "Model güveni",
+                "description": f"{best_name} — doğruluk %{100 * accuracy:.1f}",
+            }
+
+            # Sınıf dağılımı iki sunumda da kaliyor: hedefin dengesizligini
+            # gormeden ne etki ne dogruluk okunabilir.
+            value_counts = df[target_col].value_counts().head(10)
+            distribution = {
+                "type": "pie",
+                "title": f"{target_col} Sınıf Dağılımı",
+                "data": {
+                    "labels": [str(x) for x in value_counts.index.tolist()],
+                    "datasets": [{"label": "Adet", "data": value_counts.values.tolist()}]
+                }
+            }
+
+            ranked, directions = self._extract_influence(
+                best, feature_cols, use_df, target_col)
+            if ranked:
+                chart, insights = self._influence_presentation(
+                    target_col, ranked, directions, quality,
+                    len(use_df), len(feature_cols))
+                if title:
+                    chart["title"] = title
+                insights.append({"type": "info", "title": "Sınıf Sayısı",
+                                 "description": str(df[target_col].nunique())})
+                return {"success": True, "charts": [chart, distribution],
+                        "insights": insights,
+                        "summary": desc or (
+                            f"{target_col} sınıfını en çok etkileyenler: "
+                            + ", ".join(name for name, _ in ranked[:3]) + ".")}
+
             model_names = results_df.index.tolist()[:5]
             acc_values = results_df["Accuracy"].head(5).tolist()
 
@@ -2988,16 +3183,7 @@ class AgentAnalyzer:
                 }
             }]
 
-            # Sınıf dağılımı
-            value_counts = df[target_col].value_counts().head(10)
-            charts.append({
-                "type": "pie",
-                "title": f"{target_col} Sınıf Dağılımı",
-                "data": {
-                    "labels": [str(x) for x in value_counts.index.tolist()],
-                    "datasets": [{"label": "Adet", "data": value_counts.values.tolist()}]
-                }
-            })
+            charts.append(distribution)
 
             insights = [
                 {"type": "success", "title": "En İyi Model", "description": type(best).__name__},

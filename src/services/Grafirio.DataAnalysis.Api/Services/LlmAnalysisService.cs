@@ -522,8 +522,9 @@ public class LlmAnalysisService
                           ne olur", "yıl sonuna kadar ne kadar olur"
         - `statistics`  : "özet istatistik ver", "dağılımı betimle"
         - `correlation` : "hangi alanlar birbiriyle ilişkili"
-        - `regression`  : "neyi etkiliyor", "hangi faktörler belirliyor"
-                          (sayısal hedefi diğer alanlardan açıklama; geleceğe
+        - `regression`  : "neyi etkiliyor", "hangi faktörler belirliyor" —
+                          cevap "en etkili alanlar" sıralamasıdır; incelenecek
+                          aday alanları `feature_columns`'a yaz (geleceğe
                           dönük zaman sorusu DEĞİL — o `forecast`)
         - `classification` : "sınıflandır", "hangi gruba girer"
         - `anomaly`     : "aykırı", "anormal", "sıra dışı", "hangi ayda
