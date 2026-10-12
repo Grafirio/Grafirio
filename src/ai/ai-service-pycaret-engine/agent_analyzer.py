@@ -2465,10 +2465,15 @@ class AgentAnalyzer:
         datasets = [
             {"label": "Gerçekleşen", "data": actual},
             {"label": "Beklenen", "data": [expected.get(p) for p in labels]},
-            # Sapan noktalar ayri seride: cizgide tek tek isaret olarak
-            # gorunurler, araya cizgi cekilmez.
-            {"label": "Sapma", "data": [flagged.get(p) for p in labels]},
         ]
+        if anomalies:
+            # Sapan noktalar ayri seride: cizgide tek tek isaret olarak
+            # gorunurler, araya cizgi cekilmez. Sapma YOKKEN bu seri hic
+            # gonderilmez — tamami bos bir seriyi onyuz dogrulayicisi
+            # hakli olarak reddediyor ve grafigin tamami dusuyordu
+            # (staging'de ilk soruda yakalandi).
+            datasets.append(
+                {"label": "Sapma", "data": [flagged.get(p) for p in labels]})
 
         insights: List[Dict[str, Any]] = [{
             "type": "info", "title": "Model",

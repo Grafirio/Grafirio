@@ -145,6 +145,15 @@ class TimeseriesAnomalyTests(unittest.TestCase):
         self.assertTrue(result["success"], result)
         self.assertIn("Sapma yok", str(result["insights"]))
         self.assertEqual(result["audit"]["anomalies"], [])
+        # Sapma yokken 'Sapma' serisi hic gonderilmez: tamami bos bir seriyi
+        # onyuz dogrulayicisi reddediyor ve grafigin tamami dusuyordu
+        # (staging'de ilk soruda yakalandi).
+        datasets = result["charts"][0]["data"]["datasets"]
+        self.assertEqual([d["label"] for d in datasets],
+                         ["Gerçekleşen", "Beklenen"])
+        for dataset in datasets:
+            self.assertTrue(any(value is not None for value in dataset["data"]),
+                            dataset["label"])
 
     def test_explain_compares_anomalous_period_with_previous(self):
         current = [{"Country": "DE", "value": 80}, {"Country": "NL", "value": 20}]
