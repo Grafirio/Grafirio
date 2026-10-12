@@ -41,7 +41,7 @@ public class PermissionService(
                 "Boş izin kümesi dönülüyor; kuruculuk muafiyeti uygulanmıyor.",
                 identityService.UserId, companyId);
 
-            return Store(new EffectivePermissions(companyId, null, [], [], false));
+            return Store(new EffectivePermissions(companyId, null, [], []));
         }
 
         // Kurucu, admin ve platform ekibi izin şemasının dışında: rol
@@ -96,14 +96,9 @@ public class PermissionService(
 
     /// Modül listesi ayrı tutulmuyor, izinlerden türetiliyor: iki liste ayrı
     /// hesaplanırsa menü ile uygulanan kural sessizce ayrışır.
-    ///
-    /// <c>RestrictedByDepartment</c> bugün her zaman <c>false</c>: bu serviste
-    /// departmana göre daraltma YOK — sözleşme alanı, daraltmayı yapacak iş
-    /// (Yetki Faz 8) yazılmadan önce eklenmiş. Uydurma bir değer değil,
-    /// bugünün doğrusu; daraltma geldiğinde burası onunla birlikte değişir.
     private static EffectivePermissions Build(
         Guid companyId, string level, IReadOnlyCollection<string> permissions)
-        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions], false);
+        => new(companyId, level, AppPermissions.ModulesOf(permissions), [.. permissions]);
 
     /// <summary>
     /// Hesaplanan kümeyi saklar ve ne hesaplandığını yazar.

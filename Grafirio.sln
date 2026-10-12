@@ -74,6 +74,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.SemanticEval", "to
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.SemanticEval.Tests", "tests\Grafirio.SemanticEval.Tests\Grafirio.SemanticEval.Tests.csproj", "{DA5DEF62-B30D-4AA9-8C1A-5A82264B3987}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Grafirio.Identity.Tests", "tests\Grafirio.Identity.Tests\Grafirio.Identity.Tests.csproj", "{B716D064-724A-499F-A11A-62C70445E822}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -84,6 +86,18 @@ Global
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|x64.Build.0 = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Debug|x86.Build.0 = Debug|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|x64.ActiveCfg = Release|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|x64.Build.0 = Release|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|x86.ActiveCfg = Release|Any CPU
+		{B716D064-724A-499F-A11A-62C70445E822}.Release|x86.Build.0 = Release|Any CPU
 		{3AB35DBB-44EA-8336-DFA9-BEF9ECABB5AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3AB35DBB-44EA-8336-DFA9-BEF9ECABB5AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3AB35DBB-44EA-8336-DFA9-BEF9ECABB5AC}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -359,6 +373,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{B716D064-724A-499F-A11A-62C70445E822} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D38E75C1-6ADB-45E6-8F83-55671A8AA5DD} = {E655B4E8-AF92-4086-8C8B-4B7D78303D7C}
 		{C9523D2F-48FC-4449-B7E5-F70A44C48683} = {E655B4E8-AF92-4086-8C8B-4B7D78303D7C}
 		{8CE1FCB6-095E-42DD-BFEB-7AF105DC167E} = {E655B4E8-AF92-4086-8C8B-4B7D78303D7C}
