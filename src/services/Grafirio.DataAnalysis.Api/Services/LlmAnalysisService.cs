@@ -550,15 +550,25 @@ public class LlmAnalysisService
            "gidilen ülke" sözlükte hangi kolonun eş anlamlısıysa o kolondur.
         5. `role` alanına uy: toplanacak/ortalanacak alan `measure`, gruplama
            yapılacak alan `dimension`, zaman filtresi `date` olmalı.
-          6. Kırılım isteniyorsa `group_by` ilgili `dimension` kolonlarını içermeli.
-            Genel toplam veya tek toplamın HAVING koşulu isteniyorsa `group_by: []`
-            kullan; sahte kırılım ekleme. Satır sayısı soruluyorsa
+        6. Kırılım isteniyorsa `group_by` ilgili `dimension` kolonlarını içermeli.
+           Genel toplam veya tek toplamın HAVING koşulu isteniyorsa `group_by: []`
+           kullan; sahte kırılım ekleme. Satır sayısı soruluyorsa
            `aggregation: "count"`, `target_column: null` yeterlidir.
-        7. `role` değeri `identifier` olan kolonları ölçüm olarak kullanma.
-           Kimlik numarasının ortalaması anlamsızdır; onları yalnızca saymak
-           (`count`) için kullan.
-        8. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
-        9. Soruyu karşılayan TABLOYU ya da KOLONU sözlükte bulamıyorsan
+        7. `role` değeri `identifier` olan kolonları sayısal ölçü olarak
+           kullanma. Kimlik numarasının toplamı veya ortalaması anlamsızdır;
+           bunları yalnızca `count` veya `count_distinct` için kullan.
+        8. "Farklı müşteri sayısı" gibi ifadelerde `aggregation: "count_distinct"`
+           kullan ve sayılacak kimlik/kolon adını `target_column` alanına yaz.
+           "Medyan" veya "ortanca" için `aggregation: "median"` kullan.
+           Kullanıcı belirli bir yüzdelik dilim (ör. 90. yüzdelik, P90)
+           istiyorsa `aggregation: "percentile"` ve `percentile: 90` yaz;
+           `percentile` değeri 0–100 aralığındadır. `median` ve `percentile`
+           sayısal `measure` kolonu, `count_distinct` ise farklı değerleri
+           sayılacak uygun kimlik/kolonu gerektirir.
+        9. Medyan/yüzdelik isteklerine `having`, `window` veya `union` ekleme;
+           bu birleşimler desteklenmiyor.
+        10. "İlk 5", "en çok 10" gibi ifadeleri `limit` alanına yaz.
+        11. Soruyu karşılayan TABLOYU ya da KOLONU sözlükte bulamıyorsan
            uydurma — `target_table` alanını boş bırak ve `description` içinde
            kullanıcıya SORULACAK cümleyi yaz. Bu cümle doğrudan kullanıcıya
            gösterilecek: neyi çözemediğini söyle ve hangisini kastettiğini sor.
@@ -566,18 +576,18 @@ public class LlmAnalysisService
            bedeli mi, sigorta bedeli mi?" Tablo için örnek: "İthalat mı ihracat
            mı sorduğunuzu çözemedim — hangisini istersiniz?" Teknik terim,
            tablo adı ve kolon adı kullanma.
-        10. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe
+        12. Sonucu en iyi gösteren `chart_type`'ı seç, `chart_title`'ı Türkçe
             yaz.
-        11. Yukarıda "## Önceki konuşma" bölümü varsa ONU ÖNCE OKU. Kullanıcının
+        13. Yukarıda "## Önceki konuşma" bölümü varsa ONU ÖNCE OKU. Kullanıcının
             şu anki mesajı, senin bir önceki turda sorduğun soruya verilmiş
             cevap olabilir; öyleyse asıl soru önceki turda yazılıdır ve bu mesaj
             yalnızca eksik parçayı tamamlar. İkisini birleştirip TAM soruyu
             cevapla — mesajı tek başına yeni bir soru sayma.
-        12. Aynı soruyu ikinci kez sorma. Önceki turda bir şey sorduysan ve
+        14. Aynı soruyu ikinci kez sorma. Önceki turda bir şey sorduysan ve
             kullanıcı cevap verdiyse o cevabı KULLAN. Cevap hâlâ yetmiyorsa
             BAŞKA bir şey sor; aynı cümleyi tekrarlamak konuşmayı kilitler ve
             kullanıcının çıkışı kalmaz.
-        13. Devam sorularında önceki turun parametrelerini temel al. "Peki
+        15. Devam sorularında önceki turun parametrelerini temel al. "Peki
             geçen yıl?", "bunu müşteri bazında göster", "grafiği pasta yap"
             gibi mesajlar sıfırdan yeni bir analiz değil, en son turun ÜZERİNE
             yapılan değişikliktir: değişmeyen alanları (tablo, join'ler,
@@ -898,10 +908,11 @@ public class LlmAnalysisService
           "time_axis": { "column": "tarih_kolonu", "granularity": "day|month|quarter|year" },
           "period_compare": { "unit": "year" },
           "horizon": 6,
+          "percentile": 90,
           "having": { "op": ">", "value": 1000 },
           "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
           "union": { "label": "İthalat", "with": [ { "table": "dbo.Ihracat", "label": "İhracat" } ] },
-          "aggregation": "sum|avg|count|min|max|none",
+          "aggregation": "sum|avg|count|count_distinct|min|max|median|percentile|none",
           "group_by": ["kolon_adı"],
           "sort_by": "kolon_adı",
           "sort_order": "desc",
@@ -912,8 +923,8 @@ public class LlmAnalysisService
         }
         ```
 
-        `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`
-        ve `horizon` isteğe bağlıdır: soru gerektirmiyorsa hiç yazma.
+        `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`,
+        `horizon` ve `percentile` isteğe bağlıdır: soru gerektirmiyorsa hiç yazma.
         Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union`
         söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
 

@@ -81,6 +81,44 @@ check(
 
 amount = ColumnRef(base.alias, "Tutar")
 shipped = ColumnRef(base.alias, "SevkTarihi")
+
+check(
+    "COUNT DISTINCT SQL'i",
+    render(QuerySpec(
+        base=base,
+        aggregate=Aggregate("count_distinct", ColumnRef(base.alias, "CustomerId"), "value"),
+    )),
+    "SELECT COUNT(DISTINCT [t0].[CustomerId]) AS [value] "
+    "FROM [dbo].[Shipments] AS [t0]",
+)
+
+check(
+    "global medyan SQL'i",
+    render(QuerySpec(
+        base=base,
+        aggregate=Aggregate("median", amount, "value"),
+    )),
+    "SELECT DISTINCT PERCENTILE_CONT(0.5) WITHIN GROUP "
+    "(ORDER BY [t0].[Tutar]) OVER () AS [value] "
+    "FROM [dbo].[Shipments] AS [t0]",
+)
+
+check(
+    "gruplu P90 SQL'i DISTINCT ile tek satır üretir",
+    render(QuerySpec(
+        base=base,
+        group_by=[country],
+        aggregate=Aggregate("percentile", amount, "value", percentile=90),
+        order_by=[OrderBy("value", "desc"), OrderBy(country, "asc")],
+        limit=5,
+    )),
+    "SELECT DISTINCT TOP (5) [t0].[ReceiverCompanyCountryName], "
+    "PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY [t0].[Tutar]) "
+    "OVER (PARTITION BY [t0].[ReceiverCompanyCountryName]) AS [value] "
+    "FROM [dbo].[Shipments] AS [t0] "
+    "ORDER BY [value] DESC, [t0].[ReceiverCompanyCountryName] ASC",
+)
+
 filtered_sum = QuerySpec(
     base=base,
     group_by=[country],
@@ -183,6 +221,15 @@ expect_error(
         base=base, group_by=[country], aggregate=Aggregate("sum", None, "value"),
         order_by=[OrderBy("value"), OrderBy(country, "asc")], limit=5)),
     "için bir kolon gerekiyor", QuerySpecError,
+)
+
+expect_error(
+    "yüzdelik aralığı doğrulanır",
+    lambda: render(QuerySpec(
+        base=base,
+        aggregate=Aggregate("percentile", amount, "value", percentile=101),
+    )),
+    "0 ile 100 arasında olmalı", QuerySpecError,
 )
 
 if "[Bad]]Name]" not in render(QuerySpec(

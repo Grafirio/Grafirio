@@ -41,6 +41,7 @@ Bes degismez kural burada zorlanir:
 """
 
 from dataclasses import dataclass, field, replace
+from decimal import Decimal, InvalidOperation
 from typing import List, Optional, Union
 
 
@@ -223,13 +224,15 @@ class Join:
 
 @dataclass(frozen=True)
 class Aggregate:
-    func: str                       # count | sum | avg | min | max
+    func: str                       # count | count_distinct | sum | avg | min | max | median | percentile
     column: Optional[ColumnRef]     # None => COUNT(*)
     label: str                      # cikti kolonunun adi
+    percentile: Optional[float] = None
 
     _FUNCS = {"count": "COUNT", "sum": "SUM", "avg": "AVG", "min": "MIN", "max": "MAX"}
+    _PERCENTILE_FUNCS = frozenset({"median", "percentile"})
 
-    def expression(self) -> str:
+    def expression(self, partition_by: Optional[List[ColumnRef]] = None) -> str:
         """
         Toplulastirmanin kendisi, cikti adi olmadan: `SUM([t0].[Tutar])`.
 
@@ -238,6 +241,33 @@ class Aggregate:
         fonksiyonunda: `SUM(SUM(...)) OVER (...)` — ic toplulastirma grup
         degerini, dis pencere onlarin uzerindeki birikimi verir.
         """
+        if self.func == "count_distinct":
+            if self.column is None:
+                raise QuerySpecError("'count_distinct' için bir kolon gerekiyor.")
+            return f"COUNT(DISTINCT {self.column.sql()})"
+
+        if self.func in self._PERCENTILE_FUNCS:
+            if self.column is None:
+                raise QuerySpecError(f"'{self.func}' için bir kolon gerekiyor.")
+            percentile = 50 if self.func == "median" else self.percentile
+            if isinstance(percentile, bool) or not isinstance(percentile, (int, float)):
+                raise QuerySpecError("'percentile' işlemi için 0 ile 100 arasında bir değer gerekiyor.")
+            try:
+                value = Decimal(str(percentile))
+            except InvalidOperation as error:
+                raise QuerySpecError("'percentile' değeri geçerli bir sayı olmalı.") from error
+            if not value.is_finite() or value < 0 or value > 100:
+                raise QuerySpecError("'percentile' değeri 0 ile 100 arasında olmalı.")
+            rank = format(value / Decimal(100), "f").rstrip("0").rstrip(".")
+            if not rank:
+                rank = "0"
+            partition = (
+                "PARTITION BY " + ", ".join(column.sql() for column in partition_by)
+                if partition_by else "")
+            return (
+                f"PERCENTILE_CONT({rank}) WITHIN GROUP "
+                f"(ORDER BY {self.column.sql()}) OVER ({partition})")
+
         func = self._FUNCS.get(self.func)
         if func is None:
             raise QuerySpecError(f"Bilinmeyen toplulaştırma: '{self.func}'")
@@ -246,8 +276,8 @@ class Aggregate:
         inner = self.column.sql() if self.column is not None else "*"
         return f"{func}({inner})"
 
-    def sql(self) -> str:
-        return f"{self.expression()} AS {quote_identifier(self.label)}"
+    def sql(self, partition_by: Optional[List[ColumnRef]] = None) -> str:
+        return f"{self.expression(partition_by)} AS {quote_identifier(self.label)}"
 
 
 BINARY_OPS = (">=", ">", "<=", "<", "=", "<>")
@@ -567,6 +597,10 @@ def _validate_derived(join: "Join") -> None:
     derived = join.table
     inner = derived.source.alias
 
+    if derived.aggregate.func in Aggregate._PERCENTILE_FUNCS | {"count_distinct"}:
+        raise QuerySpecError(
+            "Medyan, yüzdelik ve farklı sayım ön toplama join'inde desteklenmiyor.")
+
     if not derived.key_columns:
         raise QuerySpecError(
             f"'{derived.qualified()}' ön toplaması gruplama anahtarı olmadan "
@@ -601,11 +635,18 @@ def _validate_having(spec: QuerySpec, check, visible: set) -> None:
             "Toplulaştırması olmayan sorguda HAVING kullanılamaz; "
             "koşul satır bazlıysa WHERE'e girmesi gerekir.")
 
+    if spec.aggregate.func in Aggregate._PERCENTILE_FUNCS:
+        raise QuerySpecError(
+            "Medyan ve yüzdelik toplulaştırmalarında HAVING koşulu desteklenmiyor.")
+
     for predicate in spec.having:
         if not isinstance(predicate, HavingPredicate):
             raise QuerySpecError(
                 "HAVING koşulu bir toplulaştırmaya uygulanmalı; "
                 "ham kolon koşulları WHERE'e girmeli.")
+        if predicate.aggregate.func in Aggregate._PERCENTILE_FUNCS:
+            raise QuerySpecError(
+                "HAVING içinde medyan ve yüzdelik toplulaştırmaları desteklenmiyor.")
         if predicate.aggregate.column is not None:
             check(predicate.aggregate.column, "HAVING", visible)
 
@@ -631,6 +672,10 @@ def _validate_windows(spec: QuerySpec, check, visible: set) -> None:
         raise QuerySpecError(
             "Pencere fonksiyonu yalnızca toplulaştırmalı sorguda "
             "kullanılabilir; satır bazlı okumada hesaplanacak bir grup yok.")
+
+    if spec.aggregate.func in Aggregate._PERCENTILE_FUNCS | {"count_distinct"}:
+        raise QuerySpecError(
+            "Medyan, yüzdelik ve farklı sayım pencere hesabıyla birleştirilemiyor.")
 
     grouped = {c.alias + "." + c.name for c in spec.group_by}
     labels = {spec.aggregate.label} | {c.output_name for c in spec.group_by}
@@ -793,7 +838,7 @@ def _render_select(spec: QuerySpec, extra_projections: Optional[List[str]] = Non
         projection = f"{quote_identifier(spec.base.alias)}.*"
     else:
         parts = [c.projection_sql() for c in spec.group_by]
-        parts.append(spec.aggregate.sql())  # type: ignore[union-attr]
+        parts.append(spec.aggregate.sql(spec.group_by))  # type: ignore[union-attr]
         parts.extend(w.sql() for w in spec.windows)
         projection = ", ".join(parts)
 
@@ -802,12 +847,18 @@ def _render_select(spec: QuerySpec, extra_projections: Optional[List[str]] = Non
 
     top = f"TOP ({int(spec.limit)}) " if spec.limit is not None else ""
 
-    sql = [f"SELECT {top}{projection}", f"FROM {spec.base.sql()}"]
+    distinct = (
+        "DISTINCT "
+        if spec.aggregate is not None and spec.aggregate.func in Aggregate._PERCENTILE_FUNCS
+        else "")
+    sql = [f"SELECT {distinct}{top}{projection}", f"FROM {spec.base.sql()}"]
     sql.extend(join.sql() for join in spec.joins)
 
     if spec.where:
         sql.append("WHERE " + " AND ".join(p.sql() for p in spec.where))
-    if spec.group_by:
+    percentile_aggregate = (
+        spec.aggregate is not None and spec.aggregate.func in Aggregate._PERCENTILE_FUNCS)
+    if spec.group_by and not percentile_aggregate:
         sql.append("GROUP BY " + ", ".join(c.sql() for c in spec.group_by))
     # HAVING gruplamadan SONRA, siralamadan ONCE: SQL'in sirasi da mantigin
     # sirasi — once gruplar olusur, sonra elenir, en son siralanir.

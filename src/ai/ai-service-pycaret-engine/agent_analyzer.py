@@ -5,6 +5,7 @@ MassTransit'ten gelen mesajları işler ve sonuçları geri gönderir.
 
 import json
 import logging
+import math
 import re
 import pandas as pd
 from typing import Dict, Any, List, Optional
@@ -162,6 +163,7 @@ class AgentAnalyzer:
         feature_columns = params.get("feature_columns", [])
         group_by = params.get("group_by") or []
         aggregation = params.get("aggregation") or "count"
+        percentile = params.get("percentile")
         sort_by = params.get("sort_by")
         sort_order = params.get("sort_order", "desc")
         limit = self._safe_limit(params.get("limit", 10))
@@ -356,7 +358,8 @@ class AgentAnalyzer:
                     base, joins, scope, target_column, group_by, aggregation,
                     sort_order, limit, predicates, where_params, chart_type,
                     chart_title, description, having, window,
-                    period_ref=period_ref, compare_ref=compare_ref))
+                    period_ref=period_ref, compare_ref=compare_ref,
+                    percentile=percentile))
 
             if analysis_type == "forecast":
                 # Esik ve pencere tahminle birlesmez: esik donemleri eler ve
@@ -462,6 +465,8 @@ class AgentAnalyzer:
     # `query_spec.Aggregate` icinde; burada yalnizca "kolon sart mi" sorusu
     # cevaplaniyor.
     _NUMERIC_AGGS = frozenset({"sum", "avg", "min", "max"})
+    _MEASURE_AGGS = _NUMERIC_AGGS | {"count_distinct", "median", "percentile"}
+    _PERCENTILE_AGGS = frozenset({"median", "percentile"})
 
     @staticmethod
     def _split_table(table_name: str) -> tuple:
@@ -1115,10 +1120,10 @@ class AgentAnalyzer:
             return default, label
 
         func = wanted_agg or default.func
-        if func not in self._NUMERIC_AGGS and func != "count":
+        if func not in self._NUMERIC_AGGS and func not in ("count", "count_distinct"):
             raise ValueError(
                 f"'{func}' koşulda kullanılamaz. Kullanılabilir: "
-                f"count, {', '.join(sorted(self._NUMERIC_AGGS))}.")
+                f"count, count_distinct, {', '.join(sorted(self._NUMERIC_AGGS))}.")
 
         column = None
         if wanted_col:
@@ -1239,7 +1244,8 @@ class AgentAnalyzer:
                          chart_type: str, title: str, desc: str,
                          having: Any = None, window: Any = None,
                          period_ref: Optional[PeriodBucket] = None,
-                         compare_ref: Optional[PeriodBucket] = None) -> Dict:
+                         compare_ref: Optional[PeriodBucket] = None,
+                         percentile: Any = None) -> Dict:
         """
         Gruplama ve toplama — veritabaninda.
 
@@ -1278,17 +1284,46 @@ class AgentAnalyzer:
             return self._error_result(
                 f"Hesaplanacak alan bulunamadı — {self._column_missing(str(target_col), scope)}")
 
-        if agg_key in self._NUMERIC_AGGS:
+        if agg_key in self._MEASURE_AGGS:
             if real_target is None:
                 return self._error_result(
                     f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
                     "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
-            value_label = f"{agg_key.upper()}({real_target})"
-        else:
-            # Sayma: belirli bir kolon verildiyse o kolonun dolu oldugu
-            # satirlar, verilmediyse tum satirlar sayilir.
+            if agg_key == "count_distinct":
+                value_label = f"Farklı {real_target} sayısı"
+            elif agg_key == "median":
+                value_label = f"{real_target} medyanı"
+            elif agg_key == "percentile":
+                if isinstance(percentile, bool):
+                    return self._error_result(
+                        "Yüzdelik dilim 0 ile 100 arasında bir sayı olmalı.")
+                try:
+                    percentile = float(percentile)
+                except (TypeError, ValueError):
+                    return self._error_result(
+                        "Yüzdelik dilim için 0 ile 100 arasında bir sayı belirtin.")
+                if not math.isfinite(percentile) or not 0 <= percentile <= 100:
+                    return self._error_result(
+                        "Yüzdelik dilim 0 ile 100 arasında olmalı.")
+                value_label = f"{real_target} P{percentile:g}"
+            else:
+                value_label = f"{agg_key.upper()}({real_target})"
+            if agg_key in self._PERCENTILE_AGGS and having:
+                return self._error_result(
+                    "Medyan ve yüzdelik dilim toplulaştırmalarında having koşulu "
+                    "henüz desteklenmiyor.")
+            if agg_key in self._PERCENTILE_AGGS | {"count_distinct"} and window:
+                return self._error_result(
+                    "Medyan, yüzdelik dilim ve farklı sayım pencere hesabıyla "
+                    "birleştirilemiyor.")
+        elif agg_key in ("count", "none"):
             agg_key = "count"
             value_label = "Adet"
+        else:
+            return self._error_result(
+                f"Bilinmeyen toplulaştırma: '{agg_key}'. "
+                "Kullanılabilir: count, count_distinct, sum, avg, min, max, "
+                "median, percentile.")
 
         # Sonuc kolonunun adi sorgudaki hicbir kolonla cakismamali; cakisirsa
         # pandas iki ayni adli kolon gorur ve grafige yanlis seri girer.
@@ -1298,7 +1333,9 @@ class AgentAnalyzer:
             alias = "_" + alias
 
         direction = "asc" if str(sort_order).lower() == "asc" else "desc"
-        measure = Aggregate(agg_key, target_ref, alias)
+        measure = Aggregate(
+            agg_key, target_ref, alias,
+            percentile=percentile if agg_key == "percentile" else None)
 
         try:
             having_predicates, having_params, having_note = self._build_having(
@@ -1405,7 +1442,10 @@ class AgentAnalyzer:
 
         if group_refs:
             labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
-            values = [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()]
+            values = (
+                [self._number_or_none(v) for v in grouped[alias].tolist()]
+                if agg_key in self._PERCENTILE_AGGS
+                else [round(float(v), 2) for v in grouped[alias].fillna(0).tolist()])
             result_label = f"{group_refs[0].name} bazında {value_label}"
         else:
             labels = [self.GLOBAL_RESULT_LABEL]
@@ -1792,6 +1832,10 @@ class AgentAnalyzer:
             return self._error_result(
                 f"Hesaplanacak alan bulunamadı — "
                 f"{self._column_missing(str(target_col), scope)}")
+        if agg_key in self._MEASURE_AGGS - self._NUMERIC_AGGS:
+            return self._error_result(
+                "Tahmin yalnızca count, sum, avg, min ve max ölçüleriyle "
+                "çalışabiliyor.")
         if agg_key in self._NUMERIC_AGGS:
             if target_ref is None:
                 return self._error_result(
@@ -2057,7 +2101,11 @@ class AgentAnalyzer:
             seen_labels.add(branch["label"])
 
         agg_key = str(aggregation or "count").strip().lower()
-        if agg_key not in self._NUMERIC_AGGS:
+        if agg_key in self._PERCENTILE_AGGS:
+            return self._error_result(
+                "Medyan ve yüzdelik dilim union karşılaştırmalarında "
+                "desteklenmiyor.")
+        if agg_key not in self._NUMERIC_AGGS and agg_key != "count_distinct":
             agg_key = "count"
 
         aliases = AliasFactory()
@@ -2116,12 +2164,15 @@ class AgentAnalyzer:
                 raise ValueError(
                     f"'{branch['table']}' tablosunda hesaplanacak alan "
                     f"bulunamadı — {self._column_missing(str(branch['target_column']), scope)}")
-            if agg_key in self._NUMERIC_AGGS and measure_ref is None:
+            if agg_key in self._NUMERIC_AGGS | {"count_distinct"} and measure_ref is None:
                 raise ValueError(
                     f"'{agg_key}' işlemi için '{branch['table']}' tablosunda "
                     "hangi alanın hesaplanacağı belirtilmemiş.")
             if index == 0 and measure_ref is not None:
-                value_label = f"{agg_key.upper()}({measure_ref.name})"
+                value_label = (
+                    f"Farklı {measure_ref.name} sayısı"
+                    if agg_key == "count_distinct"
+                    else f"{agg_key.upper()}({measure_ref.name})")
 
             predicates, branch_params, filter_notes = self._build_where(
                 branch["filters"], scope, prefix=f"u{index}_")
