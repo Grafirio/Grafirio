@@ -102,10 +102,13 @@ karşılığı.
 - "Kaç **farklı** müşteri" → `count_distinct` (`COUNT(DISTINCT kolon)`);
   "medyan tutar" → `median`; "P90" → `percentile` + `percentile: 90`.
 - `PERCENTILE_CONT` için paylaşılan `Grafirio.QueryPolicy` izin listesi
-  genişletildi. **Operasyonel borç: dört servis yeni paylaşılan paketle
-  yeniden dağıtılmalı ve Bridge exe yeniden yayımlanmalı** — eski Bridge'ler
-  medyan/yüzdelik sorgusunu açık politika hatasıyla reddeder (sessiz yanlış
-  yok, ama kullanıcıya hata görünür). Rollout: önce Bridge, sonra motor.
+  genişletildi. **Yayın borcu kapandı:** CI'ın `bridge-desktop` yol filtresi
+  `src/shared/**`'ı kapsadığı için #92 master'a girdiğinde installer
+  otomatik derlenip indirme adresine yayımlandı (`publish-desktop` işi,
+  f70b5ed koşusunda doğrulandı). Kalan tek şey MÜŞTERİ tarafı: kurulu
+  Bridge'ler kendiliğinden güncellenmez; eski bir Bridge medyan/yüzdelik
+  sorgusunu açık politika hatasıyla reddeder, kullanıcı güncel installer'ı
+  kurana kadar bu sorular o bağlantıda çalışmaz (sessiz yanlış yok).
 - Tahmin bilinçli olarak count/sum/avg/min/max ile sınırlı tutuldu;
   distinct/medyan tahmini açık hatayla reddedilir.
 
@@ -175,3 +178,22 @@ Her fazda: motor birim testleri (bağımlılıksız `RecordingPort` düzeneği),
 üretilen SQL'in politika testinden geçtiğinin doğrulanması
 (`Grafirio.QueryPolicy` testleri) ve çeviri prompt'u için `evals/` setine
 yeni vakalar.
+
+## Durum — 12 Ekim 2026
+
+**Bütün fazlar master'da** (PR #87, #89, #90, #92, #94, #95, #96); CI
+koşuları yeşil, Bridge installer'ı dahil bütün yayınlar otomatik çıktı.
+Yerelde doğrulanan: motor birim testleri, .NET DataAnalysis/QueryPolicy
+testleri, önyüz testleri (107/107), lint (yalnızca önceden var olan
+AuthContext/ThemeContext hataları ve bilinen iki uyarı) ve üretim derlemesi.
+
+Kapanmamış tek iş İNSAN doğrulaması: canlı LLM + gerçek veriyle staging'de
+şu sorular uçtan uca denenmeli —
+"son 10 siparişi tarih, müşteri ve tutarla listele" (tablo),
+"önümüzdeki 3 ay satış ne olur" (tahmin),
+"bu yıl ile geçen yılı aylara göre karşılaştır" (yıl kıyası),
+"kaç farklı müşteriyle çalıştık" / "medyan tutar" (yeni toplulaştırmalar;
+eski Bridge kuruluysa medyan açık politika hatası verir → installer
+güncellenmeli),
+"hangi ayda sıçrama var, neden?" (sapma + explain_by),
+"ciroyu en çok ne etkiliyor" (etki sıralaması).
