@@ -128,8 +128,15 @@ class PeriodBucket(ColumnRef):
 
     Uretilen metinler ('yyyy', 'yyyy-MM', 'yyyy-Qn', 'yyyy-MM-dd') sozluksel
     siralamada kronolojiktir — GROUP BY ve ORDER BY ayni ifadeyi paylasir,
-    ayrica bir siralama kolonu gerekmez. CONVERT(126) ve DATEPART paylasilan
-    SQL politikasinin izin listesinde; politika degisikligi gerektirmez.
+    ayrica bir siralama kolonu gerekmez. Butun ifadeler paylasilan SQL
+    politikasinin izinli dugumleriyle kurulur; politika degisikligi gerektirmez.
+
+    Kullaniciya acilan birimlerin (PERIOD_GRANULARITIES) disinda iki IC birim
+    var: 'month_of_year' ('01'..'12') ve 'quarter_of_year' ('Q1'..'Q4').
+    Bunlar yil karsilastirmasinin hizalama eksenini kurar — iki yilin Ocak'i
+    ayni etikete duser ve seriler ust uste cizilebilir. time_axis uzerinden
+    istenemezler; eksen tek basina hangi yila bakildigini soylemedigi icin
+    yalnizca yil serisiyle BIRLIKTE anlamlidirlar.
     """
 
     granularity: str = "month"
@@ -145,6 +152,16 @@ class PeriodBucket(ColumnRef):
             # reddeder. MONTH aritmetigi ayni sonucu izinli dugumlerle verir.
             return (f"CONCAT(YEAR({column}), '-Q', "
                     f"(MONTH({column}) + 2) / 3)")
+        if self.granularity == "month_of_year":
+            # '01'..'12' — sifir dolgusu sozluksel siralamayi kronolojik tutar.
+            # RIGHT/LEFT kullanilmiyor: ScriptDom bunlari ozel
+            # RightFunctionCall dugumu olarak ayristirir ve paylasilan
+            # politikanin dugum listesi reddeder. Tam sayi bolme/mod ayni
+            # dolguyu izinli dugumlerle verir.
+            return (f"CONCAT(MONTH({column}) / 10, "
+                    f"MONTH({column}) % 10)")
+        if self.granularity == "quarter_of_year":
+            return f"CONCAT('Q', (MONTH({column}) + 2) / 3)"
         width = self._WIDTHS.get(self.granularity)
         if width is None:
             raise QuerySpecError(f"Bilinmeyen dönem birimi: '{self.granularity}'")

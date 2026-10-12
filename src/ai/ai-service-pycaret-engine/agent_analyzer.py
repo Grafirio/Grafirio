@@ -173,6 +173,7 @@ class AgentAnalyzer:
         window = params.get("window")
         union = params.get("union")
         time_axis = params.get("time_axis")
+        period_compare = params.get("period_compare")
 
         if not target_table:
             # Tek tablo varsa bu bir secim degil, zorunluluk. Birden fazlaysa
@@ -241,13 +242,14 @@ class AgentAnalyzer:
                     "hesaplanamıyor: bu hesaplar dal başına değil birleşimin "
                     "tamamı üzerinde anlamlı. Soruyu tek kaynak üzerinden "
                     "sorun ya da bu hesabı bırakın."))
-            if time_axis:
-                # Donem yuvarlama dallarin HER IKISINDE de ayni bicimde
-                # kurulmali; yarim destek, iki dali farkli eksende cizmek
-                # olur. Destek gelene kadar acikca reddediliyor.
+            if time_axis or period_compare:
+                # Donem yuvarlama/karsilastirma dallarin HER IKISINDE de ayni
+                # bicimde kurulmali; yarim destek, iki dali farkli eksende
+                # cizmek olur. Destek gelene kadar acikca reddediliyor.
                 return self._with_audit(self._error_result(
-                    "Dönem kırılımı (aylara/yıllara göre) birleşimle birlikte "
-                    "henüz desteklenmiyor. Soruyu tek kaynak üzerinden sorun."))
+                    "Dönem kırılımı ve dönem karşılaştırması birleşimle "
+                    "birlikte henüz desteklenmiyor. Soruyu tek kaynak "
+                    "üzerinden sorun."))
             try:
                 return self._with_audit(self._sql_union(
                     config, union, target_table, group_by, target_column,
@@ -304,6 +306,7 @@ class AgentAnalyzer:
         # Ham tarih kolonuyla gruplama (eski davranis) group_by uzerinden
         # hala mumkun; time_axis onun yuvarlanmis, sirali hâli.
         period_ref = None
+        compare_ref = None
         if analysis_type in ("aggregation", "forecast"):
             try:
                 period_ref = self._resolve_time_axis(time_axis, scope)
@@ -319,6 +322,29 @@ class AgentAnalyzer:
                     "column": period_ref.name,
                     "granularity": period_ref.granularity,
                 }
+            if period_compare:
+                if analysis_type == "forecast":
+                    return self._with_audit(self._error_result(
+                        "Dönem karşılaştırması tahminle birlikte "
+                        "kullanılamıyor; ikisini ayrı sorular olarak sorun."))
+                if group_by:
+                    return self._with_audit(self._error_result(
+                        "Dönem karşılaştırması başka bir kırılımla "
+                        "birleştirilemiyor; kırılımı bırakın ya da filtreyle "
+                        "daraltın."))
+                if window:
+                    return self._with_audit(self._error_result(
+                        "Dönem karşılaştırmasıyla birikim/pencere hesabı "
+                        "birlikte kullanılamıyor."))
+                try:
+                    period_ref, compare_ref = self._resolve_period_compare(
+                        period_compare, period_ref)
+                except ValueError as error:
+                    return self._with_audit(self._error_result(str(error)))
+                self.audit["periodCompare"] = {
+                    "unit": "year",
+                    "alignment": period_ref.granularity,
+                }
 
         try:
             # Gruplama/sayma sorulari SQL'de calisir: sonuc tablonun tamami
@@ -330,7 +356,7 @@ class AgentAnalyzer:
                     base, joins, scope, target_column, group_by, aggregation,
                     sort_order, limit, predicates, where_params, chart_type,
                     chart_title, description, having, window,
-                    period_ref=period_ref))
+                    period_ref=period_ref, compare_ref=compare_ref))
 
             if analysis_type == "forecast":
                 # Esik ve pencere tahminle birlesmez: esik donemleri eler ve
@@ -1212,7 +1238,8 @@ class AgentAnalyzer:
                          predicates: List[Predicate], where_params: Dict,
                          chart_type: str, title: str, desc: str,
                          having: Any = None, window: Any = None,
-                         period_ref: Optional[PeriodBucket] = None) -> Dict:
+                         period_ref: Optional[PeriodBucket] = None,
+                         compare_ref: Optional[PeriodBucket] = None) -> Dict:
         """
         Gruplama ve toplama — veritabaninda.
 
@@ -1228,6 +1255,10 @@ class AgentAnalyzer:
                 # Donem her zaman ilk kirilim: seri ekseni odur, kalan
                 # kirilimlar pencere hesaplarinda bolum olur.
                 group_refs.append(period_ref)
+            if compare_ref is not None:
+                # Yil karsilastirmasi: eksen takvim konumu (01..12 / Q1..Q4),
+                # yil ise pivotta seriye acilan ikinci kirilim.
+                group_refs.append(compare_ref)
             for col in group_by:
                 ref = scope.resolve(col)
                 if ref is None:
@@ -1364,12 +1395,13 @@ class AgentAnalyzer:
                 "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
 
         if period_ref is not None and len(group_refs) > 1 and not windows:
-            # "Ulke bazinda aylik ciro": satirlar donem×kirilim geliyor.
-            # Hepsini tek seriye dizmek aylari tekrarlayan, okunamaz bir
-            # grafik uretir — kirilim degerleri ayri serilere acilir.
+            # "Ulke bazinda aylik ciro" ya da yil karsilastirmasi: satirlar
+            # donem×kirilim geliyor. Hepsini tek seriye dizmek aylari
+            # tekrarlayan, okunamaz bir grafik uretir — kirilim degerleri
+            # ayri serilere acilir.
             return self._period_pivot_chart(
                 grouped, group_refs, alias, value_label, total_groups,
-                chart_type, title, desc)
+                chart_type, title, desc, compare=compare_ref is not None)
 
         if group_refs:
             labels = [self._label(v) for v in grouped[group_refs[0].output_name].tolist()]
@@ -1426,6 +1458,12 @@ class AgentAnalyzer:
             scope_insight,
             {"type": "success", "title": headline[0], "description": headline[1]},
         ]
+
+        # Donem serisinde "gecen aya/yila gore" sorusu sorulmadan cevaplanir:
+        # kullanici degisimi kendisi hesaplamak zorunda kalmamali.
+        if period_ref is not None and len(group_refs) == 1 and not windows:
+            insights.extend(self._series_growth_insights(
+                labels, values, period_ref.granularity))
 
         if is_series and (total_groups or 0) > self.SERIES_LIMIT:
             # Seri kesildiyse bunu soylemek zorunlu: kesilmis bir birikim
@@ -1495,16 +1533,23 @@ class AgentAnalyzer:
 
     def _period_pivot_chart(self, grouped, group_refs: List[ColumnRef],
                             alias: str, value_label: str, total_groups: int,
-                            chart_type: str, title: str, desc: str) -> Dict:
+                            chart_type: str, title: str, desc: str,
+                            compare: bool = False) -> Dict:
         """
         Donem × kirilim sonucunu seri basina bir veri kumesine acar.
 
         Eksik hucre None kalir, sifir degil: (ulke, ay) grubunun yoklugu
         olculmus bir sifir degildir ve seri tavanina takilan sorguda sifir
         cizmek olmayan bir olcum uydurmak olur. Grafikte bosluk durust olan.
+
+        `compare` isaretliyse seriler yillardir: iki yil varsa degisim yuzdesi
+        YALNIZCA iki yilda da veri olan donemler uzerinden hesaplanir — devam
+        eden yilin eksik aylarini tam yilin tamamiyla kiyaslamak, "dusus" gibi
+        gorunen bir takvim yanilsamasi uretir.
         """
         axis_name = group_refs[0].output_name
         series_name = group_refs[1].output_name
+        series_title = "Yıl" if compare else group_refs[1].name
 
         if len(group_refs) > 2:
             return self._error_result(
@@ -1529,7 +1574,7 @@ class AgentAnalyzer:
 
         if len(order) > self.MAX_PIVOT_SERIES:
             return self._error_result(
-                f"{group_refs[1].name} kırılımında {len(order)} ayrı seri "
+                f"{series_title} kırılımında {len(order)} ayrı seri "
                 f"oluştu; en fazla {self.MAX_PIVOT_SERIES} seri çizilebiliyor. "
                 "Filtreyle daraltın ya da dönem kırılımı olmadan sorun.")
 
@@ -1541,8 +1586,10 @@ class AgentAnalyzer:
         insights = [{
             "type": "info", "title": "Kapsam",
             "description": (f"{len(periods)} dönem × {len(order)} "
-                            f"{group_refs[1].name} serisi gösteriliyor"),
+                            f"{series_title} serisi gösteriliyor"),
         }]
+        if compare:
+            insights.extend(self._compare_growth_insights(datasets, periods))
         if (total_groups or 0) > self.SERIES_LIMIT:
             insights.insert(0, {
                 "type": "warning", "title": "Seri kesildi",
@@ -1551,17 +1598,162 @@ class AgentAnalyzer:
                                "kırılımı daraltarak tamamını görebilirsiniz.",
             })
 
+        default_title = (f"Yıl karşılaştırması — {value_label}" if compare
+                         else f"{series_title} bazında dönemsel {value_label}")
         return {
             "success": True,
             "charts": [{
                 "type": chart_type,
-                "title": title or f"{group_refs[1].name} bazında dönemsel {value_label}",
+                "title": title or default_title,
                 "data": {"labels": periods, "datasets": datasets},
             }],
             "insights": insights,
             "summary": desc or (
-                f"{group_refs[1].name} bazında dönemsel {value_label} hesaplandı."),
+                f"{len(order)} yılın {value_label} serisi dönem hizasında "
+                "karşılaştırıldı." if compare else
+                f"{series_title} bazında dönemsel {value_label} hesaplandı."),
         }
+
+    def _compare_growth_insights(self, datasets: List[Dict],
+                                 periods: List[str]) -> List[Dict]:
+        """
+        Iki yillik karsilastirmada degisim yuzdesi.
+
+        Yalnizca iki seri varken hesaplanir: uc+ yilda "hangisine gore
+        degisim" sorusunun tek dogru cevabi yok, grafik zaten yan yana
+        gosteriyor.
+        """
+        if len(datasets) != 2:
+            return []
+
+        older, newer = sorted(datasets, key=lambda d: d["label"])
+        pairs = [(a, b) for a, b in zip(older["data"], newer["data"])
+                 if a is not None and b is not None]
+        out: List[Dict] = []
+
+        if pairs:
+            base = sum(a for a, _ in pairs)
+            current = sum(b for _, b in pairs)
+            if base != 0:
+                pct = (current - base) / abs(base) * 100
+                out.append({
+                    "type": "info", "title": "Yıldan yıla değişim",
+                    "description": (
+                        f"Ortak {len(pairs)} dönem üzerinden {newer['label']}, "
+                        f"{older['label']} yılına göre %{pct:+.1f} "
+                        f"({round(base, 2)} → {round(current, 2)})"),
+                })
+
+        if len(pairs) != len(periods):
+            out.append({
+                "type": "info", "title": "Kapsam notu",
+                "description": "Seriler aynı dönemleri tam kapsamıyor; "
+                               "değişim yalnızca iki yılda da veri olan "
+                               "dönemler üzerinden hesaplandı.",
+            })
+        return out
+
+    def _series_growth_insights(self, labels: List[str], values: List[Any],
+                                granularity: str) -> List[Dict]:
+        """
+        Tek donem serisinde otomatik degisim: son donem bir oncekine ve
+        (aylik seride) gecen yilin ayni ayina gore.
+
+        Payda sifir ya da olcum yoksa sessizce atlanir — uydurulmus bir yuzde,
+        olmayan bir icgorudur. Icinde bulunulan donem henuz bitmedigi icin
+        dusuk gorunebilir; bu soylenmeden verilen yuzde yaniltir.
+        """
+        out: List[Dict] = []
+        if len(values) < 2:
+            return out
+
+        last, previous = values[-1], values[-2]
+        suffix = (" — içinde bulunulan dönem henüz bitmedi"
+                  if str(labels[-1]) == self._current_period(granularity) else "")
+
+        if last is not None and previous not in (None, 0):
+            pct = (last - previous) / abs(previous) * 100
+            out.append({
+                "type": "info", "title": "Önceki döneme göre",
+                "description": f"{labels[-1]}: {labels[-2]} dönemine göre "
+                               f"%{pct:+.1f}{suffix}",
+            })
+
+        if granularity == "month":
+            current = self._MONTH_PERIOD.fullmatch(str(labels[-1]))
+            if current:
+                last_year = f"{int(current.group(1)) - 1:04d}-{current.group(2)}"
+                if last_year in labels:
+                    base = values[labels.index(last_year)]
+                    if last is not None and base not in (None, 0):
+                        pct = (last - base) / abs(base) * 100
+                        out.append({
+                            "type": "info",
+                            "title": "Geçen yılın aynı ayına göre",
+                            "description": f"{labels[-1]} / {last_year}: "
+                                           f"%{pct:+.1f}{suffix}",
+                        })
+        return out
+
+    @staticmethod
+    def _current_period(granularity: str) -> str:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        if granularity == "month":
+            return f"{now.year:04d}-{now.month:02d}"
+        if granularity == "year":
+            return f"{now.year:04d}"
+        if granularity == "quarter":
+            return f"{now.year:04d}-Q{(now.month + 2) // 3}"
+        return f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
+
+    #: Yil karsilastirmasinda seri kolonunun cikti adi.
+    COMPARE_LABEL = "Seri"
+
+    def _resolve_period_compare(self, period_compare: Any,
+                                period_ref: Optional[PeriodBucket]) -> tuple:
+        """
+        Yil karsilastirmasini (eksen, seri) kovasi ciftine cevirir.
+
+        Eksen takvim konumudur ('01'..'12' ya da 'Q1'..'Q4'): iki yilin
+        Ocak'i ayni etikete duser ve seriler ust uste cizilebilir. Yillari
+        secmek cagiranin isi — filtre yoksa verideki butun yillar seri olur
+        ve pivot tavani (MAX_PIVOT_SERIES) devreye girer.
+        """
+        if isinstance(period_compare, str):
+            unit = period_compare
+        elif period_compare is True:
+            unit = "year"
+        elif isinstance(period_compare, dict):
+            unit = str(period_compare.get("unit") or "year")
+        else:
+            raise ValueError(
+                "Dönem karşılaştırması bir nesne olmalı: "
+                "{\"unit\": \"year\"}.")
+
+        if str(unit).strip().lower() != "year":
+            raise ValueError(
+                f"'{unit}' bazında karşılaştırma desteklenmiyor; şimdilik "
+                "yalnızca yıllar karşılaştırılabiliyor.")
+
+        if period_ref is None:
+            raise ValueError(
+                "Dönem karşılaştırması zaman ekseni ister: time_axis ile "
+                "tarih kolonunu belirtin.")
+
+        alignment = {"month": "month_of_year",
+                     "quarter": "quarter_of_year"}.get(period_ref.granularity)
+        if alignment is None:
+            raise ValueError(
+                "Yıl karşılaştırmasında zaman ekseni ay ya da çeyrek "
+                "olmalı; gün çok ince, yıl ise karşılaştırılan şeyin "
+                "kendisi.")
+
+        axis = PeriodBucket(period_ref.alias, period_ref.name,
+                            self.PERIOD_LABEL, alignment)
+        series = PeriodBucket(period_ref.alias, period_ref.name,
+                              self.COMPARE_LABEL, "year")
+        return axis, series
 
     def _sql_forecast(self, base: TableRef, joins: List[Join],
                       scope: ColumnScope, period_ref: Optional[PeriodBucket],
