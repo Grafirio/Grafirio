@@ -563,6 +563,12 @@ class QuerySpec:
     # Satir bazli okuma: taban tablonun butun kolonlari (`t0.*`).
     select_all: bool = False
 
+    #: Satir LISTESI: secilmis kolonlarin kendisi doner — toplulastirma yok.
+    #: `select_all`dan farki, projeksiyonun sozlukten secilmis kolonlarla
+    #: sinirli olmasi ve siralamanin zorunlu tutulmasi (TOP kurali islemeye
+    #: devam eder: sirasiz listede "son 10" diye bir sey yoktur).
+    select_columns: List[ColumnRef] = field(default_factory=list)
+
     # TOP'un siralamasiz kullanildigi tek mesru durum: temsili ornek okumak.
     # Bilerek isaretlenmeli — kaza eseri belirsiz siralama olmasin diye.
     unordered_sample: bool = False
@@ -837,7 +843,16 @@ def validate(spec: QuerySpec) -> None:
     if spec.select_all and (spec.aggregate is not None or spec.group_by):
         raise QuerySpecError("Toplulaştırmalı sorguda tüm kolonlar seçilemez.")
 
-    if spec.aggregate is None and not spec.select_all:
+    if spec.select_columns:
+        if (spec.aggregate is not None or spec.group_by or spec.select_all
+                or spec.having or spec.windows or spec.extra_aggregates):
+            raise QuerySpecError(
+                "Satır listesi toplulaştırmayla karışamaz; ya liste ya özet, "
+                "ikisi birden değil.")
+        for column in spec.select_columns:
+            check(column, "SELECT", visible)
+
+    if spec.aggregate is None and not spec.select_all and not spec.select_columns:
         raise QuerySpecError("Sorgunun ne döndüreceği belirtilmemiş.")
 
     # 2. Degismez: TOP + benzersiz olmayan siralama = ayni soruya farkli cevap.
@@ -864,6 +879,8 @@ def _render_select(spec: QuerySpec, extra_projections: Optional[List[str]] = Non
     """
     if spec.select_all:
         projection = f"{quote_identifier(spec.base.alias)}.*"
+    elif spec.select_columns:
+        projection = ", ".join(c.projection_sql() for c in spec.select_columns)
     else:
         parts = [c.projection_sql() for c in spec.group_by]
         parts.append(spec.aggregate.sql(spec.group_by))  # type: ignore[union-attr]

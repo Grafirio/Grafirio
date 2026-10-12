@@ -518,6 +518,9 @@ public class LlmAnalysisService
         Bunlar sayma ve gruplama sorularıdır; makine öğrenmesi gerektirmezler.
 
         Diğerlerini yalnızca kullanıcı açıkça isterse seç:
+        - `list`        : "listele", "dök", "kayıtları göster", "son 10
+                          sipariş" — SATIRLARIN KENDİSİ istendiğinde
+                          (özet/sayım değil)
         - `forecast`    : GELECEĞİ soruyor — "önümüzdeki 3 ay", "gelecek yıl
                           ne olur", "yıl sonuna kadar ne kadar olur"
         - `statistics`  : "özet istatistik ver", "dağılımı betimle"
@@ -810,6 +813,31 @@ public class LlmAnalysisService
         hesaplar dal başına değil birleşimin tamamı üzerinde anlamlıdır.
         İhtiyaç varsa soruyu tek kaynak üzerinden sor.
 
+        ## Satır listesi — `list`
+
+        Kullanıcı özet değil kayıtların KENDİSİNİ istiyorsa ("son 10 siparişi
+        listele", "Almanya'ya giden sevkiyatları dök"):
+
+        ```json
+        "analysis_type": "list",
+        "columns": ["SevkTarihi", "MusteriAdi", "Tutar"],
+        "sort_by": "SevkTarihi", "sort_order": "desc",
+        "limit": 10, "chart_type": "table"
+        ```
+
+        - `columns`: gösterilecek alanlar (3–8 arası idealdir, en fazla 10).
+          Kullanıcı alan saydıysa onları kullan; saymadıysa soruyu
+          cevaplayan en anlamlı alanları sözlükten SEN seç — tarih, ad/etiket
+          (`labelColumn` varsa kod yerine onu) ve ölçü alanları önceliklidir.
+        - `sort_by` ZORUNLU: "son/en yeni" → tarih kolonu `desc`, "ilk/en
+          eski" → `asc`, "en büyük" → tutar `desc`. Sırasız listede "son 10"
+          diye bir şey yoktur.
+        - `limit`: sorudan al; söylenmemişse 20 (en çok 100).
+        - `filters` ve `joins` serbest (ad göstermek için `labelColumn`'lu
+          tabloya bağlan); `group_by`, `aggregation`, `target_column`,
+          `having`, `window`, `measures`, `time_axis` ve `union` KULLANILMAZ.
+        - `chart_type: "table"`.
+
         ## Zaman kırılımı — `time_axis`
 
         "Aylara göre", "yıllara göre", "çeyrek bazında" gibi zaman
@@ -938,7 +966,7 @@ public class LlmAnalysisService
 
         ```json
         {
-          "analysis_type": "aggregation|forecast|statistics|correlation|regression|classification|anomaly|clustering",
+          "analysis_type": "aggregation|list|forecast|statistics|correlation|regression|classification|anomaly|clustering",
           "target_table": "dbo.Shipments",
           "joins": [
             { "as": "musteri", "from": "base", "table": "dbo.Musteriler",
@@ -946,6 +974,7 @@ public class LlmAnalysisService
               "preAggregate": { "aggregation": "sum", "column": "Tutar" } }
           ],
           "target_column": "kolon_adı veya null",
+          "columns": ["liste cevabında gösterilecek kolonlar"],
           "measures": [ { "column": "Tutar", "aggregation": "sum", "label": "Toplam Tutar" } ],
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
@@ -962,15 +991,15 @@ public class LlmAnalysisService
           "sort_by": "kolon_adı",
           "sort_order": "desc",
           "limit": 10,
-          "chart_type": "bar|line|pie|doughnut|scatter",
+          "chart_type": "bar|line|pie|doughnut|scatter|table",
           "chart_title": "Grafik Başlığı",
           "description": "Bu analizin ne yapacağının kısa açıklaması"
         }
         ```
 
         `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`,
-        `measures`, `horizon`, `percentile` ve `explain_by` isteğe bağlıdır:
-        soru gerektirmiyorsa hiç yazma.
+        `measures`, `horizon`, `percentile`, `explain_by` ve `columns` isteğe
+        bağlıdır: soru gerektirmiyorsa hiç yazma.
         Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union`
         söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
 

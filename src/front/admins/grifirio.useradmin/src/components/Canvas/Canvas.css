@@ -657,3 +657,47 @@
 .canvas-menu-label { font-size: 12.5px; font-weight: 600; color: var(--text); }
 .canvas-menu-hint { font-size: 10.5px; color: var(--text-subtle); }
 
+
+/* ── Tablo cevabı (liste) ──
+   Grafik gövdesiyle aynı kutuda yaşar; yükseklik sabit, taşan satırlar
+   kutu içinde kayar — tuvaldeki kart büyümez. */
+.bi-table-wrap {
+  height: 100%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.bi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.bi-table th {
+  position: sticky;
+  top: 0;
+  background: var(--accent-soft);
+  color: var(--text);
+  text-align: left;
+  font-weight: 600;
+  padding: 6px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.bi-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bi-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--border) 18%, transparent); }
+.bi-table tbody tr:hover { background: var(--accent-soft); }
+
+/* Sayılar sağa yaslı: büyüklükler alt alta hizalanmadan karşılaştırılamaz. */
+.bi-table-num { text-align: right; font-variant-numeric: tabular-nums; }

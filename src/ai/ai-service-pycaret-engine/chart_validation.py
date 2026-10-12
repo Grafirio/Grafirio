@@ -2,7 +2,11 @@
 
 import math
 
-SUPPORTED_CHART_TYPES = frozenset({"bar", "line", "pie", "doughnut", "scatter"})
+SUPPORTED_CHART_TYPES = frozenset({"bar", "line", "pie", "doughnut", "scatter", "table"})
+
+#: Tablo cevabi grafik degil veri aktarimidir; tavan olmadan "listele"
+#: cevabi dis katmanlara sinirsiz satir tasiyabilir.
+MAX_TABLE_ROWS = 500
 
 
 def validate_chart_type(chart_type):
@@ -15,6 +19,25 @@ def _number(value):
             and math.isfinite(value))
 
 
+def _validate_table(chart):
+    data = chart.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("Table data must be an object.")
+    columns = data.get("columns")
+    if (not isinstance(columns, list) or not columns
+            or any(not isinstance(column, str) or not column for column in columns)):
+        raise ValueError("Table requires nonempty string column names.")
+    rows = data.get("rows")
+    if not isinstance(rows, list) or len(rows) > MAX_TABLE_ROWS:
+        raise ValueError("Table rows must be a list within the row cap.")
+    for row in rows:
+        if not isinstance(row, list) or len(row) != len(columns):
+            raise ValueError("Each table row must match the column count.")
+        for cell in row:
+            if cell is not None and not isinstance(cell, str) and not _number(cell):
+                raise ValueError("Table cells must be strings, finite numbers or null.")
+
+
 def validate_charts(charts):
     if not isinstance(charts, list):
         raise ValueError("Charts must be a list.")
@@ -24,6 +47,9 @@ def validate_charts(charts):
         validate_chart_type(chart.get("type"))
         if not isinstance(chart.get("title"), str):
             raise ValueError("Chart title must be a string.")
+        if chart["type"] == "table":
+            _validate_table(chart)
+            continue
         data = chart.get("data")
         if not isinstance(data, dict) or not isinstance(data.get("datasets"), list) or not data["datasets"]:
             raise ValueError("Chart data requires nonempty datasets.")

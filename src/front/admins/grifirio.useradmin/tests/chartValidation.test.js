@@ -105,3 +105,36 @@ test('mixed bar/line remains supported while unknown dataset types are rejected'
   payload.data.datasets[1].type = 'waterfall';
   assert.equal(validateChartPayload(payload).valid, false);
 });
+// ── Tablo cevabı (liste) ──────────────────────────────────────────────
+
+const table = (rows = [['2026-01-02', 12.5], ['2026-01-01', null]], columns = ['Tarih', 'Tutar']) => ({
+  type: 'table', data: { columns, rows },
+});
+
+test('table payloads validate columns, row width and cell types', () => {
+  assert.equal(validateChartPayload(table()).valid, true);
+  assert.equal(validateChartPayload(table([])).valid, true);
+  for (const payload of [
+    table([['tek']]),                       // satır genişliği tutmuyor
+    table([['a', true]]),                   // bool hücre
+    table([['a', NaN]]),
+    table([['a', 1]], []),                  // kolon yok
+    table([['a', 1]], ['Tarih', 7]),        // kolon adı metin değil
+    { type: 'table', data: null },
+  ]) {
+    assert.equal(validateChartPayload(payload).valid, false);
+  }
+});
+
+test('a table ignores chart display preferences instead of fabricating series', () => {
+  // Kart daha önce 'bar' seçtiyse bile tablo tablo kalır: kolon/satırdan
+  // seri uydurmak veri icat etmek olur.
+  for (const displayType of [undefined, 'table', 'bar', 'line', 'pie']) {
+    const prepared = prepareChartDisplay(table(), displayType);
+    assert.equal(prepared.valid, true, String(displayType));
+    assert.equal(prepared.type, 'table');
+    assert.deepEqual(prepared.data.columns, ['Tarih', 'Tutar']);
+  }
+  // Grafik verisi tabloya da dönüşmez: kolon başlıkları uydurulamaz.
+  assert.equal(prepareChartDisplay(chart('bar'), 'table').valid, false);
+});
