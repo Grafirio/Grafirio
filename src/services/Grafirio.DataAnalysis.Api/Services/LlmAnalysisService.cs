@@ -518,9 +518,13 @@ public class LlmAnalysisService
         Bunlar sayma ve gruplama sorularıdır; makine öğrenmesi gerektirmezler.
 
         Diğerlerini yalnızca kullanıcı açıkça isterse seç:
+        - `forecast`    : GELECEĞİ soruyor — "önümüzdeki 3 ay", "gelecek yıl
+                          ne olur", "yıl sonuna kadar ne kadar olur"
         - `statistics`  : "özet istatistik ver", "dağılımı betimle"
         - `correlation` : "hangi alanlar birbiriyle ilişkili"
-        - `regression`  : "tahmin et", "öngör" (sayısal hedef)
+        - `regression`  : "neyi etkiliyor", "hangi faktörler belirliyor"
+                          (sayısal hedefi diğer alanlardan açıklama; geleceğe
+                          dönük zaman sorusu DEĞİL — o `forecast`)
         - `classification` : "sınıflandır", "hangi gruba girer"
         - `anomaly`     : "aykırı", "anormal", "sıra dışı"
         - `clustering`  : "segmentlere ayır", "kümele"
@@ -794,6 +798,44 @@ public class LlmAnalysisService
         hesaplar dal başına değil birleşimin tamamı üzerinde anlamlıdır.
         İhtiyaç varsa soruyu tek kaynak üzerinden sor.
 
+        ## Zaman kırılımı — `time_axis`
+
+        "Aylara göre", "yıllara göre", "çeyrek bazında" gibi zaman
+        kırılımlarında tarih kolonunu `group_by`'a YAZMA; onun yerine:
+
+        ```json
+        "time_axis": { "column": "SevkTarihi", "granularity": "month" }
+        ```
+
+        - `column` `role: date` olan kolondur; `granularity` şunlardan biri:
+          `day`, `month`, `quarter`, `year`. Söylenmemişse `month`.
+        - Sonuç dönem etiketiyle ("2026-01") kronolojik sıralanır ve `limit`
+          uygulanmaz; dönemi daraltmak için `filters` kullan.
+        - Ek kırılım yine `group_by`'a yazılır: "ülke bazında aylık ciro" →
+          `time_axis` + `group_by: ["UlkeAdi"]`. En fazla BİR ek kırılım.
+        - `running_total` / `moving_average` isteniyorsa zaman ekseni için
+          yine `time_axis` kullan.
+        - `union` ile birlikte kullanılamaz.
+
+        ## İleriye dönük tahmin — `forecast`
+
+        Kullanıcı geleceği soruyorsa (`analysis_type: "forecast"`):
+
+        - `time_axis` ZORUNLU ve `granularity: "month"` olmalı — tahmin
+          şimdilik aylık seride çalışır.
+        - Ölçü: `target_column` + `aggregation`; satır sayısı soruluyorsa
+          `aggregation: "count"`, `target_column: null`.
+        - `horizon`: kaç ay ileriye bakılacağı. "Önümüzdeki 3 ay" → 3,
+          "gelecek yıl" → 12, "yıl sonuna kadar" → bugünden yıl sonuna kalan
+          ay sayısı. Sorudan çıkaramıyorsan 6 yaz.
+        - `group_by` BOŞ kalır: tahmin tek seri üzerinde çalışır. "Almanya
+          için tahmin" gibi bir istek kırılım değil filtredir →
+          `filters` ile daralt. Hangi kırılım değeri istendiği belliyse
+          filtrele, belli değilse Kural 9 ile sor.
+        - Geçmişi `filters` ile KISITLAMA — kullanıcı açıkça istemedikçe tüm
+          geçmiş kalsın; model ne kadar geçmiş görürse o kadar iyi.
+        - `chart_type: "line"`.
+
         ## Zaman ifadeleri
 
         `filters` üç biçim kabul eder:
@@ -819,7 +861,7 @@ public class LlmAnalysisService
 
         ```json
         {
-          "analysis_type": "aggregation|statistics|correlation|regression|classification|anomaly|clustering",
+          "analysis_type": "aggregation|forecast|statistics|correlation|regression|classification|anomaly|clustering",
           "target_table": "dbo.Shipments",
           "joins": [
             { "as": "musteri", "from": "base", "table": "dbo.Musteriler",
@@ -829,6 +871,8 @@ public class LlmAnalysisService
           "target_column": "kolon_adı veya null",
           "feature_columns": ["kolon1", "kolon2"],
           "filters": { "kolon_adı": "değer | [değer, ...] | { \"gte\": \"...\", \"lt\": \"...\" }" },
+          "time_axis": { "column": "tarih_kolonu", "granularity": "day|month|quarter|year" },
+          "horizon": 6,
           "having": { "op": ">", "value": 1000 },
           "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
           "union": { "label": "İthalat", "with": [ { "table": "dbo.Ihracat", "label": "İhracat" } ] },
@@ -843,10 +887,10 @@ public class LlmAnalysisService
         }
         ```
 
-        `joins`, `having`, `window` ve `union` isteğe bağlıdır: soru
-        gerektirmiyorsa hiç yazma. Gereksiz yere eklemek sonucu bozmaz ama
-        sorguyu yavaşlatır, `union` söz konusu olduğunda ise grafiğe olmayan
-        bir seri ekler.
+        `joins`, `having`, `window`, `union`, `time_axis` ve `horizon`
+        isteğe bağlıdır: soru gerektirmiyorsa hiç yazma. Gereksiz yere
+        eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union` söz konusu
+        olduğunda ise grafiğe olmayan bir seri ekler.
 
         JSON'dan sonra ### Açıklama başlığıyla, hangi kolonu neden seçtiğini
         tek cümleyle yaz.

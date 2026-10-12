@@ -113,6 +113,44 @@ class ColumnRef:
         return f"{self.sql()} AS {quote_identifier(self.label)}"
 
 
+#: Donem yuvarlama birimleri. Deger LLM'den geliyor ama SQL'e girmeden once
+#: bu kumeden gecmek zorunda; taninmayan birim sorgu degil hata uretir.
+PERIOD_GRANULARITIES = ("day", "month", "quarter", "year")
+
+
+@dataclass(frozen=True)
+class PeriodBucket(ColumnRef):
+    """
+    Tarih kolonunun doneme yuvarlanmis hâli.
+
+    Ham tarih kolonuyla gruplamanin yerini alir: kolon saat de tutuyorsa her
+    zaman damgasi ayri grup olur ve "aylara gore" sorusu fiilen cevapsiz kalir.
+
+    Uretilen metinler ('yyyy', 'yyyy-MM', 'yyyy-Qn', 'yyyy-MM-dd') sozluksel
+    siralamada kronolojiktir — GROUP BY ve ORDER BY ayni ifadeyi paylasir,
+    ayrica bir siralama kolonu gerekmez. CONVERT(126) ve DATEPART paylasilan
+    SQL politikasinin izin listesinde; politika degisikligi gerektirmez.
+    """
+
+    granularity: str = "month"
+
+    #: ISO 8601 (stil 126) metninin soldan kesilmis genislikleri.
+    _WIDTHS = {"year": 4, "month": 7, "day": 10}
+
+    def sql(self) -> str:
+        column = f"{quote_identifier(self.alias)}.{quote_identifier(self.name)}"
+        if self.granularity == "quarter":
+            # DATEPART(QUARTER, ...) kullanilmiyor: donem adi ScriptDom'da
+            # IdentifierLiteral dugumu uretir ve paylasilan politika onu
+            # reddeder. MONTH aritmetigi ayni sonucu izinli dugumlerle verir.
+            return (f"CONCAT(YEAR({column}), '-Q', "
+                    f"(MONTH({column}) + 2) / 3)")
+        width = self._WIDTHS.get(self.granularity)
+        if width is None:
+            raise QuerySpecError(f"Bilinmeyen dönem birimi: '{self.granularity}'")
+        return f"CONVERT(char({width}), {column}, 126)"
+
+
 @dataclass(frozen=True)
 class JoinCondition:
     left: ColumnRef
@@ -945,8 +983,12 @@ def render_group_count(spec: QuerySpec) -> str:
         scalar_spec = replace(spec, order_by=[], limit=None, windows=[])
         return "SELECT COUNT(*) FROM (" + _render_select(scalar_spec) + ") AS g"
 
+    # Ic projeksiyon cikti adini tasimali: donem gibi ifade kolonlari adsiz
+    # kalirsa SQL Server turetilmis tabloya "no column name" der. GROUP BY
+    # ise ifadenin kendisini ister, AS alamaz.
     group_sql = ", ".join(c.sql() for c in spec.group_by)
-    body = [f"SELECT {group_sql}", f"FROM {spec.base.sql()}"]
+    projection_sql = ", ".join(c.projection_sql() for c in spec.group_by)
+    body = [f"SELECT {projection_sql}", f"FROM {spec.base.sql()}"]
     body.extend(join.sql() for join in spec.joins)
     if spec.where:
         body.append("WHERE " + " AND ".join(p.sql() for p in spec.where))

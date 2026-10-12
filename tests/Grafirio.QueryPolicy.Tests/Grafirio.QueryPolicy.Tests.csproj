@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
     <Using Include="Xunit" />
     <ProjectReference Include="..\..\src\shared\Grafirio.QueryPolicy\Grafirio.QueryPolicy.csproj" />
+    <ProjectReference Include="..\..\src\bridge\Grafirio.Bridge.Contracts\Grafirio.Bridge.Contracts.csproj" />
     <Compile Include="..\Grafirio.DataAnalysis.Tests\ReadOnlySqlPolicyTests.cs" Link="ReadOnlySqlPolicyTests.cs" />
     <Compile Include="..\Grafirio.DataAnalysis.Tests\InternalQueryGuardTests.cs" Link="InternalQueryGuardTests.cs" />
     <Compile Include="..\Grafirio.DataAnalysis.Tests\DirectDataSourceSessionSecurityTests.cs" Link="DirectDataSourceSessionSecurityTests.cs" />
@@ -20,6 +21,8 @@
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\ReadOnlySqlPolicy.cs" Link="ReadOnlySqlPolicy.cs" />
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\DirectDataSourceSession.cs" Link="DirectDataSourceSession.cs" />
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\DataSourceTarget.cs" Link="DataSourceTarget.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\ConnectionRoute.cs" Link="ConnectionRoute.cs" />
+    <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\ConnectionRouteFingerprint.cs" Link="ConnectionRouteFingerprint.cs" />
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Access\IDataSourceSession.cs" Link="IDataSourceSession.cs" />
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\Entities\SavedConnection.cs" Link="SavedConnection.cs" />
     <Compile Include="..\..\src\services\Grafirio.DataAnalysis.Api\Data\EncryptionHelper.cs" Link="EncryptionHelper.cs" />
