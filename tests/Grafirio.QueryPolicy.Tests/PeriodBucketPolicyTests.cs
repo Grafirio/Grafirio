@@ -60,4 +60,21 @@ public class PeriodBucketPolicyTests
 
         Assert.Equal("[dbo].[Calculations]", Assert.Single(result.Tables).CanonicalName);
     }
+
+    [Fact]
+    public void AnomalyExplainShapePassesValidation()
+    {
+        // Sapma aciklamasi: tek bir donemin kirilim dagilimi. Donem esitligi
+        // CONVERT ifadesiyle parametreye baglanir — motorun urettigi bicim.
+        const string bucket = "CONVERT(char(7), [t0].[CreatedDate], 126)";
+        var sql = "SELECT TOP (50) [t0].[Country], SUM([t0].[Amount]) AS [value] "
+                  + "FROM [dbo].[Calculations] AS [t0] "
+                  + $"WHERE [t0].[CreatedDate] IS NOT NULL AND {bucket} = @exp0 "
+                  + "GROUP BY [t0].[Country] "
+                  + "ORDER BY [value] DESC, [t0].[Country] ASC";
+
+        var result = SqlPolicy.Validate(sql, ["dbo.Calculations"]);
+
+        Assert.Equal("[dbo].[Calculations]", Assert.Single(result.Tables).CanonicalName);
+    }
 }

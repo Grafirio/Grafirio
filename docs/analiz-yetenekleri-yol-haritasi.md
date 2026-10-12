@@ -97,17 +97,17 @@ karşılığı.
 - Ölçek notu: seriler tek eksende çizilir; birimleri çok farklı iki ölçü
   için ikinci y-ekseni ileride önyüz işi olarak ele alınabilir.
 
-## Faz 5 — Eksik toplulaştırmalar: distinct count, medyan, yüzdelik
+## Faz 5 — Eksik toplulaştırmalar: distinct count, medyan, yüzdelik **[yapıldı — PR #92]**
 
-- "Kaç **farklı** müşteri" → `COUNT(DISTINCT kolon)`: `Aggregate`'e
-  `count_distinct`; ScriptDom bunu `FunctionCall(COUNT)` olarak gördüğünden
-  politika değişikliği beklenmiyor (testle doğrulanacak).
-- Medyan/yüzdelik → `PERCENTILE_CONT ... WITHIN GROUP`: düğüm
-  (`WithinGroupClause`) politikada izinli ama fonksiyon adı
-  `AllowedFunctions`'ta yok. **Paylaşılan `Grafirio.QueryPolicy` değişir** →
-  `shared-packages.ref` sürümü, dört servisin yeniden derlenmesi ve Bridge
-  exe'nin yeniden yayımlanması gerekir. Bu operasyonel maliyet yüzünden ayrı
-  faz; eski Bridge'ler yeni fonksiyonu reddederse hata açık olmalı.
+- "Kaç **farklı** müşteri" → `count_distinct` (`COUNT(DISTINCT kolon)`);
+  "medyan tutar" → `median`; "P90" → `percentile` + `percentile: 90`.
+- `PERCENTILE_CONT` için paylaşılan `Grafirio.QueryPolicy` izin listesi
+  genişletildi. **Operasyonel borç: dört servis yeni paylaşılan paketle
+  yeniden dağıtılmalı ve Bridge exe yeniden yayımlanmalı** — eski Bridge'ler
+  medyan/yüzdelik sorgusunu açık politika hatasıyla reddeder (sessiz yanlış
+  yok, ama kullanıcıya hata görünür). Rollout: önce Bridge, sonra motor.
+- Tahmin bilinçli olarak count/sum/avg/min/max ile sınırlı tutuldu;
+  distinct/medyan tahmini açık hatayla reddedilir.
 
 ## Faz 6 — Satır listesi cevabı (tablo görseli)
 
@@ -120,16 +120,22 @@ toplulaştırıyoruz.
 - Satır verisi döndüğü için kişisel veri riski sözlük beyaz listesiyle sınırlı
   kalır; satır tavanı küçük tutulur (örn. 100).
 
-## Faz 7 — Zaman serisi anomalisi + açıklama
+## Faz 7 — Zaman serisi anomalisi + açıklama **[yapıldı]**
 
-Power BI'ın "Anomalies + explain by" karşılığı. Bugünkü isolation forest satır
-bazlı; zaman serisi sapması ve sebep önerisi yok.
+Power BI'ın "Anomalies + explain by" karşılığı.
 
-- Faz 1 dönem serisi üzerinde artık (residual) bazlı sapma işaretleme
-  (forecaster'ın fitted değerlerinden ±kσ).
-- "Açıkla": sapan dönemde seçilen kırılımın payını taban dönemlerle
-  karşılaştıran ikinci bir gruplama sorgusu; en çok sapan kırılım insight
-  olarak sunulur.
+- `anomaly` + `time_axis`: sapma SERİDE aranır. Beklenen değerleri
+  `anomaly_detector` üretir (Holt-Winters → Holt → lineer merdiven; lineer
+  yol saf Python, kütüphanesiz ortamda da çalışır) ve artığı 2.5σ'yı aşan
+  dönemler işaretlenir. En az 8 dönem şart; sayım/toplamda boş aylar 0
+  sayılır. Grafik: Gerçekleşen + Beklenen + Sapma işaretleri.
+- `explain_by` (dimension kolonu): en büyük sapmanın dönemi BİR ÖNCEKİ
+  dönemle o kırılımda karşılaştırılır, en çok oynayan değerler insight olarak
+  döner (dönem başına ilk 50 kırılım; kapsam notu düşülür). İlk dönem
+  sapmışsa kıyas uydurulmaz, açıkça söylenir.
+- `time_axis` yoksa eski satır bazlı isolation forest davranışı değişmeden
+  sürer. Sapma modeli anomaliyi de içeren seriye uyduğu için eşik
+  yaklaşıktır; bu bilinen ve kabul edilen bir sınırlılıktır.
 
 ## Faz 8 — Key influencers sunumu
 

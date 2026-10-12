@@ -314,7 +314,7 @@ class AgentAnalyzer:
         # hala mumkun; time_axis onun yuvarlanmis, sirali hâli.
         period_ref = None
         compare_ref = None
-        if analysis_type in ("aggregation", "forecast"):
+        if analysis_type in ("aggregation", "forecast", "anomaly"):
             try:
                 period_ref = self._resolve_time_axis(time_axis, scope)
             except ValueError as error:
@@ -330,10 +330,11 @@ class AgentAnalyzer:
                     "granularity": period_ref.granularity,
                 }
             if period_compare:
-                if analysis_type == "forecast":
+                if analysis_type != "aggregation":
                     return self._with_audit(self._error_result(
-                        "Dönem karşılaştırması tahminle birlikte "
-                        "kullanılamıyor; ikisini ayrı sorular olarak sorun."))
+                        "Dönem karşılaştırması tahmin ya da sapma analiziyle "
+                        "birlikte kullanılamıyor; ikisini ayrı sorular olarak "
+                        "sorun."))
                 if group_by:
                     return self._with_audit(self._error_result(
                         "Dönem karşılaştırması başka bir kırılımla "
@@ -353,11 +354,11 @@ class AgentAnalyzer:
                     "alignment": period_ref.granularity,
                 }
 
-        if measures and analysis_type in ("aggregation", "forecast"):
-            if analysis_type == "forecast":
+        if measures and analysis_type in ("aggregation", "forecast", "anomaly"):
+            if analysis_type in ("forecast", "anomaly"):
                 return self._with_audit(self._error_result(
-                    "Tahmin tek ölçü üzerinde çalışır; her ölçü için ayrı "
-                    "tahmin sorusu sorun."))
+                    "Tahmin ve sapma analizi tek ölçü üzerinde çalışır; her "
+                    "ölçü için ayrı soru sorun."))
             if compare_ref is not None:
                 return self._with_audit(self._error_result(
                     "Dönem karşılaştırmasıyla birden fazla ölçü birlikte "
@@ -392,6 +393,19 @@ class AgentAnalyzer:
                         "hesabı kullanılamıyor; bunlar seriyi deler ya da "
                         "türetir. Soruyu sade ölçüyle sorun."))
                 return self._with_audit(self._sql_forecast(
+                    base, joins, scope, period_ref, target_column, group_by,
+                    aggregation, predicates, where_params, params,
+                    chart_title, description))
+
+            if analysis_type == "anomaly" and period_ref is not None:
+                # Zaman ekseni verilmisse sapma SERIDE aranir: "hangi ayda
+                # sicrama var". Eksen yoksa eski satir-bazli aykiri deger
+                # analizi (isolation forest) calismaya devam eder.
+                if having is not None or window:
+                    return self._with_audit(self._error_result(
+                        "Sapma analiziyle birlikte eşik (having) veya "
+                        "birikim/pencere hesabı kullanılamıyor."))
+                return self._with_audit(self._sql_timeseries_anomaly(
                     base, joins, scope, period_ref, target_column, group_by,
                     aggregation, predicates, where_params, params,
                     chart_title, description))
@@ -2125,6 +2139,297 @@ class AgentAnalyzer:
                             "tavanını aşıyor. Tarih aralığını daraltın.")
             out.append(point)
         return out, filled
+
+    # ------------------------------------------------------------------
+    # Zaman serisinde sapma
+    # ------------------------------------------------------------------
+
+    #: Granularite -> mevsimsellik. Yil icin mevsim yok (trend yeter),
+    #: gunluk seride hafta dongusu varsayilir.
+    _SEASONALITY = {"month": 12, "quarter": 4, "day": 7, "year": None}
+
+    #: Aciklama sorgusunda donem basina okunan en fazla kirilim.
+    EXPLAIN_LIMIT = 50
+
+    def _sql_timeseries_anomaly(self, base: TableRef, joins: List[Join],
+                                scope: ColumnScope, period_ref: PeriodBucket,
+                                target_col: Optional[str], group_by: List[str],
+                                aggregation: str, predicates: List[Predicate],
+                                where_params: Dict, params: Dict,
+                                title: str, desc: str) -> Dict:
+        """
+        Donem serisinde beklenenden sapan noktalar.
+
+        Seri tahminle ayni yoldan SQL'de toplanir; beklenen degerleri
+        `anomaly_detector` uretir ve artigi esigi asan donemler isaretlenir.
+        `explain_by` verilirse en buyuk sapmanin donemi bir onceki donemle o
+        kirilimda karsilastirilir — "sicramayi hangi musteri surukledi"
+        sorusunun cevabi.
+        """
+        if group_by:
+            return self._error_result(
+                "Sapma analizi tek seri üzerinde çalışır; ek kırılım "
+                "kullanılamıyor. Sebep arıyorsanız 'explain_by' ile kırılım "
+                "verin ya da filtreyle daraltın.")
+
+        agg_key = str(aggregation or "count").strip().lower()
+        try:
+            target_ref = scope.resolve(target_col)
+        except ValueError as error:
+            return self._error_result(str(error))
+        if target_col and target_ref is None:
+            return self._error_result(
+                f"Hesaplanacak alan bulunamadı — "
+                f"{self._column_missing(str(target_col), scope)}")
+        if agg_key in self._MEASURE_AGGS - self._NUMERIC_AGGS:
+            return self._error_result(
+                "Sapma analizi yalnızca count, sum, avg, min ve max "
+                "ölçüleriyle çalışabiliyor.")
+        if agg_key in self._NUMERIC_AGGS:
+            if target_ref is None:
+                return self._error_result(
+                    f"'{agg_key}' işlemi için hangi alanın hesaplanacağı "
+                    "belirtilmemiş. Örneğin \"tutara göre toplam\" diyebilirsiniz.")
+            value_label = f"{agg_key.upper()}({target_ref.name})"
+        else:
+            agg_key = "count"
+            target_ref = None
+            value_label = "Adet"
+
+        explain_by = params.get("explain_by")
+        explain_ref = None
+        if explain_by:
+            try:
+                explain_ref = scope.resolve(explain_by)
+            except ValueError as error:
+                return self._error_result(str(error))
+            if explain_ref is None:
+                return self._error_result(
+                    f"Açıklama kırılımı bulunamadı — "
+                    f"{self._column_missing(str(explain_by), scope)}")
+
+        taken = {c.lower() for c in scope.known_columns()} | {self.PERIOD_LABEL.lower()}
+        alias = "value"
+        while alias.lower() in taken:
+            alias = "_" + alias
+
+        spec = QuerySpec(
+            base=base,
+            joins=joins,
+            group_by=[period_ref],
+            aggregate=Aggregate(agg_key, target_ref, alias),
+            where=predicates,
+            order_by=[OrderBy(period_ref, "asc")],
+            limit=self.SERIES_LIMIT,
+        )
+        try:
+            sql = render(spec)
+        except QuerySpecError as error:
+            return self._error_result(str(error))
+
+        logger.info(f"ANOMALY SQL: {sql}")
+        grouped = self.data.read_sql(sql, where_params)
+
+        self.audit["executedSql"] = sql
+        self.audit["aggregationPerformedIn"] = "sql"
+        self.audit["rowsRead"] = None
+        self.audit["resolvedTargetColumn"] = target_ref.name if target_ref else None
+
+        if grouped.empty:
+            return self._error_result(
+                "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
+        if len(grouped) >= self.SERIES_LIMIT:
+            return self._error_result(
+                f"Seri {self.SERIES_LIMIT} dönemi aşıyor; kesilmiş bir seride "
+                "sapma aranmaz. Tarih aralığını filtreyle daraltın.")
+
+        zero_fill = agg_key in ("count", "sum")
+        series: List[Dict[str, Any]] = []
+        for period, value in zip(grouped[self.PERIOD_LABEL].tolist(),
+                                 grouped[alias].tolist()):
+            number = self._number_or_none(value)
+            if number is None:
+                if not zero_fill:
+                    continue
+                number = 0.0
+            series.append({"period": self._label(period), "value": number})
+
+        try:
+            series, filled_gaps = self._fill_month_gaps(series, zero_fill)
+        except ValueError as error:
+            return self._error_result(str(error))
+        self.audit["periodCount"] = len(series)
+        self.audit["filledGaps"] = filled_gaps
+
+        from anomaly_detector import (
+            AnomalyError, DEFAULT_THRESHOLD, detect_anomalies)
+        try:
+            outcome = detect_anomalies(
+                series, seasonality=self._SEASONALITY.get(period_ref.granularity))
+        except AnomalyError as error:
+            return self._error_result(str(error))
+
+        anomalies = outcome["anomalies"]
+        model_name = outcome["model_name"]
+        self.audit["anomalyModel"] = model_name
+        self.audit["anomalies"] = [a["period"] for a in anomalies]
+
+        labels = [p["period"] for p in series]
+        actual = [round(float(p["value"]), 2) for p in series]
+        expected = {e["period"]: e["value"] for e in outcome["expected"]}
+        flagged = {a["period"]: a["actual"] for a in anomalies}
+        datasets = [
+            {"label": "Gerçekleşen", "data": actual},
+            {"label": "Beklenen", "data": [expected.get(p) for p in labels]},
+            # Sapan noktalar ayri seride: cizgide tek tek isaret olarak
+            # gorunurler, araya cizgi cekilmez.
+            {"label": "Sapma", "data": [flagged.get(p) for p in labels]},
+        ]
+
+        insights: List[Dict[str, Any]] = [{
+            "type": "info", "title": "Model",
+            "description": f"{model_name} — {len(series)} dönem incelendi "
+                           f"(eşik {DEFAULT_THRESHOLD}σ)",
+        }]
+        if filled_gaps:
+            insights.append({
+                "type": "info", "title": "Boş dönemler",
+                "description": f"{filled_gaps} dönemde kayıt yoktu; 0 sayıldı.",
+            })
+        if anomalies:
+            ranked = sorted(anomalies, key=lambda a: abs(a["score"]), reverse=True)
+            for anomaly in ranked[:5]:
+                insights.append({
+                    "type": "warning", "title": anomaly["period"],
+                    "description": f"Gerçekleşen {anomaly['actual']}, beklenen "
+                                   f"~{anomaly['expected']} "
+                                   f"({anomaly['score']:+.1f}σ)",
+                })
+            if len(ranked) > 5:
+                insights.append({
+                    "type": "info", "title": "Diğer sapmalar",
+                    "description": f"{len(ranked) - 5} sapma daha var; tarih "
+                                   "aralığını daraltarak inceleyebilirsiniz.",
+                })
+            insights.extend(self._explain_anomaly(
+                base, joins, explain_ref, ranked[0], labels, agg_key,
+                target_ref, predicates, where_params, period_ref, taken))
+        else:
+            insights.append({
+                "type": "success", "title": "Sapma yok",
+                "description": "Seri beklenen aralıkta ilerliyor; eşiği aşan "
+                               "dönem bulunmadı.",
+            })
+
+        return {
+            "success": True,
+            "charts": [{
+                "type": "line",
+                "title": title or f"{value_label} — dönemsel sapma taraması",
+                "data": {"labels": labels, "datasets": datasets},
+            }],
+            "insights": insights,
+            "summary": desc or (
+                f"{value_label} serisinde {len(anomalies)} sapma bulundu "
+                f"(model: {model_name})." if anomalies else
+                f"{value_label} serisinde beklenenden sapan dönem bulunmadı."),
+        }
+
+    def _explain_anomaly(self, base: TableRef, joins: List[Join],
+                         explain_ref: Optional[ColumnRef], anomaly: Dict,
+                         labels: List[str], agg_key: str,
+                         target_ref: Optional[ColumnRef],
+                         predicates: List[Predicate], where_params: Dict,
+                         period_ref: PeriodBucket, taken: set) -> List[Dict]:
+        """
+        En buyuk sapmanin donemini bir onceki donemle kirilim bazinda
+        karsilastirir ve en cok oynayan degerleri soyler.
+
+        Taban butun gecmis degil BIR ONCEKI donem: soru "bu donemde ne
+        degisti" ve en durust kiyas hemen oncesiyle. Ilk donem sapmissa
+        kiyaslanacak oncesi yoktur ve aciklama atlanir — uydurulmaz.
+        """
+        if explain_ref is None:
+            return []
+
+        index = labels.index(anomaly["period"]) if anomaly["period"] in labels else -1
+        if index <= 0:
+            return [{
+                "type": "info", "title": "Açıklama yapılamadı",
+                "description": f"{anomaly['period']} serinin ilk dönemi; "
+                               "kıyaslanacak önceki dönem yok.",
+            }]
+        previous_period = labels[index - 1]
+
+        alias = "value"
+        while alias.lower() in taken | {explain_ref.name.lower()}:
+            alias = "_" + alias
+
+        totals: List[Dict[str, float]] = []
+        explain_sql: List[str] = []
+        for key, period in (("exp0", anomaly["period"]), ("exp1", previous_period)):
+            spec = QuerySpec(
+                base=base,
+                joins=joins,
+                group_by=[ColumnRef(explain_ref.alias, explain_ref.name)],
+                aggregate=Aggregate(agg_key, target_ref, alias),
+                where=list(predicates) + [Predicate(period_ref, "=", [key])],
+                order_by=[OrderBy(alias, "desc"),
+                          OrderBy(ColumnRef(explain_ref.alias, explain_ref.name), "asc")],
+                limit=self.EXPLAIN_LIMIT,
+            )
+            try:
+                sql = render(spec)
+            except QuerySpecError as error:
+                return [{"type": "info", "title": "Açıklama yapılamadı",
+                         "description": str(error)}]
+            rows = self.data.read_sql(sql, {**where_params, key: period})
+            explain_sql.append(sql)
+            totals.append({
+                self._label(row[explain_ref.output_name]): self._number_or_none(row[alias])
+                for _, row in rows.iterrows()
+            })
+
+        self.audit["explain"] = {
+            "column": explain_ref.name,
+            "period": anomaly["period"],
+            "comparedTo": previous_period,
+        }
+        self.audit["explainSql"] = explain_sql
+
+        current, baseline = totals
+        if not current and not baseline:
+            return []
+
+        movers = []
+        for name in set(current) | set(baseline):
+            now = current.get(name)
+            before = baseline.get(name)
+            if now is None and before is None:
+                continue
+            # Sayim/toplamda gorunmeyen kirilim olculmus bir sifirdir; onceki
+            # donemde hic yokken bu donem beliren deger tam da aranan sey.
+            movers.append((name, before or 0.0, now or 0.0))
+        movers.sort(key=lambda entry: abs(entry[2] - entry[1]), reverse=True)
+
+        out: List[Dict[str, Any]] = []
+        if movers:
+            lines = [f"{name}: {before:g} → {now:g} ({now - before:+g})"
+                     for name, before, now in movers[:3]]
+            out.append({
+                "type": "info",
+                "title": f"Sapmayı sürükleyenler ({anomaly['period']})",
+                "description": f"{previous_period} dönemine göre en çok "
+                               f"oynayanlar — {' · '.join(lines)}",
+            })
+        if any(len(side) >= self.EXPLAIN_LIMIT for side in totals):
+            out.append({
+                "type": "info", "title": "Kapsam notu",
+                "description": f"Karşılaştırma dönem başına ilk "
+                               f"{self.EXPLAIN_LIMIT} kırılımla sınırlı; "
+                               "küçük kalemler dışarıda kalmış olabilir.",
+            })
+        return out
 
     # ------------------------------------------------------------------
     # Birlesim
