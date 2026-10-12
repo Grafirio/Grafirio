@@ -82,4 +82,6 @@ app.MapGet("/health", () => Results.Ok(new
 .WithName("HealthCheck")
 .WithTags("Health");
 
+app.MapGrafirioObservability();
+
 app.Run();

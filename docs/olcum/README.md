@@ -29,6 +29,9 @@ Semantik zekâ ölçümü ayrı bir belgede: [semantik.md](semantik.md).
 
 ## 1. Canlı telemetri
 
+ProjectAdmin'de metrik/log/iz ekranı, erişim kuralları ve saklama sınırları:
+[Sistem metrikleri](projectadmin.md).
+
 `src/shared/Grafirio.Telemetry` dört servise (gateway, identity, commerce, data-analysis)
 ortak OpenTelemetry kurulumu ekler: iz, metrik ve log. **Dışarı aktarım yalnızca
 `OTEL_EXPORTER_OTLP_ENDPOINT` tanımlıysa açılır**; tanımsızken servisler eskisi gibi çalışır.

@@ -85,6 +85,8 @@ app.MapGet("/health", () => Results.Ok(new { Status = "Healthy", Service = "API 
 app.MapGet("/metrics", (RequestMetrics m) => Results.Ok(m.GetAll()));
 app.MapPost("/metrics/reset", (RequestMetrics m) => { m.Reset(); return Results.NoContent(); });
 
+app.MapGrafirioObservability("/admin/observability/gateway");
+
 app.Run();
 
 public partial class Program
