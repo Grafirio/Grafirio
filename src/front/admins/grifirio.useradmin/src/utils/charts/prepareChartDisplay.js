@@ -4,6 +4,12 @@ export default function prepareChartDisplay(chart, displayType) {
   // Validate the source before applying a UI preference, so an invalid type cannot be hidden.
   const source = validateChartPayload(chart);
   if (!source.valid) return source;
+
+  // Tablo görünüm tercihine tabi değil: kolon/satır yapısından seri uydurmak
+  // veri icat etmek olur. Kartta önceden seçilmiş bir grafik türü varsa
+  // sessizce yok sayılır — tablo zaten verinin kendisi.
+  if (source.type === 'table') return source;
+
   const target = displayType ?? source.type;
   let { labels, datasets } = source.data;
 

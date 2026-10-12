@@ -10,12 +10,29 @@ const MIXED_TYPES = ['bar', 'line', 'area'];
 const NULLABLE_TYPES = ['bar', 'line', 'area', 'radar'];
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isLabel = value => typeof value === 'string' || Number.isFinite(value);
+const isTableCell = value => value === null || typeof value === 'string' || Number.isFinite(value);
 const failure = error => ({ valid: false, error });
 
 export default function validateChartPayload(chart) {
   if (!isRecord(chart)) return failure('Grafik verisi bir nesne olmalıdır.');
   const rawType = chart.type ?? chart.chartType;
   const normalizedType = typeof rawType === 'string' ? rawType.toLowerCase().trim() : '';
+
+  // Tablo bir grafik değil veri dökümü: kolon/satır sözleşmesi ayrı doğrulanır.
+  if (normalizedType === 'table') {
+    if (!isRecord(chart.data)) return failure('Tablo veri gövdesi eksik veya geçersiz.');
+    const { columns, rows } = chart.data;
+    if (!Array.isArray(columns) || columns.length === 0
+      || !columns.every(column => typeof column === 'string' && column)) {
+      return failure('Tablo kolon başlıkları metin olmalıdır.');
+    }
+    if (!Array.isArray(rows) || !rows.every(row => Array.isArray(row)
+      && row.length === columns.length && row.every(isTableCell))) {
+      return failure('Her tablo satırı kolon sayısıyla eşleşmeli; hücreler metin, sonlu sayı ya da boş olabilir.');
+    }
+    return { valid: true, error: null, type: 'table', data: { columns, rows } };
+  }
+
   const type = Object.hasOwn(TYPE_ALIASES, normalizedType) ? TYPE_ALIASES[normalizedType] : null;
   if (typeof type !== 'string') return failure(`Desteklenmeyen grafik türü: ${String(rawType ?? '(eksik)')}.`);
   if (!isRecord(chart.data)) return failure('Grafik veri gövdesi eksik veya geçersiz.');

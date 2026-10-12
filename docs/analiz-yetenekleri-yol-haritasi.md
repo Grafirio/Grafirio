@@ -109,16 +109,21 @@ karşılığı.
 - Tahmin bilinçli olarak count/sum/avg/min/max ile sınırlı tutuldu;
   distinct/medyan tahmini açık hatayla reddedilir.
 
-## Faz 6 — Satır listesi cevabı (tablo görseli)
+## Faz 6 — Satır listesi cevabı (tablo görseli) **[yapıldı]**
 
-"Son 10 siparişi listele" — Power BI Q&A table/matrix/card döndürür, biz hep
-toplulaştırıyoruz.
+"Son 10 siparişi listele" — Power BI Q&A table/matrix karşılığı.
 
-- Yeni analiz tipi `list`: yalnızca sözlükteki beyaz listeli kolonlar, zorunlu
-  `ORDER BY` + `TOP`, sonuç tablo yükü olarak döner.
-- `chart_validation.py` + önyüz (useradmin) yeni `table` çıktı tipini tanır.
-- Satır verisi döndüğü için kişisel veri riski sözlük beyaz listesiyle sınırlı
-  kalır; satır tavanı küçük tutulur (örn. 100).
+- Yeni analiz tipi `list`: yalnızca sözlük beyaz listesindeki kolonlar
+  (`columns`, en fazla 10), ZORUNLU `sort_by` + `TOP` (varsayılan 20, en çok
+  100; sırasız listede "son 10" yoktur), eşitlik bozulsun diye gösterilen
+  kolonlar ikincil sıralamaya girer. `filters`/`joins` serbest; özet şekilleri
+  (`having`, `window`, `measures`, `time_axis`, `union`) açık hatayla
+  reddedilir. Toplam sayı ayrıca sayılır: "20 gösteriliyor (toplam 3.412)".
+- Sonuç `table` tipli yük (`columns` + `rows`); hücre tavanı 500 satır,
+  tarih/Decimal metne düzleşir, NaN/None boş hücredir.
+- Önyüz: `BiChartNode` tabloyu HTML tablo olarak çizer (yapışkan başlık,
+  sayılar sağa yaslı); kartın grafik türü tercihi tabloya UYGULANMAZ —
+  kolon/satırdan seri uydurmak veri icat etmek olur, tablo tablo kalır.
 
 ## Faz 7 — Zaman serisi anomalisi + açıklama **[yapıldı]**
 

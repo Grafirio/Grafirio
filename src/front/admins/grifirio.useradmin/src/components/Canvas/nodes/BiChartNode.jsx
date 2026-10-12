@@ -320,7 +320,32 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
         : linearScales,
   };
 
+  const renderTable = () => (
+    <div className="bi-table-wrap">
+      <table className="bi-table">
+        <thead>
+          <tr>
+            {prepared.data.columns.map((column) => <th key={column}>{column}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {prepared.data.rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex} className={Number.isFinite(cell) ? 'bi-table-num' : undefined}>
+                  {cell === null ? '—'
+                    : typeof cell === 'number' ? cell.toLocaleString('tr-TR') : String(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   const renderChart = () => {
+    if (chartType === 'table') return renderTable();
     if (chartType === 'pareto' || finalDatasets.some((d) => d.type)) {
       return <Bar data={chartData} options={options} />;
     }
@@ -351,10 +376,10 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   return (
     <div className="bi-node bi-chart-node" ref={rootRef}>
       <div className="bi-node-header">
-        <span className="bi-node-icon">📊</span>
-        <span className="bi-node-title">{data?.title || 'Grafik'}</span>
+        <span className="bi-node-icon">{chartType === 'table' ? '📋' : '📊'}</span>
+        <span className="bi-node-title">{data?.title || (chartType === 'table' ? 'Tablo' : 'Grafik')}</span>
         <ChartActions onDelete={onDelete} />
-        <span className="bi-node-type-badge">Chart</span>
+        <span className="bi-node-type-badge">{chartType === 'table' ? 'Tablo' : 'Chart'}</span>
       </div>
       <div className="bi-chart-body">
         {prepared.valid ? renderChart() : (

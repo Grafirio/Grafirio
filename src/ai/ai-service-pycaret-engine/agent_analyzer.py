@@ -397,6 +397,26 @@ class AgentAnalyzer:
                     aggregation, predicates, where_params, params,
                     chart_title, description))
 
+            if analysis_type == "list":
+                # Satirlarin kendisi isteniyor ("son 10 siparisi listele") —
+                # ozet degil. Esik/pencere/olcu ozet sorularina aittir;
+                # sessizce yok saymak yerine acikca reddediliyor.
+                if having is not None or window:
+                    return self._with_audit(self._error_result(
+                        "Liste cevabında eşik (having) ya da birikim/pencere "
+                        "hesabı olmaz; bunlar özet sorularına aittir."))
+                if measures:
+                    return self._with_audit(self._error_result(
+                        "Liste ölçü hesaplamaz; gösterilecek alanları "
+                        "'columns' ile seçin."))
+                if time_axis or period_compare:
+                    return self._with_audit(self._error_result(
+                        "Liste dönem kırılımı/karşılaştırması yapmaz; tarihe "
+                        "göre sıralamak için 'sort_by' kullanın."))
+                return self._with_audit(self._sql_list(
+                    base, joins, scope, params, predicates, where_params,
+                    sort_order, chart_title, description))
+
             if analysis_type == "anomaly" and period_ref is not None:
                 # Zaman ekseni verilmisse sapma SERIDE aranir: "hangi ayda
                 # sicrama var". Eksen yoksa eski satir-bazli aykiri deger
@@ -492,7 +512,7 @@ class AgentAnalyzer:
     # ------------------------------------------------------------------
 
     ANALYSIS_TYPES = (
-        "aggregation", "forecast", "statistics", "correlation",
+        "aggregation", "list", "forecast", "statistics", "correlation",
         "regression", "classification", "anomaly", "clustering",
     )
 
@@ -2139,6 +2159,170 @@ class AgentAnalyzer:
                             "tavanını aşıyor. Tarih aralığını daraltın.")
             out.append(point)
         return out, filled
+
+    # ------------------------------------------------------------------
+    # Satir listesi
+    # ------------------------------------------------------------------
+
+    LIST_DEFAULT_LIMIT = 20
+    LIST_MAX_LIMIT = 100
+    MAX_LIST_COLUMNS = 10
+
+    def _sql_list(self, base: TableRef, joins: List[Join], scope: ColumnScope,
+                  params: Dict, predicates: List[Predicate],
+                  where_params: Dict, sort_order: str,
+                  title: str, desc: str) -> Dict:
+        """
+        Satirlarin kendisi: "son 10 siparisi listele".
+
+        Kolonlar sozluk beyaz listesinden secilir ve siralama ZORUNLUDUR —
+        sirasiz bir listede "son 10" diye bir sey yoktur; ayni soru iki farkli
+        cevap verir. Esitlik bozulmasin diye kalan kolonlar ikincil siralama
+        olarak eklenir. Sonuc grafik degil tablo yukudur.
+        """
+        requested = params.get("columns")
+        if not isinstance(requested, list) or not requested:
+            return self._error_result(
+                "Hangi alanların listeleneceğini çözemedim. Örneğin \"tarih, "
+                "müşteri ve tutar ile son 10 siparişi listele\" diyebilirsiniz.")
+        if len(requested) > self.MAX_LIST_COLUMNS:
+            return self._error_result(
+                f"En fazla {self.MAX_LIST_COLUMNS} kolon listelenebiliyor "
+                f"({len(requested)} istendi); alanları azaltın.")
+
+        refs: List[ColumnRef] = []
+        seen = set()
+        headers = set()
+        for raw in requested:
+            try:
+                ref = scope.resolve(raw)
+            except ValueError as error:
+                return self._error_result(str(error))
+            if ref is None:
+                return self._error_result(
+                    f"Listelenecek alan bulunamadı — "
+                    f"{self._column_missing(str(raw), scope)}")
+            if (ref.alias, ref.name) in seen:
+                continue
+            seen.add((ref.alias, ref.name))
+            if ref.output_name.lower() in headers:
+                # Join'li listede iki tablodan ayni adli kolon gelebilir;
+                # ayni baslikli iki kolon tabloda ayirt edilemez.
+                return self._error_result(
+                    f"'{ref.output_name}' adında iki kolon listelendi; "
+                    "hangisini istediğinizi tablo adıyla belirtin.")
+            headers.add(ref.output_name.lower())
+            refs.append(ref)
+
+        sort_raw = params.get("sort_by")
+        if not sort_raw:
+            return self._error_result(
+                "Listenin neye göre sıralanacağı belirtilmedi. \"Son\" için "
+                "tarih, \"en büyük\" için tutar gibi bir alan söyleyin.")
+        try:
+            sort_ref = scope.resolve(sort_raw)
+        except ValueError as error:
+            return self._error_result(str(error))
+        if sort_ref is None:
+            return self._error_result(
+                f"Sıralama alanı bulunamadı — "
+                f"{self._column_missing(str(sort_raw), scope)}")
+
+        direction = "asc" if str(sort_order).lower() == "asc" else "desc"
+        limit = params.get("limit", self.LIST_DEFAULT_LIMIT)
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = self.LIST_DEFAULT_LIMIT
+        limit = min(max(limit, 1), self.LIST_MAX_LIMIT)
+
+        # Esit siralama degerlerinde sayfa icerigi keyfi olmasin: gosterilen
+        # kolonlarin tamami ikincil siralamaya girer.
+        order = [OrderBy(sort_ref, direction)]
+        order.extend(OrderBy(ref, "asc") for ref in refs
+                     if (ref.alias, ref.name) != (sort_ref.alias, sort_ref.name))
+
+        spec = QuerySpec(
+            base=base,
+            joins=joins,
+            select_columns=refs,
+            where=predicates,
+            order_by=order,
+            limit=limit,
+        )
+        try:
+            sql = render(spec)
+        except QuerySpecError as error:
+            return self._error_result(str(error))
+
+        logger.info(f"LIST SQL: {sql}")
+        rows = self.data.read_sql(sql, where_params)
+
+        # Toplam, ayni filtrelerle sayilir: "20 gosteriliyor (toplam 3.412)"
+        # olmadan kesilmis liste tablonun tamami gibi okunur.
+        count_spec = QuerySpec(
+            base=base, joins=joins,
+            aggregate=Aggregate("count", None, "value"),
+            where=predicates,
+        )
+        total = self.data.scalar(render(count_spec), where_params)
+
+        columns = [ref.output_name for ref in refs]
+        self.audit["executedSql"] = sql
+        self.audit["aggregationPerformedIn"] = "sql"
+        self.audit["rowsRead"] = len(rows)
+        self.audit["listColumns"] = columns
+        self.audit["totalRows"] = int(total or 0)
+        self.audit["resolvedSortBy"] = sort_ref.name
+
+        if rows.empty:
+            return self._error_result(
+                "Sorguya uyan kayıt bulunamadı. Filtreleri gevşetmeyi deneyin.")
+
+        table_rows = [[self._cell(row[column]) for column in columns]
+                      for _, row in rows.iterrows()]
+
+        insights = [{
+            "type": "info", "title": "Kapsam",
+            "description": f"{len(table_rows)} satır gösteriliyor "
+                           f"(toplam {int(total or 0)}) — sıralama: "
+                           f"{sort_ref.name} "
+                           f"{'artan' if direction == 'asc' else 'azalan'}",
+        }]
+
+        return {
+            "success": True,
+            "charts": [{
+                "type": "table",
+                "title": title or f"{base.name} listesi",
+                "data": {"columns": columns, "rows": table_rows},
+            }],
+            "insights": insights,
+            "summary": desc or (f"{len(table_rows)} kayıt listelendi "
+                                f"(toplam {int(total or 0)})."),
+        }
+
+    @staticmethod
+    def _cell(value: Any) -> Any:
+        """
+        Tablo hucresine girecek deger.
+
+        Sayilar sayi kalir (onyuz binlik ayracla bicimler); tarih, Decimal ve
+        diger her sey metne cevrilir — JSON katmanlarinda patlayacak tipler
+        motoru terk etmeden duzlesir. NaN/None bos hucredir, sifir degil.
+        """
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, (int, float)):
+            return value if math.isfinite(value) else str(value)
+        return str(value)
 
     # ------------------------------------------------------------------
     # Zaman serisinde sapma
