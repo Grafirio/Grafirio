@@ -526,7 +526,8 @@ public class LlmAnalysisService
                           (sayısal hedefi diğer alanlardan açıklama; geleceğe
                           dönük zaman sorusu DEĞİL — o `forecast`)
         - `classification` : "sınıflandır", "hangi gruba girer"
-        - `anomaly`     : "aykırı", "anormal", "sıra dışı"
+        - `anomaly`     : "aykırı", "anormal", "sıra dışı", "hangi ayda
+                          sıçrama/düşüş var", "beklenenden sapan dönemler"
         - `clustering`  : "segmentlere ayır", "kümele"
 
         Kullanıcı bunlardan birini istemediyse `aggregation` dışında bir şey
@@ -870,6 +871,24 @@ public class LlmAnalysisService
           geçmiş kalsın; model ne kadar geçmiş görürse o kadar iyi.
         - `chart_type: "line"`.
 
+        ## Zaman serisinde sapma — `anomaly` + `time_axis`
+
+        "Hangi ayda sıçrama var", "anormal bir dönem var mı", "beklenenden
+        sapan aylar" gibi sorularda `analysis_type: "anomaly"` ile birlikte
+        `time_axis` yaz; sapma SERİDE aranır:
+
+        - Ölçü: `target_column` + `aggregation` (count/sum/avg/min/max).
+        - `group_by` BOŞ kalır; en az 8 dönem geçmiş gerekir.
+        - Kullanıcı SEBEBİNİ de soruyorsa ("neden", "hangi müşteri
+          yüzünden", "neyden kaynaklandı") `explain_by` alanına `role:
+          dimension` bir kolon yaz: en büyük sapmanın dönemi bir önceki
+          dönemle o kırılımda karşılaştırılır ve en çok oynayan değerler
+          söylenir.
+        - `time_axis` YAZMAZSAN eski davranış geçerlidir: satır bazlı aykırı
+          kayıt analizi (isolation forest) çalışır. Zaman geçen her soruda
+          `time_axis` tercih et.
+        - `chart_type: "line"`.
+
         ## Birden fazla ölçü — `measures`
 
         Kullanıcı aynı kırılımda İKİ YA DA DAHA FAZLA ölçü istiyorsa ("ciro
@@ -933,6 +952,7 @@ public class LlmAnalysisService
           "period_compare": { "unit": "year" },
           "horizon": 6,
           "percentile": 90,
+          "explain_by": "kolon_adı",
           "having": { "op": ">", "value": 1000 },
           "window": { "function": "running_total|moving_average|total|rank|dense_rank|row_number", "periods": 3 },
           "union": { "label": "İthalat", "with": [ { "table": "dbo.Ihracat", "label": "İhracat" } ] },
@@ -948,8 +968,8 @@ public class LlmAnalysisService
         ```
 
         `joins`, `having`, `window`, `union`, `time_axis`, `period_compare`,
-        `measures`, `horizon` ve `percentile` isteğe bağlıdır: soru gerektirmiyorsa
-        hiç yazma.
+        `measures`, `horizon`, `percentile` ve `explain_by` isteğe bağlıdır:
+        soru gerektirmiyorsa hiç yazma.
         Gereksiz yere eklemek sonucu bozmaz ama sorguyu yavaşlatır, `union`
         söz konusu olduğunda ise grafiğe olmayan bir seri ekler.
 
