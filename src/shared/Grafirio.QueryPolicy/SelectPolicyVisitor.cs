@@ -34,7 +34,8 @@ internal sealed class SelectPolicyVisitor(bool allowMetadata) : TSqlFragmentVisi
         "DATEADD", "DATEDIFF", "DATEDIFF_BIG", "DATEPART", "DATENAME", "DAY", "MONTH", "YEAR",
         "EOMONTH", "DATEFROMPARTS", "DATETIMEFROMPARTS", "GETDATE", "GETUTCDATE", "SYSDATETIME",
         "SYSUTCDATETIME", "SYSDATETIMEOFFSET", "ISDATE", "ISNUMERIC", "ROW_NUMBER", "RANK",
-        "DENSE_RANK", "NTILE", "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "STRING_AGG"
+        "DENSE_RANK", "NTILE", "LAG", "LEAD", "FIRST_VALUE", "LAST_VALUE", "STRING_AGG",
+        "PERCENTILE_CONT"
     };
 
     private readonly HashSet<string> _visibleCtes = new(StringComparer.Ordinal);

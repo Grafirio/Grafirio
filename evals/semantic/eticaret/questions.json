@@ -162,6 +162,51 @@
       },
       "gold": { "sql": "SELECT SUM(TotalSpent) AS v FROM dbo.Customers WHERE CustomerType = N'VIP'", "charts": [] }
     },
+    {
+      "id": "e13-farkli-siparis-musterileri", "kind": "answerable", "group": "toplama",
+      "question": "Kaç farklı müşteri sipariş vermiş?",
+      "paraphrases": ["Sipariş veren benzersiz müşteri sayısı", "Kaç müşterimiz sipariş vermiş?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders", "aggregation": "count_distinct",
+          "target_column": "re:(^|\\.)customerid$"
+        }
+      },
+      "gold": {
+        "sql": "SELECT COUNT(DISTINCT CustomerId) AS v FROM dbo.Orders",
+        "charts": []
+      }
+    },
+    {
+      "id": "e14-medyan-siparis-tutari", "kind": "answerable", "group": "toplama",
+      "question": "Sipariş tutarlarının medyanı nedir?",
+      "paraphrases": ["Siparişlerin ortanca tutarını göster"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Orders", "aggregation": "median",
+          "target_column": "re:(^|\\.)totalamount$"
+        }
+      },
+      "gold": {
+        "sql": "SELECT DISTINCT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY TotalAmount) OVER () AS v FROM dbo.Orders",
+        "charts": []
+      }
+    },
+    {
+      "id": "e15-90-yuzdelik-urun-puani", "kind": "answerable", "group": "toplama",
+      "question": "Ürün puanlarının 90. yüzdelik dilimi nedir?",
+      "paraphrases": ["Ürün değerlendirmelerinde P90 kaç?"],
+      "expect": {
+        "params": {
+          "target_table": "dbo.Reviews", "aggregation": "percentile",
+          "percentile": 90, "target_column": "re:(^|\\.)rating$"
+        }
+      },
+      "gold": {
+        "sql": "SELECT DISTINCT PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY Rating) OVER () AS v FROM dbo.Reviews",
+        "charts": []
+      }
+    },
 
     {
       "id": "e-u01-belirsiz", "kind": "unknown", "unknownType": "ambiguous",

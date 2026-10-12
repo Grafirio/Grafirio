@@ -224,12 +224,67 @@ class AnalyzerSqlTests(unittest.TestCase):
         self.assertNotIn("En Yüksek", str(result["insights"]))
 
     def test_global_empty_count_and_null_numeric_aggregates(self):
-        for aggregation, value in [("count", 0), ("sum", None), ("avg", None), ("min", None), ("max", None)]:
+        for aggregation, value in [
+            ("count", 0), ("none", 0), ("sum", None), ("avg", None),
+            ("min", None), ("max", None),
+        ]:
             with self.subTest(aggregation=aggregation):
                 result, _ = self.analyze([{"value": value}], aggregation=aggregation,
-                                         target_column=None if aggregation == "count" else "Amount")
+                                         target_column=None if aggregation in ("count", "none") else "Amount")
                 self.assertTrue(result["success"], result)
                 self.assertEqual(result["charts"][0]["data"]["datasets"][0]["data"], [value])
+
+    def test_distinct_count_uses_selected_column(self):
+        result, port = self.analyze(
+            [{"value": 3}], aggregation="count_distinct", target_column="Amount")
+
+        self.assertTrue(result["success"], result)
+        self.assertIn("COUNT(DISTINCT [t0].[Amount]) AS [value]", port.queries[0][0])
+        self.assertEqual(result["charts"][0]["data"]["datasets"][0]["label"],
+                         "Farklı Amount sayısı")
+
+    def test_median_and_percentile_use_sql_server_percentile_cont(self):
+        median, median_port = self.analyze([{"value": 12}], aggregation="median")
+        percentile, percentile_port = self.analyze(
+            [{"Id": 1, "value": 95}], aggregation="percentile", percentile=90,
+            group_by=["Id"])
+
+        self.assertTrue(median["success"], median)
+        self.assertIn(
+            "SELECT DISTINCT PERCENTILE_CONT(0.5) WITHIN GROUP "
+            "(ORDER BY [t0].[Amount]) OVER () AS [value]",
+            median_port.queries[0][0])
+        self.assertTrue(percentile["success"], percentile)
+        self.assertIn(
+            "PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY [t0].[Amount]) "
+            "OVER (PARTITION BY [t0].[Id])",
+            percentile_port.queries[0][0])
+        self.assertNotIn("GROUP BY", percentile_port.queries[0][0])
+        self.assertEqual(percentile["charts"][0]["data"]["datasets"][0]["data"], [95.0])
+
+    def test_percentile_requires_a_finite_value_from_zero_to_one_hundred(self):
+        for percentile in [None, -1, 100.1, float("inf"), True]:
+            with self.subTest(percentile=percentile):
+                result, port = self.analyze(
+                    [{"value": 1}], aggregation="percentile", percentile=percentile)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
+
+    def test_new_aggregations_reject_unsupported_combinations_explicitly(self):
+        for aggregation, extra in [
+            ("median", {"having": {"op": ">", "value": 10}}),
+            ("percentile", {"window": "running_total", "percentile": 90}),
+            ("count_distinct", {"window": "running_total"}),
+            ("percentile", {
+                "group_by": ["Id"],
+                "union": {"with": [{"table": "dbo.ImportCalculations", "label": "Other"}]},
+            }),
+        ]:
+            with self.subTest(aggregation=aggregation, extra=extra):
+                result, port = self.analyze(
+                    [{"value": 1}], aggregation=aggregation, **extra)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
 
     def test_global_having_false_is_not_charted_as_zero(self):
         result, port = self.analyze([], having={"op": "<", "value": 5})
