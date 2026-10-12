@@ -195,10 +195,18 @@ services:
       RABBITMQ_PASS: ${RABBITMQ_PASSWORD}
       # Veri artik bu servise kimlik bilgisiyle gelmiyor: sorgu
       # DataAnalysis.Api'nin ic ucuna gonderiliyor, satirlar oradan aliniyor.
-      DATA_ANALYSIS_API_URL: http://data-analysis.api.container:5221
+      #
+      # Hibrit gelistirme (StartAllServices.ps1: .NET host'ta, bu motor
+      # Docker'da) icin adres degistirilebilir — o modda API konteyner degil,
+      # host.docker.internal:5221. Varsayilan tam-Docker yigininin adresi.
+      DATA_ANALYSIS_API_URL: ${PYCARET_DATA_ANALYSIS_API_URL:-http://data-analysis.api.container:5221}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-    expose:
-      - "8002"
+    # Port host'a da yayinlaniyor: hibrit gelistirmede DataAnalysis.Api
+    # host'tan http://localhost:8002 ile ulasiyor (appsettings.Development.json).
+    # Yalnizca `expose` oldugunda submit hic ulasamiyor, sorgu "processing"de
+    # asili kaliyordu.
+    ports:
+      - "8002:8002"
     volumes:
       - ./src/ai/ai-service-pycaret-engine:/app
       - pycaret.models.volume:/app/models

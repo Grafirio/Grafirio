@@ -135,7 +135,7 @@ jobs:
           set -euo pipefail
 
           SERVICES='[
-            {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine","port":8002,"ingress":"internal"},
+            {"key":"pycaret-engine","image":"pycaret-engine","dockerfile":"./src/ai/ai-service-pycaret-engine/Dockerfile","context":"./src/ai/ai-service-pycaret-engine","app":"pycaret-engine","port":8002,"ingress":"internal","minReplicas":1,"maxReplicas":1},
             {"key":"identity-api","image":"identity-api","dockerfile":"./src/services/Grafirio.Identity.Api/Grafirio.Identity.Api/Dockerfile","context":".","app":"identity-api","port":8080,"ingress":"internal"},
             {"key":"commerce-api","image":"commerce-api","dockerfile":"./src/services/Grafirio.Commerce.Api/Dockerfile","context":".","app":"commerce-api","port":8080,"ingress":"internal"},
             {"key":"data-analysis-api","image":"data-analysis-api","dockerfile":"./src/services/Grafirio.DataAnalysis.Api/Dockerfile","context":".","app":"data-analysis-api","port":8080,"ingress":"internal"},
@@ -262,11 +262,22 @@ jobs:
           docker push "$full_image"
 
           echo "Deploying container app ${{ matrix.service.app }}"
+          # pycaret-engine iş kuyruğunu yerel SQLite dosyasında tutuyor
+          # (job_store.py: "ONE host, one persistent local file"). Birden çok
+          # replika, durum yoklamasının işi hiç görmemiş replikaya düşmesi ve
+          # "worker job was not found" (404) demek. Bu yüzden matris girdisinde
+          # replika sayısı 1'e sabitleniyor; restart'ta kaybolan işler .NET
+          # tarafındaki idempotent yeniden gönderimle kurtarılıyor.
+          scale_args=()
+          if [ -n "${{ matrix.service.maxReplicas }}" ]; then
+            scale_args=(--min-replicas "${{ matrix.service.minReplicas }}" --max-replicas "${{ matrix.service.maxReplicas }}")
+          fi
           if az containerapp show --name "${{ matrix.service.app }}" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
             az containerapp update \
               --name "${{ matrix.service.app }}" \
               --resource-group "$RESOURCE_GROUP" \
-              --image "$full_image"
+              --image "$full_image" \
+              "${scale_args[@]}"
           else
             echo "App not found, creating ${{ matrix.service.app }}"
             ENV_ID=$(az containerapp show --name identity-api --resource-group "$RESOURCE_GROUP" --query "properties.environmentId" -o tsv)
@@ -277,7 +288,8 @@ jobs:
               --image "$full_image" \
               --registry-server "$ACR_LOGIN_SERVER" \
               --target-port "${{ matrix.service.port }}" \
-              --ingress "${{ matrix.service.ingress }}"
+              --ingress "${{ matrix.service.ingress }}" \
+              "${scale_args[@]}"
           fi
 
       - name: Show updated service status

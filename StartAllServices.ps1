@@ -68,6 +68,9 @@ Write-Host "[4/5] Starting AI service (Docker)..." -ForegroundColor Yellow
 $dockerExe = "C:\Program Files\Docker\Docker\resources\bin\docker-compose.exe"
 if (Test-Path $dockerExe) {
     Push-Location "d:\Projeler\Grifirio"
+    # Hibrit mod: .NET host'ta kosuyor, motor konteynerde. Motorun SQL geri
+    # cagrisi konteyner adina degil host'taki API'ye gitmeli.
+    $env:PYCARET_DATA_ANALYSIS_API_URL = "http://host.docker.internal:5221"
     & $dockerExe up -d --build pycaret.engine 2>&1 | Out-Null
     Pop-Location
     Write-Host "  PyCaret Engine container started (port 8002)" -ForegroundColor Green
