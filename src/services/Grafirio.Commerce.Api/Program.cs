@@ -71,4 +71,6 @@ app.MapGet("/health", () => Results.Ok(new
     Timestamp = DateTime.UtcNow
 }));
 
+app.MapGrafirioObservability();
+
 app.Run();

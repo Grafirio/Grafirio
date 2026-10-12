@@ -30,12 +30,21 @@ public static class TelemetryExtensions
     public static IHostApplicationBuilder AddGrafirioTelemetry(
         this IHostApplicationBuilder builder, string serviceName)
     {
+        var snapshot = new ObservabilitySnapshot(serviceName, builder.Environment.EnvironmentName);
+        builder.Services.AddSingleton(snapshot);
+        builder.Services.AddAuthorization(options => options.AddPolicy(ObservabilitySnapshot.Policy, policy => policy
+            .AddAuthenticationSchemes("Bearer")
+            .RequireAuthenticatedUser()
+            .RequireAssertion(context => context.User.FindAll("business_roles")
+                .SelectMany(claim => claim.Value.Split([',', ' '], StringSplitOptions.RemoveEmptyEntries))
+                .Contains("PLATFORM_ADMIN", StringComparer.Ordinal))));
         var exportEnabled = !string.IsNullOrWhiteSpace(builder.Configuration[OtlpEndpointKey]);
         var azureMonitor = builder.Configuration[AzureMonitorConnectionStringKey];
         var azureMonitorEnabled = !string.IsNullOrWhiteSpace(azureMonitor);
 
         builder.Logging.AddOpenTelemetry(logging =>
         {
+            logging.AddProcessor(new SimpleLogRecordExportProcessor(new SnapshotLogExporter(snapshot)));
             // Log satiri kendi iz kimligini tasiyor; yavas bir istegin loglari
             // izinden tek tikla bulunabiliyor.
             logging.IncludeFormattedMessage = true;
@@ -52,6 +61,7 @@ public static class TelemetryExtensions
                     ["deployment.environment.name"] = builder.Environment.EnvironmentName
                 }))
             .WithTracing(tracing => tracing
+                .AddProcessor(new SimpleActivityExportProcessor(new SnapshotTraceExporter(snapshot)))
                 .AddSource(GrafirioTelemetry.SourceName)
                 // Npgsql ve MassTransit kendi ActivitySource'larini yayinliyor;
                 // yalnizca dinlemek yetiyor, paket gerekmiyor.
@@ -66,6 +76,10 @@ public static class TelemetryExtensions
                 })
                 .AddHttpClientInstrumentation(options => options.RecordException = true))
             .WithMetrics(metrics => metrics
+                .AddReader(new PeriodicExportingMetricReader(new SnapshotMetricExporter(snapshot), 10000)
+                {
+                    TemporalityPreference = MetricReaderTemporalityPreference.Cumulative
+                })
                 .AddMeter(GrafirioTelemetry.SourceName)
                 .AddMeter("Npgsql")
                 .AddAspNetCoreInstrumentation()
@@ -110,5 +124,5 @@ public static class TelemetryExtensions
     ];
 
     private static bool IsNoise(PathString path) =>
-        path.StartsWithSegments("/health") || path.StartsWithSegments("/metrics");
+        ObservabilityPrivacy.IsNoise(path.Value);
 }

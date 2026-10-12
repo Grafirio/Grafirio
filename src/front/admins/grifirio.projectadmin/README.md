@@ -1,6 +1,11 @@
-# 🎛️ Grafirio Project Admin - Service Manager
+# 🎛️ Grafirio Project Admin
 
 ## 📋 Genel Bakış
+
+Başlangıç ekranı artık **Sistem metrikleri** (`/observability`): dört .NET servisinin
+OpenTelemetry metrikleri, güvenli log şablonları, dağıtık izleri ve süreç kaynakları.
+Kurulum ve kapsam: [ProjectAdmin gözlemlenebilirliği](../../../../docs/olcum/projectadmin.md).
+Mevcut servis yönetimi **Servisler** sekmesinde korunur.
 
 Grafirio Project Admin, tüm mikroservisleri, AI servislerini, veritabanlarını ve altyapı bileşenlerini **tek bir yerden** yönetmenizi sağlayan kapsamlı bir admin dashboard'udur.
 

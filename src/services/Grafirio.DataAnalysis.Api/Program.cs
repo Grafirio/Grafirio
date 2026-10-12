@@ -401,4 +401,6 @@ app.MapGet("/health", readiness)
 app.MapGet("/health/ready", readiness);
 app.MapGet("/health/live", () => Results.Ok(new { status = "Alive" }));
 
+app.MapGrafirioObservability();
+
 app.Run();
