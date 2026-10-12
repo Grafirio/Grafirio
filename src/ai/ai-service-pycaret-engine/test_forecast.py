@@ -366,5 +366,117 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual(result["audit"]["filledGaps"], 0)
 
 
+class ExtraAggregateSpecTests(unittest.TestCase):
+    def spec(self, extras):
+        return QuerySpec(
+            base=TableRef("dbo", "Calculations", "t0"),
+            group_by=[ColumnRef("t0", "ReferenceId")],
+            aggregate=Aggregate("sum", ColumnRef("t0", "Amount"), "value"),
+            extra_aggregates=extras,
+            order_by=[OrderBy("value"),
+                      OrderBy(ColumnRef("t0", "ReferenceId"), "asc")],
+        )
+
+    def test_renders_each_measure_in_declared_order(self):
+        sql = render(self.spec([Aggregate("count", None, "Adet"),
+                                Aggregate("avg", ColumnRef("t0", "Amount"), "Ort")]))
+        self.assertIn("SUM([t0].[Amount]) AS [value], COUNT(*) AS [Adet], "
+                      "AVG([t0].[Amount]) AS [Ort]", sql)
+
+    def test_duplicate_output_name_is_rejected(self):
+        for label in ["value", "ReferenceId"]:
+            with self.subTest(label=label), self.assertRaises(QuerySpecError):
+                render(self.spec([Aggregate("count", None, label)]))
+
+    def test_unknown_alias_and_columnless_sum_are_rejected(self):
+        for extra in [Aggregate("sum", ColumnRef("zz", "Amount"), "x"),
+                      Aggregate("sum", None, "x")]:
+            with self.subTest(extra=extra), self.assertRaises(QuerySpecError):
+                render(self.spec([extra]))
+
+
+class MultiMeasureTests(unittest.TestCase):
+    MEASURES = [
+        {"column": "Amount", "aggregation": "sum", "label": "Toplam"},
+        {"column": None, "aggregation": "count", "label": "Adet"},
+    ]
+
+    def analyze(self, rows, **overrides):
+        port = TimePort(rows)
+        analyzer = AgentAnalyzer(port)
+        params = {"target_table": "dbo.Calculations", "group_by": [],
+                  "chart_title": "",
+                  "measures": [dict(m) for m in self.MEASURES]}
+        params.update(overrides)
+        config = {
+            "tables": [{"name": f"dbo.{table}"} for table in port.TABLES],
+            "columns": [{"table": f"dbo.{table}", "column": column}
+                        for table, columns in port.TABLES.items() for column in columns],
+            "relationships": [],
+        }
+        return analyzer.run_analysis(config, params), port
+
+    def test_grouped_measures_chart_side_by_side(self):
+        result, port = self.analyze(
+            [{"ReferenceId": "A", "value": 30, "Adet": 3}],
+            group_by=["ReferenceId"])
+        self.assertTrue(result["success"], result)
+        sql = port.queries[0][0]
+        self.assertIn("SUM([t0].[Amount]) AS [value], COUNT(*) AS [Adet]", sql)
+        self.assertIn("ORDER BY [value] DESC", sql)
+        self.assertEqual(result["charts"][0]["data"]["datasets"], [
+            {"label": "Toplam", "data": [30.0]},
+            {"label": "Adet", "data": [3.0]},
+        ])
+        self.assertEqual(result["audit"]["measures"], ["Toplam", "Adet"])
+
+    def test_time_axis_with_measures_keeps_chronology_and_growth(self):
+        result, _ = self.analyze([
+            {"Donem": "2026-01", "value": 10, "Adet": 2},
+            {"Donem": "2026-02", "value": 20, "Adet": 4},
+        ], time_axis={"column": "CreatedDate", "granularity": "month"})
+        self.assertTrue(result["success"], result)
+        chart = result["charts"][0]["data"]
+        self.assertEqual(chart["labels"], ["2026-01", "2026-02"])
+        self.assertEqual([d["label"] for d in chart["datasets"]],
+                         ["Toplam", "Adet"])
+        # Growth commentary follows the primary measure only.
+        self.assertIn("Önceki döneme göre", str(result["insights"]))
+
+    def test_global_measures_preserve_null(self):
+        result, _ = self.analyze([{"value": None, "Adet": 0}])
+        self.assertTrue(result["success"], result)
+        self.assertEqual([d["data"] for d in result["charts"][0]["data"]["datasets"]],
+                         [[None], [0]])
+
+    def test_invalid_measure_shapes_are_rejected(self):
+        six = [{"column": None, "aggregation": "count", "label": f"M{i}"}
+               for i in range(6)]
+        for overrides in [
+            {"measures": [dict(self.MEASURES[0]), dict(self.MEASURES[0])]},
+            {"measures": [{"aggregation": "sum", "label": "X"}]},
+            {"measures": [{"column": "Missing", "aggregation": "sum", "label": "X"}]},
+            {"measures": six},
+        ]:
+            with self.subTest(overrides=overrides):
+                result, port = self.analyze([], **overrides)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
+
+    def test_measures_do_not_combine_with_other_shapes(self):
+        month_axis = {"column": "CreatedDate", "granularity": "month"}
+        for overrides in [
+            {"analysis_type": "forecast", "time_axis": month_axis},
+            {"time_axis": month_axis, "period_compare": {"unit": "year"}},
+            {"time_axis": month_axis, "group_by": ["Country"]},
+            {"union": {"with": [{"table": "dbo.ImportCalculations"}]},
+             "group_by": ["ReferenceId"]},
+        ]:
+            with self.subTest(overrides=overrides):
+                result, port = self.analyze([], **overrides)
+                self.assertFalse(result["success"])
+                self.assertEqual(port.queries, [])
+
+
 if __name__ == "__main__":
     unittest.main()
