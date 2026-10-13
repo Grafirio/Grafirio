@@ -93,3 +93,58 @@ npx eslint src/pages/ObservabilityPage.jsx src/services/observabilityApi.js src/
 Testler gerçek OTel SDK üzerinden sayaç/histogram/gauge aktarımını, hassas alanların
 çıkarılmasını, log/trace korelasyonunu, kapasite/zaman sınırlarını ve çalışan HTTP
 endpoint'inin 401/403/200 ile cache davranışını doğrular.
+
+## Ops ajanı: altyapı izleme ve kontrol
+
+`src/front/admins/grifirio.projectadmin/api` artık eski Express servis yöneticisi değil,
+**Docker'ın dışında, makinede** çalışan bir Ops ajanıdır. Docker kapandığında onunla birlikte
+kapanmaması ve Docker Desktop'ı kendisinin başlatabilmesi için konteyner değildir; eski
+`docker.sock` bağlantılı `service.manager.api` servisi ve komut satırı birleştiren uçlar kaldırıldı.
+
+- **Servis kaydı:** [registry.json](../../src/front/admins/grifirio.projectadmin/api/registry.json).
+  Tüm işlemler yalnızca buradaki servis kimlikleriyle yapılır; test, kaydın docker-compose'daki
+  gerçek servis/konteyner adlarıyla uyumunu doğrular.
+- **Sağlık:** Konteyner durumunun yanında gerçek yoklama: Postgres `SELECT 1`
+  (`DATAANALYSIS_DB_PASSWORD` tanımlıysa), Mongo `ping`, Redis `PING`, HTTP ve TCP.
+  Her servis için etki metni vardır (örn. "Kayıtlı bağlantı listesi açılmaz").
+- **Kontrol:** başlat/durdur/yeniden başlat Docker Engine API'siyle yapılır (`exec` yok).
+  Bilerek durdurulan servis otomatik onarılmaz.
+- **Kendini onarma:** varsayılan kapalı. Açıkken art arda N başarısız yoklamadan sonra
+  başlatır/yeniden başlatır; bağımlılığı düşükse önce onu bekler, bekleme süresi ve deneme
+  sınırı vardır, sınır aşılırsa durur ve uyarı verir.
+- **Denetim:** `api/data/audit.jsonl` (kim, ne zaman, neyi, sonuç). Ayarlar `api/data/settings.json`.
+- **E-posta:** `OPS_SMTP_*` ve `OPS_ALERT_RECIPIENTS` doluysa yalnızca durum değişiminde
+  (düştü / düzeldi / onarma vazgeçti) gönderilir; aynı olay 10 dakikada bir.
+
+| Yol | Erişim |
+|---|---|
+| `GET /api/ops/status`, `POST /api/ops/services/:id/(start\|stop\|restart)`, `POST /api/ops/docker/start`, `POST /api/ops/infrastructure/up`, `GET\|PUT /api/ops/settings/autoheal`, `GET /api/ops/audit` | Keycloak token + `business_roles=PLATFORM_ADMIN` |
+| `GET /api/ops/status/summary` | Anonim; yalnızca etki metinleri, servis adı/hata yok (kullanıcı kesinti banner'ı için) |
+| `/recovery/` | Yalnızca `127.0.0.1` + `X-Recovery-Key`; yalnızca "Docker'ı başlat" ve "Altyapıyı kaldır". Token gerekmez, Docker/Keycloak kapalıyken kullanılır |
+
+Kurulum (Docker Desktop'ı kullanan Windows kullanıcısıyla, yönetici olmadan):
+
+```powershell
+# .env içine OPS_RECOVERY_KEY yazın (örn. rastgele 32+ karakter), sonra:
+.\scripts\Install-OpsAgent.ps1          # oturum açılışında otomatik başlayan zamanlanmış görev
+.\scripts\Install-OpsAgent.ps1 -Uninstall
+# elle: cd src/front/admins/grifirio.projectadmin/api; npm ci; npm start; npm test
+```
+
+Ajan varsayılan olarak yalnızca `127.0.0.1:3001` dinler. Gateway Docker içinde çalışıyorsa
+(`host.docker.internal:3001` üzerinden ulaşır) `.env`'de `OPS_BIND_HOST=0.0.0.0` verin; token
+zorunluluğu bu durumda da geçerlidir, `/recovery` ise yine yalnızca loopback'ten çalışır.
+
+### Panel ve kullanıcı banner'ı
+
+- **ProjectAdmin → Servisler** (`/services`): etki özeti, Docker/altyapı paneli, kategorili servis
+  tablosu (durum, yanıt süresi, konteyner, hata, başlat/durdur/yeniden başlat — durdur ve yeniden
+  başlat onay ister), kendini onarma ayarları, son uyarılar ve denetim kaydı. Durum 5 saniyede bir yenilenir.
+- **Ajan adresi:** `VITE_OPS_AGENT_URL` (compose'da `http://localhost:3001`) verilirse panel ajana
+  doğrudan gider; böylece Gateway düştüğünde de çalışır. Verilmezse Gateway'in `/ops/*` rotası
+  kullanılır (`PlatformAdmin` politikası, `ops.cluster`). Yerel dev portu (59666) ajanın varsayılan
+  CORS listesindedir; farklı bir adres için `OPS_ALLOWED_ORIGINS`.
+- **Kullanıcı banner'ı:** UserAdmin, Gateway'in anonim `GET /ops/status/summary` rotasını 30 saniyede
+  bir yoklar ve servis düşmüşse "Bazı hizmetler geçici olarak kullanılamıyor; kayıtlı verileriniz
+  silinmedi" uyarısını etkilenen özelliklerle gösterir. İstek başarısız olursa banner gösterilmez
+  (bilinmeyen durum, kesinti sayılmaz). Azure'da ajan yoktur; rota 502 döner ve banner çıkmaz.

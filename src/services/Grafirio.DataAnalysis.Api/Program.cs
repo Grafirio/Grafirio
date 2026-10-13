@@ -34,7 +34,10 @@ builder.AddGrafirioTelemetry("data-analysis-api");
 
 // Database Context - PostgreSQL
 builder.Services.AddDbContext<DataAnalysisDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"),
+        // Short budget on purpose: the UI request times out at 10s, and a long retry
+        // loop would hide the 503 diagnostic behind a generic network error.
+        npgsql => npgsql.EnableRetryOnFailure(maxRetryCount: 2, maxRetryDelay: TimeSpan.FromSeconds(2), errorCodesToAdd: null)));
 
 // JSON serialization - camelCase için
 builder.Services.ConfigureHttpJsonOptions(options =>

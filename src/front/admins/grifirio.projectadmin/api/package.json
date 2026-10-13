@@ -1,14 +1,22 @@
 {
-  "name": "service-manager-api",
-  "version": "1.0.0",
-  "description": "Simple API for managing Docker containers",
+  "name": "grafirio-ops-agent",
+  "version": "2.0.0",
+  "description": "Infrastructure monitoring and control agent for the Grafirio project admin",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --env-file-if-exists=../../../../../.env --env-file-if-exists=.env server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "child_process": "^1.0.2"
+    "dockerode": "^4.0.2",
+    "express": "^4.18.2",
+    "jose": "^5.9.6",
+    "mongodb": "^6.10.0",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.1"
   }
 }

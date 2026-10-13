@@ -4,7 +4,7 @@ import CompaniesPage from './pages/CompaniesPage';
 import CompanyDetailPage from './pages/CompanyDetailPage';
 import SemanticPage from './pages/SemanticPage';
 import ObservabilityPage from './pages/ObservabilityPage';
-import ServiceDashboard from './components/ServiceDashboard';
+import ServicesPage from './pages/ServicesPage';
 import './App.css';
 
 export default function App() {
@@ -16,7 +16,7 @@ export default function App() {
         <Route path="companies" element={<CompaniesPage />} />
         <Route path="companies/:companyId" element={<CompanyDetailPage />} />
         <Route path="semantic" element={<SemanticPage />} />
-        <Route path="services" element={<ServiceDashboard />} />
+        <Route path="services" element={<ServicesPage />} />
         <Route path="*" element={<Navigate to="/observability" replace />} />
       </Route>
     </Routes>

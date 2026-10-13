@@ -57,9 +57,15 @@ Write-Host ""
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Magenta
 Write-Host ""
 
+docker info 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "WARNING: Docker is not running; service states will show as down. Start Docker Desktop." -ForegroundColor Yellow
+    Write-Host ""
+}
+
 # API'yi ayrı terminal'de başlat
 Write-Host "� API başlatılıyor (Port 3001)..." -ForegroundColor Yellow
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$apiPath'; Write-Host '🎛️ Service Manager API' -ForegroundColor Cyan; Write-Host 'Port: 3001' -ForegroundColor Green; Write-Host ''; node server.js" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$apiPath'; Write-Host '🎛️ Service Manager API' -ForegroundColor Cyan; Write-Host 'Port: 3001' -ForegroundColor Green; Write-Host ''; npm start" -WindowStyle Normal
 
 Start-Sleep -Seconds 2
 

@@ -10,6 +10,12 @@ services:
       - "27017:27017"
     volumes:
       - mongo.db.volume:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     networks:
       - grifirio_network
   mongo.db.ui:
@@ -140,11 +146,17 @@ services:
     environment:
       POSTGRES_DB: grafirio_dataanalysis
       POSTGRES_USER: dataanalysis_user
-      POSTGRES_PASSWORD: DataAnalysis123!
+      POSTGRES_PASSWORD: ${DATAANALYSIS_DB_PASSWORD:?DATAANALYSIS_DB_PASSWORD must be set in .env}
     ports:
       - "5433:5432"
     volumes:
       - postgres.db.dataanalysis.volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dataanalysis_user -d grafirio_dataanalysis"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
     networks:
       - grifirio_network
   rabbitmq:
@@ -296,7 +308,7 @@ services:
       # degil. Ortam Development oldugu icin o dosya appsettings.json'i
       # eziyordu ve konteyner kendi icindeki 127.0.0.1'e baglanmaya
       # calisiyordu. Compose kendi degerini acikca vermeli.
-      ConnectionStrings__DefaultConnection: Host=postgres.db.dataanalysis;Port=5432;Database=grafirio_dataanalysis;Username=dataanalysis_user;Password=DataAnalysis123!
+      ConnectionStrings__DefaultConnection: Host=postgres.db.dataanalysis;Port=5432;      Database=grafirio_dataanalysis;Username=dataanalysis_user;Password=${DATAANALYSIS_DB_PASSWORD}
       # LLM: tek saglayici Azure OpenAI. Onceden burada yalnizca
       # GEMINI_API_KEY vardi; Azure degiskenleri hic gecmedigi icin
       # container icindeki servis LLM'siz ayaga kalkiyordu.
@@ -350,10 +362,14 @@ services:
     ports:
       - "5221:5221"
     depends_on:
-      - postgres.db.dataanalysis
-      - mongo.db
-      - rabbitmq
-      - keycloak
+      postgres.db.dataanalysis:
+        condition: service_healthy
+      mongo.db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      keycloak:
+        condition: service_started
     networks:
       - grifirio_network
   gateway:
@@ -370,6 +386,9 @@ services:
       ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221
       # Benchmark dashboard yiginin disinda (dotnet run) calisiyor.
       ReverseProxy__Clusters__benchmark.cluster__Destinations__destination1__Address: http://host.docker.internal:5080
+      # Ops agent runs on the host (it must be able to start Docker). It has to listen on
+      # more than loopback for this route to reach it: set OPS_BIND_HOST=0.0.0.0 in .env.
+      ReverseProxy__Clusters__ops.cluster__Destinations__destination1__Address: http://host.docker.internal:3001
       # appsettings.Development.json localhost:8080 diyor — gateway'i Docker
       # DISINDA calistiranlar icin dogru, konteyner icinde degil: orada
       # localhost gateway'in kendisi. Keycloak'a servis adiyla gidilmeli.
@@ -399,17 +418,6 @@ services:
       - gateway
     networks:
       - grifirio_network
-  service.manager.api:
-    build:
-      context: ./src/front/admins/grifirio.projectadmin/api
-      dockerfile: Dockerfile
-    container_name: service.manager.api.container
-    ports:
-      - "3001:3001"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - grifirio_network
   projectadmin:
     build:
       context: ./src/front/admins/grifirio.projectadmin
@@ -418,7 +426,10 @@ services:
     environment:
       NODE_ENV: development
       VITE_API_URL: http://gateway:5000
-      VITE_SERVICE_MANAGER_API: http://service.manager.api:3001
+      # Ops agent runs on the host (it must be able to start Docker itself), not in Docker.
+      # The BROWSER calls it directly, so this must be an address the browser can reach;
+      # a direct URL keeps the panel usable even when the gateway is down.
+      VITE_OPS_AGENT_URL: http://localhost:3001
       # Semantik zeka sayfasi degerlendirme kosularini benchmark dashboard'undan
       # okuyor. Istegi TARAYICI atiyor: adres tarayicinin gordugu adres olmali.
       VITE_BENCHMARK_URL: http://localhost:5080
@@ -426,7 +437,6 @@ services:
       - "59265:59265"
     depends_on:
       - gateway
-      - service.manager.api
     networks:
       - grifirio_network
   useradmin:
