@@ -19,8 +19,10 @@ createRoot(document.getElementById('root')).render(
         onLoad: 'check-sso',
         checkLoginIframe: false,
         pkceMethod: 'S256',
-        // Derin linkler girisden sonra kaybolmasin.
-        redirectUri: window.location.href,
+        // BrowserRouter deep links live in path/search. The fragment can contain
+        // a previous OIDC error/code; carrying it into redirect_uri nests the
+        // old callback inside the next login response.
+        redirectUri: `${window.location.origin}${window.location.pathname}${window.location.search}`,
       }}
     >
       <BrowserRouter>

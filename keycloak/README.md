@@ -3,11 +3,11 @@
 `realm-grafirio.json` is the source of truth for the `grafirio` realm: clients, protocol
 mappers, business claims and the admin account that `Grafirio.Identity.Api` uses to create users.
 
-Keycloak runs with `start --import-realm`, so the realm is (re)created automatically on every
-start when it does not already exist. The container databases in Azure have **no persistent
-volume** — Azure Files uses SMB, which does not provide the POSIX file locking that Postgres,
-SQL Server and MongoDB require, so a restart wipes them. Auto-import is what makes that
-survivable: an empty Keycloak database self-heals into a fully configured realm.
+Keycloak runs with `start --import-realm`, so an absent realm is initialized from the import.
+The live Keycloak database is Azure PostgreSQL Flexible Server `grifirio-keycloak-db`,
+not container-local storage (verified 2026-10-14). It persists account and group assignments
+across restarts and has 35-day backup retention. The import defines configuration, not a
+backup of production users: restore the database to recover existing identities.
 
 ## What the realm provides
 
@@ -42,5 +42,36 @@ key=$(az storage account keys list --account-name grifiriodata --resource-group 
 az storage file upload --account-name grifiriodata --account-key "$key" --share-name keycloak-import --source keycloak/realm-grafirio.json --path realm-grafirio.json
 ```
 
-Importing only happens when the realm is absent. To apply changes to an existing realm, delete
-it in the Admin Console (or via the Admin REST API) and restart the `keycloak` container app.
+Importing only happens when the realm is absent. Apply existing-realm changes with targeted
+Admin REST API updates. Do not delete the production realm to apply configuration changes:
+that destroys users, credentials, sessions and assignments.
+
+## Persistent application ownership
+
+`PLATFORM_ADMIN` is the application's highest role. It grants all application permissions,
+cross-company access, subscription administration and ProjectAdmin/observability access.
+There is no additional application `SUPER_ADMIN` role.
+
+The non-default `grafirio-platform-owners` group supplies `ADMIN` and `PLATFORM_ADMIN`.
+The `business_roles` mapper uses `aggregate.attrs=true`, combining account and group values.
+This keeps application ownership independent of company membership synchronization, which
+can remove the account's `business_roles` when removing its current company.
+See [Keycloak mapper configuration](https://www.keycloak.org/admin-api/protocol-mappers).
+
+Production owner: `fatih@grafirio.com`, user ID `3ebc7f32-9975-4b38-a3c6-2f8533adc9d3`.
+The import creates only the empty group; it never grants ownership by email or creates a
+password. `scripts/Ensure-PlatformOwner.ps1` checks both the approved UUID and email, preserves
+existing account attributes and roles, and rejects unexpected group members/configuration.
+Run without switches for read-only verification; `-Apply` applies the targeted configuration.
+It reads the existing administrator credential from Azure without printing it.
+
+Verified live on 2026-10-14: owner membership and generated example token include both roles;
+a disabled disposable test account gets neither role without group membership, inherits both
+without account role attributes, and retains them alongside a company `MEMBER` role. The test
+account was deleted. Example token evaluation is not an interactive password login test.
+
+These application permissions do not grant Keycloak `realm-admin`, master-realm administration,
+Azure RBAC Owner, database login, or GitHub ownership. Application permissions do not bypass
+data integrity checks or service-account-only authentication. A Keycloak administrator can
+still disable/delete the account or remove owner-group membership; database loss requires
+recovery. Ordinary application/company role changes cannot remove the inherited owner roles.
