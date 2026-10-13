@@ -52,7 +52,7 @@ Compose `nokta.ayrilmis.isimler` kullanır, Azure Container Apps ise `tire-ayril
 **data-analysis-api**
 
 ```
-ConnectionStrings__DefaultConnection=Host=postgres-dataanalysis;Port=5432;Database=grafirio_dataanalysis;Username=dataanalysis_user;Password=…
+ConnectionStrings__DefaultConnection=secretref:dataanalysis-db-connection
 RabbitMQ__Host=rabbitmq
 Redis__ConnectionString=redis:6379,password=…,abortConnect=false
 PyCaret__BaseUrl=http://pycaret-engine
@@ -152,14 +152,32 @@ az containerapp update -n benchmark-dashboard -g grifirio-rg --image grifirioacr
 
 ## Kalıcılık
 
-Veritabanı container'larında kalıcı disk **yok**. Azure Files SMB, veritabanı motorlarının
-ihtiyaç duyduğu POSIX kilitlemeyi desteklemediği için mount edilemiyor (MongoDB WiredTiger
-"Operation not permitted" ile açılmıyor). Bu yüzden şema her yeniden başlatmada sıfırlanır ve
-kendini kurabilmelidir:
+Veritabanı **container'larında** (`postgres-*`, `mongo-catalog`, `sqlserver`, `redis`, `rabbitmq`)
+kalıcı disk yoktur: Azure Files SMB, veritabanı motorlarının ihtiyaç duyduğu POSIX kilitlemeyi
+desteklemediği için mount edilemiyor. Platform bakımında replikalar yeniden oluşur ve içindeki
+**tüm veri silinir** (13 Ekim 2026 00:23 UTC'de olan buydu). Kalıcı veri bu container'larda tutulmamalı.
+
+Kalıcı veri yönetilen servislerde:
+
+| Veri | Yer |
+| --- | --- |
+| Keycloak (kullanıcılar, client'lar, bridge kimlikleri) | Azure Database for PostgreSQL `grifirio-keycloak-db`, veritabanı `keycloak_db` |
+| Kayıtlı bağlantılar, analizler, sorgu geçmişi (data-analysis-api) | Aynı sunucu, veritabanı `grafirio_dataanalysis`, rol `dataanalysis_user` (yalnızca bu veritabanının sahibi) |
+| Bridge yönlendirmeleri, tablo seçimleri | Cosmos DB for MongoDB (vCore) `grafirio-mongo` (`mongo-connection` secret'ı) |
+
+`grifirio-keycloak-db`: Burstable B1ms, PostgreSQL 16, 35 gün otomatik yedek (coğrafi yedek ve HA kapalı).
+data-analysis-api bağlantı dizesi `dataanalysis-db-connection` secret'ından gelir
+(`ConnectionStrings__DefaultConnection=secretref:dataanalysis-db-connection`); parola repoda yoktur.
+`postgres-dataanalysis` ve `mongo-catalog` container'ları artık kullanılmıyor; doğrulamadan sonra silinebilir.
+
+Yeni bir veritabanı eklerken: Azure PostgreSQL'de yeni oluşturulan veritabanının `public` şeması
+uygulama rolüne ait olmaz ve `EnsureCreated()` `42501: permission denied for schema public` ile
+tabloları kuramaz. Veritabanını rol adına oluşturup ardından `ALTER SCHEMA public OWNER TO <rol>`
+çalıştırın. Güvenlik duvarı: `AllowAllAzureServices` kuralı container'ların erişimini sağlar;
+yönetim için geçici bir IP kuralı ekleyip işiniz bitince silin.
+
+Şemanın kendini kurması:
 
 - Keycloak: `start --import-realm` + [keycloak/realm-grafirio.json](../keycloak/realm-grafirio.json)
-- data-analysis-api: açılışta `EnsureCreated()` çağırır — ancak veritabanına ulaşamazsa
-  sessizce yutar, bu yüzden bağlantı ayarları düzeldikten sonra servisi yeniden başlatmak gerekir.
-
-Kalıcı veri gerekiyorsa doğru çözüm yönetilen servislere geçmektir (Azure Database for
-PostgreSQL, Azure SQL, Cosmos DB for MongoDB).
+- data-analysis-api: açılışta `EnsureCreated()` çağırır; hata olursa loglar (`Database initialization failed`)
+  ama servis ayakta kalır, bu yüzden bağlantı/yetki düzeldikten sonra servisi yeniden başlatmak gerekir.
