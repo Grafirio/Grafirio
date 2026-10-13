@@ -386,6 +386,9 @@ services:
       ReverseProxy__Clusters__data-analysis.cluster__Destinations__destination1__Address: http://data-analysis.api.container:5221
       # Benchmark dashboard yiginin disinda (dotnet run) calisiyor.
       ReverseProxy__Clusters__benchmark.cluster__Destinations__destination1__Address: http://host.docker.internal:5080
+      # Ops agent runs on the host (it must be able to start Docker). It has to listen on
+      # more than loopback for this route to reach it: set OPS_BIND_HOST=0.0.0.0 in .env.
+      ReverseProxy__Clusters__ops.cluster__Destinations__destination1__Address: http://host.docker.internal:3001
       # appsettings.Development.json localhost:8080 diyor — gateway'i Docker
       # DISINDA calistiranlar icin dogru, konteyner icinde degil: orada
       # localhost gateway'in kendisi. Keycloak'a servis adiyla gidilmeli.
@@ -424,8 +427,9 @@ services:
       NODE_ENV: development
       VITE_API_URL: http://gateway:5000
       # Ops agent runs on the host (it must be able to start Docker itself), not in Docker.
-      # The BROWSER calls it, so this must be an address the browser can reach.
-      VITE_SERVICE_MANAGER_API: http://localhost:3001
+      # The BROWSER calls it directly, so this must be an address the browser can reach;
+      # a direct URL keeps the panel usable even when the gateway is down.
+      VITE_OPS_AGENT_URL: http://localhost:3001
       # Semantik zeka sayfasi degerlendirme kosularini benchmark dashboard'undan
       # okuyor. Istegi TARAYICI atiyor: adres tarayicinin gordugu adres olmali.
       VITE_BENCHMARK_URL: http://localhost:5080

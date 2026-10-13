@@ -32,7 +32,7 @@ function loadConfig(env = process.env) {
     port: positiveNumber(env.OPS_PORT, DEFAULT_PORT),
     // Loopback by default; a container reaching the host needs an explicit wider bind.
     bindHost: env.OPS_BIND_HOST || '127.0.0.1',
-    allowedOrigins: splitList(env.OPS_ALLOWED_ORIGINS, ['http://localhost:59265']),
+    allowedOrigins: splitList(env.OPS_ALLOWED_ORIGINS, ['http://localhost:59265', 'http://localhost:59666']),
     oidcIssuer: env.OPS_OIDC_ISSUER || 'http://localhost:8080/realms/grafirio',
     platformAdminRole: 'PLATFORM_ADMIN',
     rolesClaim: 'business_roles',

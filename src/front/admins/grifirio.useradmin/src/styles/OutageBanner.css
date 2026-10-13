@@ -1,0 +1,12 @@
+.outage-banner {
+  padding: var(--space-3, 0.75rem) var(--space-5, 1.5rem);
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning);
+  font-size: var(--text-sm, 0.875rem);
+}
+
+.outage-banner-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.25rem;
+}

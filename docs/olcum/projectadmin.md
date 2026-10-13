@@ -131,5 +131,20 @@ Kurulum (Docker Desktop'ı kullanan Windows kullanıcısıyla, yönetici olmadan
 # elle: cd src/front/admins/grifirio.projectadmin/api; npm ci; npm start; npm test
 ```
 
-Ajan varsayılan olarak yalnızca `127.0.0.1:3001` dinler. Gateway'in (konteyner) ulaşabilmesi
-için `OPS_BIND_HOST` genişletilmelidir; token zorunluluğu bu durumda da geçerlidir.
+Ajan varsayılan olarak yalnızca `127.0.0.1:3001` dinler. Gateway Docker içinde çalışıyorsa
+(`host.docker.internal:3001` üzerinden ulaşır) `.env`'de `OPS_BIND_HOST=0.0.0.0` verin; token
+zorunluluğu bu durumda da geçerlidir, `/recovery` ise yine yalnızca loopback'ten çalışır.
+
+### Panel ve kullanıcı banner'ı
+
+- **ProjectAdmin → Servisler** (`/services`): etki özeti, Docker/altyapı paneli, kategorili servis
+  tablosu (durum, yanıt süresi, konteyner, hata, başlat/durdur/yeniden başlat — durdur ve yeniden
+  başlat onay ister), kendini onarma ayarları, son uyarılar ve denetim kaydı. Durum 5 saniyede bir yenilenir.
+- **Ajan adresi:** `VITE_OPS_AGENT_URL` (compose'da `http://localhost:3001`) verilirse panel ajana
+  doğrudan gider; böylece Gateway düştüğünde de çalışır. Verilmezse Gateway'in `/ops/*` rotası
+  kullanılır (`PlatformAdmin` politikası, `ops.cluster`). Yerel dev portu (59666) ajanın varsayılan
+  CORS listesindedir; farklı bir adres için `OPS_ALLOWED_ORIGINS`.
+- **Kullanıcı banner'ı:** UserAdmin, Gateway'in anonim `GET /ops/status/summary` rotasını 30 saniyede
+  bir yoklar ve servis düşmüşse "Bazı hizmetler geçici olarak kullanılamıyor; kayıtlı verileriniz
+  silinmedi" uyarısını etkilenen özelliklerle gösterir. İstek başarısız olursa banner gösterilmez
+  (bilinmeyen durum, kesinti sayılmaz). Azure'da ajan yoktur; rota 502 döner ve banner çıkmaz.

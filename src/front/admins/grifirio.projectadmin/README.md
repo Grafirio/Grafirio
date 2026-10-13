@@ -71,12 +71,12 @@ http://localhost:59666
 
 ```
 grifirio.projectadmin/
+├── api/                            # Ops ajanı (host'ta çalışır): izleme, kontrol, kurtarma
 ├── src/
-│   ├── components/
-│   │   ├── ServiceDashboard.jsx    # Ana dashboard
-│   │   └── ServiceDashboard.css    # Stiller
-│   ├── services/
-│   │   └── serviceManager.js       # API & servis tanımları
+│   ├── components/ops/             # Servisler sayfasının bileşenleri
+│   ├── hooks/                      # useOpsStatus, useOpsActions, useAuditLog
+│   ├── pages/ServicesPage.jsx      # /services
+│   ├── services/opsApi.js          # Ops ajanı istemcisi
 │   ├── App.jsx
 │   └── main.jsx
 ├── package.json
@@ -87,20 +87,19 @@ grifirio.projectadmin/
 
 - **React 19.1.1** + **Vite 7.1.4**
 - **Axios** - HTTP client
-- Auto-refresh: 30 saniye
-- Responsive design
-- Modern gradient UI
+- Servis durumu her 5 saniyede yoklanır
+- Ajan adresi: `VITE_OPS_AGENT_URL` (doğrudan) veya yoksa gateway'in `/ops` rotası
 
 ## 🔗 Linkler
 
-- **Service Manager:** http://localhost:59666 ⭐
+- **Project Admin:** http://localhost:59666 ⭐
 - **Ana Frontend:** http://localhost:59264
 - **Test Sayfası:** http://localhost:59264/test-ai-services.html
 - **AI Dashboard:** http://localhost:59264/ai-dashboard-public
 
 ## 📝 Not
 
-Docker container başlatma/durdurma için backend API entegrasyonu gereklidir. Şu anda sadece monitoring ve health check yapılmaktadır.
+Servis kontrolü, otomatik onarma ve kurtarma ekranı için bkz. [docs/olcum/projectadmin.md](../../../../docs/olcum/projectadmin.md#ops-ajanı-altyapı-izleme-ve-kontrol).
 
 ---
 

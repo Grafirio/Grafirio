@@ -1,4 +1,5 @@
 import Nav from '../components/organisms/Nav';
+import OutageBanner from '../components/organisms/OutageBanner';
 import '../styles/MainLayout.css';
 
 /**
@@ -17,6 +18,7 @@ const MainLayout = ({ children }) => {
   return (
     <div className="shell">
       <Nav />
+      <OutageBanner />
       <main className="shell-main">{children}</main>
       <footer className="shell-foot">
         <div className="shell-foot-inner">
