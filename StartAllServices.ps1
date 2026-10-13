@@ -20,26 +20,30 @@ function Start-DetachedPowerShell {
     ) -WindowStyle Normal | Out-Null
 }
 
-Write-Host "[1/5] Docker check..." -ForegroundColor Yellow
-$dockerRunning = $false
-try {
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        $dockerRunning = $true
-        Write-Host "  Docker is running" -ForegroundColor Green
+function Test-DockerReady {
+    try {
+        docker info 2>&1 | Out-Null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
     }
-} catch {
-    Write-Host "  Docker is not running" -ForegroundColor Yellow
 }
 
-if (-not $dockerRunning) {
+Write-Host "[1/6] Docker check..." -ForegroundColor Yellow
+$dockerRunning = Test-DockerReady
+if ($dockerRunning) {
+    Write-Host "  Docker is running" -ForegroundColor Green
+} else {
+    Write-Host "  Docker is not running" -ForegroundColor Yellow
     Write-Host "  Starting Docker Desktop..." -ForegroundColor Yellow
     try {
         Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -ErrorAction Stop | Out-Null
-        Start-Sleep -Seconds 60
-        docker info 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            $dockerRunning = $true
+        $deadline = (Get-Date).AddSeconds(120)
+        while (-not $dockerRunning -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $dockerRunning = Test-DockerReady
+        }
+        if ($dockerRunning) {
             Write-Host "  Docker started" -ForegroundColor Green
         }
     } catch {
@@ -47,8 +51,27 @@ if (-not $dockerRunning) {
     }
 }
 
+# The APIs below run on the host but PostgreSQL and MongoDB live in Docker:
+# starting them without the databases makes every connection-list request fail with HTTP 503.
+if (-not $dockerRunning) {
+    Write-Host "  Docker is required for the databases. Start Docker Desktop and run this script again." -ForegroundColor Red
+    exit 1
+}
+
 Write-Host ""
-Write-Host "[2/5] Starting .NET services..." -ForegroundColor Yellow
+Write-Host "[2/6] Starting databases (waiting until healthy)..." -ForegroundColor Yellow
+Push-Location "d:\Projeler\Grifirio"
+docker compose up -d --wait postgres.db.dataanalysis mongo.db rabbitmq
+$databasesReady = $LASTEXITCODE -eq 0
+Pop-Location
+if (-not $databasesReady) {
+    Write-Host "  PostgreSQL / MongoDB did not become healthy. Check: docker compose ps, and that DATAANALYSIS_DB_PASSWORD is set in .env" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  PostgreSQL (5433), MongoDB (27017) and RabbitMQ (5672) are healthy" -ForegroundColor Green
+
+Write-Host ""
+Write-Host "[3/6] Starting .NET services..." -ForegroundColor Yellow
 Start-DetachedPowerShell -Title "Identity API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Identity.Api\Grafirio.Identity.Api" -Command "dotnet run"
 Start-Sleep -Seconds 2
 Start-DetachedPowerShell -Title "Commerce API starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Commerce.Api" -Command "dotnet run"
@@ -58,13 +81,13 @@ Start-Sleep -Seconds 2
 Start-DetachedPowerShell -Title "Gateway starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\services\Grafirio.Gateway" -Command "dotnet run"
 
 Write-Host ""
-Write-Host "[3/5] Starting frontend apps..." -ForegroundColor Yellow
+Write-Host "[4/6] Starting frontend apps..." -ForegroundColor Yellow
 Start-DetachedPowerShell -Title "Main Frontend starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\front\grifirio.front" -Command "npm run dev"
 Start-DetachedPowerShell -Title "Project Admin starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\front\admins\grifirio.projectadmin" -Command "npm run dev"
 Start-DetachedPowerShell -Title "User Admin starting..." -WorkingDirectory "d:\Projeler\Grifirio\src\front\admins\grifirio.useradmin" -Command "npm run dev"
 
 Write-Host ""
-Write-Host "[4/5] Starting AI service (Docker)..." -ForegroundColor Yellow
+Write-Host "[5/6] Starting AI service (Docker)..." -ForegroundColor Yellow
 $dockerExe = "C:\Program Files\Docker\Docker\resources\bin\docker-compose.exe"
 if (Test-Path $dockerExe) {
     Push-Location "d:\Projeler\Grifirio"
@@ -79,7 +102,7 @@ if (Test-Path $dockerExe) {
 }
 
 Write-Host ""
-Write-Host "[5/5] Done. Services were launched in separate terminals." -ForegroundColor Yellow
+Write-Host "[6/6] Done. Services were launched in separate terminals." -ForegroundColor Yellow
 Write-Host "  Run/Debug compound: Grafirio - All Apps" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "If Docker services are needed, start Docker Desktop and run the Docker compose stack separately." -ForegroundColor Gray

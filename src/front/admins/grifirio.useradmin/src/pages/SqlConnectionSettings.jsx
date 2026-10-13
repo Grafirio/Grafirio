@@ -17,6 +17,11 @@ import { useAnalysis } from '../contexts/AnalysisContext';
 import '../styles/SettingsPages.css';
 import '../styles/SqlConnectionSettings.css';
 
+const CATALOG_COMPONENT_LABELS = {
+  postgres: 'PostgreSQL',
+  mongo: 'MongoDB',
+};
+
 // embedded: Veri kaynaklari sayfasi (DataSourcesPage) bu bileseni "Baglantilar"
 // sekmesinin icinde gosteriyor ve kendi sayfa basligini kendisi ciziyor; bu
 // durumda burasi kendi ".st-head" basligini tekrar cizmez.
@@ -122,7 +127,9 @@ const SqlConnectionSettings = ({ embedded = false } = {}) => {
     if (problem?.code === 'CATALOG_UNAVAILABLE') {
       const trace = typeof problem.traceId === 'string' && /^[a-zA-Z0-9|._-]{1,128}$/.test(problem.traceId)
         ? ` Destek kodu: ${problem.traceId}` : '';
-      return `Bağlantı listesi servisi şu anda kullanılamıyor (HTTP ${status}). SQL ayarlarınızı değiştirmeyin.${trace}`;
+      const component = CATALOG_COMPONENT_LABELS[problem.component]
+        ? ` Etkilenen bileşen: ${CATALOG_COMPONENT_LABELS[problem.component]}.` : '';
+      return `Bağlantı listesi servisi şu anda kullanılamıyor (HTTP ${status}). SQL ayarlarınızı değiştirmeyin.${component}${trace}`;
     }
 
     if (serverSaid) return `${serverSaid} (HTTP ${status})`;

@@ -5,6 +5,7 @@ using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MongoDB.Driver;
 using Grafirio.Shared.Identity.Extensions;
 using Grafirio.Shared.Identity.Permissions;
 using Grafirio.Shared.Identity.Services;
@@ -13,6 +14,9 @@ namespace Grafirio.DataAnalysis.Api.Features.Connections;
 
 public static class SavedConnectionEndpoints
 {
+    private const string RouteStoreUnavailableMessage =
+        "Bağlantı yönlendirme servisi şu anda kullanılamıyor. Kayıtlı bağlantılarınız silinmedi; biraz sonra tekrar deneyin.";
+
     public static void MapSavedConnectionEndpoints(this IEndpointRouteBuilder app)
     {
         // Connection access is scoped to the authenticated company.
@@ -227,18 +231,39 @@ public static class SavedConnectionEndpoints
                 .ToListAsync();
 
             var routedConnections = new List<object>();
+            var routeStoreAvailable = true;
             foreach (var connection in connections)
             {
-                var route = await bridges.GetConnectionRouteAsync(connection.Id, companyId.Value.ToString());
-                var routeError = await GetRouteErrorAsync(connection, route, bridges);
+                ConnectionRoute? route = null;
+                string? routeError = null;
+
+                // After the first MongoDB failure the remaining connections skip the store:
+                // each attempt would otherwise wait out the driver's server-selection timeout.
+                if (routeStoreAvailable)
+                {
+                    try
+                    {
+                        route = await bridges.GetConnectionRouteAsync(connection.Id, companyId.Value.ToString());
+                        routeError = await GetRouteErrorAsync(connection, route, bridges);
+                    }
+                    catch (MongoException exception)
+                    {
+                        routeStoreAvailable = false;
+                        route = null;
+                        logger.LogWarning(exception,
+                            "Route store unavailable; returning connections without routing information");
+                    }
+                }
+
                 routedConnections.Add(new
                 {
                     id = connection.Id, name = connection.Name, host = connection.Host, port = connection.Port,
                     database = connection.Database, username = connection.Username,
                     trustServerCertificate = connection.TrustServerCertificate, createdAt = connection.CreatedAt,
                     updatedAt = connection.UpdatedAt, lastConnectedAt = connection.LastConnectedAt,
-                    connectionMode = route.ConnectionMode, bridgeId = route.BridgeId,
-                    routeAvailable = routeError is null, routeError
+                    connectionMode = route?.ConnectionMode, bridgeId = route?.BridgeId,
+                    routeAvailable = route is not null && routeError is null,
+                    routeError = route is null ? RouteStoreUnavailableMessage : routeError
                 });
             }
             return Results.Ok(new { success = true, connections = routedConnections });
@@ -250,12 +275,13 @@ public static class SavedConnectionEndpoints
         catch (Exception ex)
         {
             logger.LogError(ex, "Error getting connections");
-            var unavailable = ex is MongoDB.Driver.MongoException or Npgsql.NpgsqlException;
+            var component = CatalogFailure.FindComponent(ex);
             return Results.Problem("Bağlantı listesi şu anda alınamıyor. Bu hata SQL hedefinizin parolasıyla ilgili değildir.",
-                statusCode: unavailable ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status500InternalServerError,
+                statusCode: component is null ? StatusCodes.Status500InternalServerError : StatusCodes.Status503ServiceUnavailable,
                 extensions: new Dictionary<string, object?>
                 {
                     ["code"] = "CATALOG_UNAVAILABLE", ["stage"] = "catalog", ["retryable"] = true,
+                    ["component"] = component,
                     ["traceId"] = System.Diagnostics.Activity.Current?.Id
                 });
         }
