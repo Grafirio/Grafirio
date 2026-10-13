@@ -24,6 +24,12 @@
       { "name": "COMPANY_USER", "description": "Company user" }
     ]
   },
+  "groups": [
+    {
+      "name": "grafirio-platform-owners",
+      "attributes": { "business_roles": ["ADMIN", "PLATFORM_ADMIN"] }
+    }
+  ],
   "components": {
     "org.keycloak.userprofile.UserProfileProvider": [
       {
@@ -101,6 +107,7 @@
           "consentRequired": false,
           "config": {
             "user.attribute": "business_roles",
+            "aggregate.attrs": "true",
             "claim.name": "business_roles",
             "jsonType.label": "String",
             "id.token.claim": "true",
