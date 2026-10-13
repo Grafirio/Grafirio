@@ -1,0 +1,127 @@
+{
+  "services": [
+    {
+      "id": "postgres-dataanalysis",
+      "name": "PostgreSQL (DataAnalysis)",
+      "category": "Database",
+      "container": "postgres.db.dataanalysis.container",
+      "composeService": "postgres.db.dataanalysis",
+      "probe": {
+        "type": "postgres", "host": "localhost", "port": 5433,
+        "database": "grafirio_dataanalysis", "user": "dataanalysis_user", "passwordEnv": "DATAANALYSIS_DB_PASSWORD"
+      },
+      "dependsOn": [],
+      "impact": "Kayıtlı bağlantı listesi, analizler ve ayarlar açılmaz."
+    },
+    {
+      "id": "mongo-catalog",
+      "name": "MongoDB",
+      "category": "Database",
+      "container": "mongo.db.container",
+      "composeService": "mongo.db",
+      "probe": { "type": "mongo", "host": "localhost", "port": 27017 },
+      "dependsOn": [],
+      "impact": "Bridge yönlendirmeleri ve tablo seçimleri okunamaz; bağlantılar kullanılamaz."
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "category": "Database",
+      "container": "redis.db.container",
+      "composeService": "redis.db.basket",
+      "probe": { "type": "redis", "host": "localhost", "port": 6379 },
+      "dependsOn": [],
+      "impact": "Önbellek ve sepet verisi kullanılamaz."
+    },
+    {
+      "id": "sqlserver",
+      "name": "SQL Server",
+      "category": "Database",
+      "container": "sqlserver.db.order",
+      "composeService": "sqlserver.db.order",
+      "probe": { "type": "tcp", "host": "localhost", "port": 1433 },
+      "dependsOn": [],
+      "impact": "Sipariş verisi kullanılamaz."
+    },
+    {
+      "id": "postgres-keycloak",
+      "name": "PostgreSQL (Keycloak)",
+      "category": "Database",
+      "container": "postgres.db.keycloak.container",
+      "composeService": "postgres.db.keycloak",
+      "probe": { "type": "tcp", "host": "localhost", "port": 5432 },
+      "dependsOn": [],
+      "impact": "Keycloak açılmaz; kimse giriş yapamaz."
+    },
+    {
+      "id": "rabbitmq",
+      "name": "RabbitMQ",
+      "category": "Messaging",
+      "container": "rabbitmq.container",
+      "composeService": "rabbitmq",
+      "probe": { "type": "tcp", "host": "localhost", "port": 5672 },
+      "dependsOn": [],
+      "impact": "Analiz işleri kuyruğa alınamaz."
+    },
+    {
+      "id": "keycloak",
+      "name": "Keycloak",
+      "category": "Identity",
+      "container": "keycloak",
+      "composeService": "keycloak",
+      "probe": { "type": "http", "url": "http://localhost:8080/realms/grafirio", "expectStatus": [200] },
+      "dependsOn": ["postgres-keycloak"],
+      "impact": "Giriş yapılamaz, oturumlar yenilenemez."
+    },
+    {
+      "id": "identity-api",
+      "name": "Identity API",
+      "category": "Application",
+      "container": "identity.api.container",
+      "composeService": "identity.api",
+      "probe": { "type": "http", "url": "http://localhost:5036/" },
+      "dependsOn": ["keycloak"],
+      "impact": "Kullanıcı, firma ve yetki işlemleri çalışmaz."
+    },
+    {
+      "id": "data-analysis-api",
+      "name": "Data Analysis API",
+      "category": "Application",
+      "container": "data-analysis.api.container",
+      "composeService": "data-analysis.api",
+      "probe": { "type": "http", "url": "http://localhost:5221/health" },
+      "dependsOn": ["postgres-dataanalysis", "mongo-catalog", "rabbitmq", "keycloak"],
+      "impact": "Veri kaynakları, analizler ve sorular çalışmaz."
+    },
+    {
+      "id": "commerce-api",
+      "name": "Commerce API",
+      "category": "Application",
+      "container": "commerce.api.container",
+      "composeService": "commerce.api",
+      "probe": { "type": "http", "url": "http://localhost:5300/" },
+      "dependsOn": ["mongo-catalog", "redis", "sqlserver", "keycloak"],
+      "impact": "Ticari işlemler çalışmaz."
+    },
+    {
+      "id": "gateway",
+      "name": "Gateway",
+      "category": "Application",
+      "container": "gateway.container",
+      "composeService": "gateway",
+      "probe": { "type": "http", "url": "http://localhost:5000/" },
+      "dependsOn": [],
+      "impact": "Tüm paneller API'lere ulaşamaz."
+    },
+    {
+      "id": "pycaret-engine",
+      "name": "PyCaret Engine",
+      "category": "AI",
+      "container": "pycaret.engine.container",
+      "composeService": "pycaret.engine",
+      "probe": { "type": "http", "url": "http://localhost:8002/" },
+      "dependsOn": ["rabbitmq"],
+      "impact": "Tahmin ve etki analizi çalışmaz."
+    }
+  ]
+}

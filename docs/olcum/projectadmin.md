@@ -93,3 +93,43 @@ npx eslint src/pages/ObservabilityPage.jsx src/services/observabilityApi.js src/
 Testler gerçek OTel SDK üzerinden sayaç/histogram/gauge aktarımını, hassas alanların
 çıkarılmasını, log/trace korelasyonunu, kapasite/zaman sınırlarını ve çalışan HTTP
 endpoint'inin 401/403/200 ile cache davranışını doğrular.
+
+## Ops ajanı: altyapı izleme ve kontrol
+
+`src/front/admins/grifirio.projectadmin/api` artık eski Express servis yöneticisi değil,
+**Docker'ın dışında, makinede** çalışan bir Ops ajanıdır. Docker kapandığında onunla birlikte
+kapanmaması ve Docker Desktop'ı kendisinin başlatabilmesi için konteyner değildir; eski
+`docker.sock` bağlantılı `service.manager.api` servisi ve komut satırı birleştiren uçlar kaldırıldı.
+
+- **Servis kaydı:** [registry.json](../../src/front/admins/grifirio.projectadmin/api/registry.json).
+  Tüm işlemler yalnızca buradaki servis kimlikleriyle yapılır; test, kaydın docker-compose'daki
+  gerçek servis/konteyner adlarıyla uyumunu doğrular.
+- **Sağlık:** Konteyner durumunun yanında gerçek yoklama: Postgres `SELECT 1`
+  (`DATAANALYSIS_DB_PASSWORD` tanımlıysa), Mongo `ping`, Redis `PING`, HTTP ve TCP.
+  Her servis için etki metni vardır (örn. "Kayıtlı bağlantı listesi açılmaz").
+- **Kontrol:** başlat/durdur/yeniden başlat Docker Engine API'siyle yapılır (`exec` yok).
+  Bilerek durdurulan servis otomatik onarılmaz.
+- **Kendini onarma:** varsayılan kapalı. Açıkken art arda N başarısız yoklamadan sonra
+  başlatır/yeniden başlatır; bağımlılığı düşükse önce onu bekler, bekleme süresi ve deneme
+  sınırı vardır, sınır aşılırsa durur ve uyarı verir.
+- **Denetim:** `api/data/audit.jsonl` (kim, ne zaman, neyi, sonuç). Ayarlar `api/data/settings.json`.
+- **E-posta:** `OPS_SMTP_*` ve `OPS_ALERT_RECIPIENTS` doluysa yalnızca durum değişiminde
+  (düştü / düzeldi / onarma vazgeçti) gönderilir; aynı olay 10 dakikada bir.
+
+| Yol | Erişim |
+|---|---|
+| `GET /api/ops/status`, `POST /api/ops/services/:id/(start\|stop\|restart)`, `POST /api/ops/docker/start`, `POST /api/ops/infrastructure/up`, `GET\|PUT /api/ops/settings/autoheal`, `GET /api/ops/audit` | Keycloak token + `business_roles=PLATFORM_ADMIN` |
+| `GET /api/ops/status/summary` | Anonim; yalnızca etki metinleri, servis adı/hata yok (kullanıcı kesinti banner'ı için) |
+| `/recovery/` | Yalnızca `127.0.0.1` + `X-Recovery-Key`; yalnızca "Docker'ı başlat" ve "Altyapıyı kaldır". Token gerekmez, Docker/Keycloak kapalıyken kullanılır |
+
+Kurulum (Docker Desktop'ı kullanan Windows kullanıcısıyla, yönetici olmadan):
+
+```powershell
+# .env içine OPS_RECOVERY_KEY yazın (örn. rastgele 32+ karakter), sonra:
+.\scripts\Install-OpsAgent.ps1          # oturum açılışında otomatik başlayan zamanlanmış görev
+.\scripts\Install-OpsAgent.ps1 -Uninstall
+# elle: cd src/front/admins/grifirio.projectadmin/api; npm ci; npm start; npm test
+```
+
+Ajan varsayılan olarak yalnızca `127.0.0.1:3001` dinler. Gateway'in (konteyner) ulaşabilmesi
+için `OPS_BIND_HOST` genişletilmelidir; token zorunluluğu bu durumda da geçerlidir.

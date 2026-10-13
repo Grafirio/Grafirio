@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grafirio – Kurtarma</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1b1f24; }
+    h1 { font-size: 1.4rem; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+    input, button { font: inherit; padding: .5rem .75rem; }
+    input { flex: 1; min-width: 14rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid #d0d7de; }
+    .up { color: #1a7f37; font-weight: 600; }
+    .down { color: #cf222e; font-weight: 600; }
+    #message { min-height: 1.5rem; margin-top: .5rem; }
+    .note { color: #57606a; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <h1>Grafirio – Kurtarma ekranı</h1>
+  <p class="note">
+    Docker veya Keycloak kapalıyken kullanılır. Yalnızca bu bilgisayardan erişilebilir ve kurtarma anahtarı ister.
+    Yalnızca “Docker'ı başlat” ve “Altyapıyı kaldır” işlemlerini yapar.
+  </p>
+
+  <div class="row">
+    <input id="recovery-key" type="password" placeholder="Kurtarma anahtarı" autocomplete="off">
+    <button id="refresh">Durumu yenile</button>
+  </div>
+  <div class="row">
+    <button id="start-docker">Docker'ı başlat</button>
+    <button id="infrastructure-up">Altyapıyı kaldır</button>
+  </div>
+
+  <div id="message" role="status"></div>
+  <div id="docker-state"></div>
+  <table>
+    <thead><tr><th>Servis</th><th>Durum</th><th>Yanıt (ms)</th><th>Hata</th></tr></thead>
+    <tbody id="services"></tbody>
+  </table>
+
+  <script src="/recovery/recovery.js"></script>
+</body>
+</html>
