@@ -7,6 +7,9 @@ import json
 import logging
 import math
 import re
+import time
+from datetime import datetime, timezone
+from analysis_report import build_report, check_metrics, TracedDataPort
 import pandas as pd
 from typing import Dict, Any, List, Optional
 
@@ -138,6 +141,48 @@ class AgentAnalyzer:
         self._selection = None
 
     def run_analysis(self, config: Dict, params: Dict) -> Dict[str, Any]:
+        started = time.perf_counter()
+        self.audit = {}
+        events = [{"stage": "validation", "at": datetime.now(timezone.utc).isoformat()}]
+        original_data = self.data
+        self.data = TracedDataPort(original_data, events, started)
+        rule = None
+        try:
+            if not isinstance(config, dict) or not isinstance(params, dict):
+                raise ValueError("Config and analysis parameters must be objects.")
+            rule = check_metrics(config, params)
+            self._metric_rule = rule or {}
+            events.append({"stage": "execution", "at": datetime.now(timezone.utc).isoformat(),
+                           "elapsedMs": round((time.perf_counter() - started) * 1000)})
+            result = self._run_analysis(config, params)
+        except ValueError as error:
+            result = self._error_result(str(error))
+            self.audit["errorCode"] = "metric_validation_failed"
+        except Exception:
+            logger.exception("Analysis execution failed")
+            result = self._error_result("Analiz tamamlanamadı. Filtreleri kontrol edip tekrar deneyin.")
+            self.audit["errorCode"] = "execution_failed"
+        finally:
+            self.data = original_data
+        self.audit["metricRule"] = rule
+        self.audit["durationMs"] = round((time.perf_counter() - started) * 1000)
+        self.audit["completedAt"] = datetime.now(timezone.utc).isoformat()
+        self.audit["reportVersion"] = "analysis-report-v1"
+        events.append({"stage": "completed" if result.get("success") else "clarification" if result.get("needsClarification") else "failed",
+                       "at": self.audit["completedAt"], "elapsedMs": self.audit["durationMs"]})
+        self.audit["events"] = events
+        if not result.get("success"):
+            error = str(result.get("error", "")).casefold()
+            code = "data_read_failed" if any(e.get("status") == "failed" for e in events) else (
+                "insufficient_data" if any(text in error for text in ("en az", "yeterli veri", "eksik ay")) else
+                "empty_result" if "kayıt bulunamadı" in error else "analysis_rejected")
+            self.audit.setdefault("errorCode", code)
+        result["audit"] = dict(self.audit)
+        if result.get("success"):
+            result["report"] = build_report(result, self.audit, config)
+        return result
+
+    def _run_analysis(self, config: Dict, params: Dict) -> Dict[str, Any]:
         """
         Config ve parametrelere göre analiz yap, grafik verileri ve insights döndür.
         """
@@ -2033,7 +2078,7 @@ class AgentAnalyzer:
                 f"Seri {self.SERIES_LIMIT} dönemi aşıyor; kesilmiş bir geçmişle "
                 "tahmin yapılmaz. Tarih aralığını filtreyle daraltın.")
 
-        zero_fill = agg_key in ("count", "sum")
+        zero_fill = agg_key in ("count", "sum") and self._metric_rule.get("missingPeriodPolicy") == "zero"
         series: List[Dict[str, Any]] = []
         for period, value in zip(grouped[self.PERIOD_LABEL].tolist(),
                                  grouped[alias].tolist()):
@@ -2049,10 +2094,24 @@ class AgentAnalyzer:
 
         try:
             series, filled_gaps = self._fill_month_gaps(series, zero_fill)
+            if not zero_fill and series:
+                first_year, first_month = map(int, series[0]["period"].split("-"))
+                last_year, last_month = map(int, series[-1]["period"].split("-"))
+                expected = (last_year - first_year) * 12 + last_month - first_month + 1
+                if expected != len(series):
+                    raise ValueError("Geçmişte eksik aylar var. Veri aktarımını tamamlayın veya gerçek sıfır olduğunu metrik kurallarında doğrulayın.")
         except ValueError as error:
             return self._error_result(str(error))
         self.audit["periodCount"] = len(series)
         self.audit["filledGaps"] = filled_gaps
+        self.audit["dataPeriod"] = {"from": series[0]["period"], "to": series[-1]["period"]} if series else None
+
+        minimum = self._metric_rule.get("minHistoryPeriods", 4)
+        if len(series) < minimum:
+            return self._error_result(f"Tahmin için en az {minimum} dönem gerekir; eldeki {len(series)}. Tarih aralığını genişletin.")
+        maximum = self._metric_rule.get("maxHorizon", 12)
+        if horizon > maximum:
+            return self._error_result(f"Bu metrik için tahmin ufku en fazla {maximum} ay olabilir.")
 
         if len(series) < 4:
             return self._error_result(
@@ -2111,8 +2170,8 @@ class AgentAnalyzer:
                 "data": {"labels": labels, "datasets": [
                     {"label": "Gerçekleşen", "data": actual},
                     {"label": "Tahmin", "data": predicted},
-                    {"label": "Alt sınır (%95)", "data": lower},
-                    {"label": "Üst sınır (%95)", "data": upper},
+                    {"label": "Alt sınır (yaklaşık)", "data": lower},
+                    {"label": "Üst sınır (yaklaşık)", "data": upper},
                 ]},
             }],
             "insights": insights,

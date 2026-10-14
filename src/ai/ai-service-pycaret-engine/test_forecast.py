@@ -270,6 +270,9 @@ class ForecastTests(unittest.TestCase):
             "relationships": [],
         }
         fake = fake or FakeForecasterModule()
+        config["metricRules"] = [{"table": "dbo.Calculations", "column": "Amount", "label": "Tutar", "unit": "TL",
+                                  "allowedAggregations": ["sum", "avg", "min", "max", "count"],
+                                  "forecastEnabled": True, "missingPeriodPolicy": "zero", "maxHorizon": 36}]
         with patch.dict(sys.modules, {"forecaster": fake}):
             return analyzer.run_analysis(config, params), port, fake
 
@@ -298,7 +301,7 @@ class ForecastTests(unittest.TestCase):
         data = chart["data"]
         self.assertEqual(len(data["labels"]), 9)
         self.assertEqual([d["label"] for d in data["datasets"]],
-                         ["Gerçekleşen", "Tahmin", "Alt sınır (%95)", "Üst sınır (%95)"])
+                         ["Gerçekleşen", "Tahmin", "Alt sınır (yaklaşık)", "Üst sınır (yaklaşık)"])
         actual, predicted, lower, upper = [d["data"] for d in data["datasets"]]
         self.assertEqual(actual[-3:], [None, None, None])
         self.assertEqual(actual[:2], [10.0, 20.0])
@@ -355,15 +358,14 @@ class ForecastTests(unittest.TestCase):
                 self.assertTrue(result["success"], result)
                 self.assertEqual(fake.calls[0]["horizon"], expected)
 
-    def test_average_series_skips_empty_months_instead_of_inventing_zero(self):
+    def test_average_series_rejects_missing_months_instead_of_compressing_time(self):
         result, _, fake = self.analyze(self.months([
             ("2026-01", 10), ("2026-02", None), ("2026-03", 30),
             ("2026-04", 40), ("2026-05", 50),
         ]), aggregation="avg")
-        self.assertTrue(result["success"], result)
-        self.assertEqual([p["period"] for p in fake.calls[0]["series"]],
-                         ["2026-01", "2026-03", "2026-04", "2026-05"])
-        self.assertEqual(result["audit"]["filledGaps"], 0)
+        self.assertFalse(result["success"], result)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("eksik aylar", result["error"])
 
 
 class ExtraAggregateSpecTests(unittest.TestCase):

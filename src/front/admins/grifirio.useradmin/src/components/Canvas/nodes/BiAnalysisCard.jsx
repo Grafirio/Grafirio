@@ -4,6 +4,7 @@ import NodeComposer from './NodeComposer';
 import CardAudit from './CardAudit';
 import CardFeedback from './CardFeedback';
 import MatchConfirmations from './MatchConfirmations';
+import AnalysisExplanation from './AnalysisExplanation';
 import { CHART_TYPES } from '../chartTypes';
 
 /**
@@ -105,9 +106,10 @@ export default function BiAnalysisCard({ data, onAsk, onDelete, onChartType, onC
                   evidence: data.evidence,
                 }}
               />
+              <AnalysisExplanation report={data.report} insights={data.insights} queryId={data.resultQueryId || data.queryId} />
               {!data?.loading && (
                 // key: yeni soru yeni sonuç demek; önceki sonucun oyu ona taşınmamalı.
-                <CardFeedback key={data.queryId} queryId={data.queryId} initialRating={data.feedbackRating ?? null} />
+                <CardFeedback key={data.resultQueryId || data.queryId} queryId={data.resultQueryId || data.queryId} initialRating={data.feedbackRating ?? null} />
               )}
             </>
           ) : (

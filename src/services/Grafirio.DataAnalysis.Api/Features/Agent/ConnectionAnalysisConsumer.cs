@@ -224,6 +224,26 @@ public class ConnectionAnalysisConsumer(
 
             await EnsureCurrentAsync(message, config.TablesJson, ct);
             var canonical = CanonicalSchemaDictionary.Build(result.Json, profile);
+            var carriedRules = new JsonArray();
+            var ruleWarnings = new JsonArray();
+            if (JsonNode.Parse(config.ConfigJson)?["metricRules"] is JsonArray oldRules)
+            {
+                foreach (var oldRule in oldRules.OfType<JsonObject>())
+                {
+                    try
+                    {
+                        var rule = oldRule.Deserialize<MetricRuleEndpoints.MetricRule>(new JsonSerializerOptions(JsonOptions) { PropertyNameCaseInsensitive = true });
+                        if (rule is not null)
+                            carriedRules.Add(MetricRuleEndpoints.ValidateRules(canonical, [rule])[0]!.DeepClone());
+                    }
+                    catch (Exception e) when (e is ArgumentException or JsonException)
+                    {
+                        ruleWarnings.Add($"{oldRule["label"]}: şema değiştiği için kural taşınamadı. Yeniden tanımlayın.");
+                    }
+                }
+            }
+            canonical["metricRules"] = carriedRules;
+            canonical["metricRuleWarnings"] = ruleWarnings;
             var validFacts = accepted.Where(fact => FactBelongsToProfile(fact, profile)).ToList();
             var dictionary = AttachProfileFacts(canonical.ToJsonString(JsonOptions), profile, validFacts);
             var dictionaryRoot = JsonNode.Parse(dictionary)!.AsObject();

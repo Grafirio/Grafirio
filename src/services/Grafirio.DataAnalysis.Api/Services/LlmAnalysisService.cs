@@ -543,6 +543,14 @@ public class LlmAnalysisService
         `"meanings": { "ROD": "karayolu" }`. Kullanıcı "kara" dediğinde hangi
         kodu filtreleyeceğini oradan bulursun — kod adına bakıp tahmin etme.
 
+        `metricRules` kullanıcı tarafından doğrulanmış metrik kurallarıdır.
+        `allowedAggregations` izinli hesaplamaları, `unit` birimi, `dateColumn`
+        kullanılacak tarih alanını belirtir. Tahmin yalnızca `forecastEnabled`
+        açık olan metrikte yapılabilir. Kullanıcı ufuk belirtmediyse `maxHorizon`
+        sınırını aşmayan bir ufuk seç. Kullanıcının açıkça istediği hesabı kurala
+        uydurmak için sessizce değiştirme; kurallar uygulama tarafından ayrıca
+        denetlenir. Kimlik alanlarını tutar/miktar ölçüsü olarak kullanma.
+
         ```json
         {{dictionaryJson}}
         ```

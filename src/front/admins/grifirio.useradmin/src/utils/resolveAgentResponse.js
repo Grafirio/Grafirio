@@ -23,6 +23,8 @@ export default function resolveAgentResponse(payload, queryId) {
     queryId: identity,
     answer: result.summary || result.answer || 'Analiz tamamlandı.',
     charts: result.charts || [],
+    report: result.report ?? null,
+    insights: result.insights || [],
     pendingConfirmations,
     audit: { ...(result.audit || {}), llmParameters: payload?.llmParameters },
   };

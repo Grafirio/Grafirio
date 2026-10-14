@@ -9,6 +9,7 @@ using Grafirio.DataAnalysis.Api.Data;
 using Grafirio.DataAnalysis.Api.Data.Entities;
 using Grafirio.DataAnalysis.Api.Features.Agent;
 using Grafirio.DataAnalysis.Api.Infrastructure.Services;
+using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 using Grafirio.Shared.Identity.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,33 @@ public sealed class PyCaretIntegrationTests
 {
     private const string ApiKey = "test-only-internal-key";
     private const string DictionaryJson = "{\"label\":\"İstanbul\",\"tables\":[\"dbo.Orders\"]}";
+
+    [Fact]
+    public async Task CompletionUpdatesDiagnosticsWithoutCopyingRawTables()
+    {
+        using var harness = new Harness();
+        var diagnostic = new QueryDiagnostic { Id = Guid.NewGuid(), QueryId = harness.Query.Id,
+            CompanyId = harness.Config.CompanyId, ConnectionId = harness.Config.ConnectionId,
+            CreatedAt = harness.Query.CreatedAt, Status = "submitted", CompletedAt = DateTime.UtcNow };
+        harness.Db.QueryDiagnostics.Add(diagnostic);
+        await harness.Db.SaveChangesAsync();
+        harness.Handler.Respond = _ =>
+        {
+            var response = harness.Body("completed");
+            response["audit"] = new JsonObject { ["analysisType"] = "forecast", ["durationMs"] = 80 };
+            response["report"] = new JsonObject { ["snapshotHash"] = "saved-version", ["tables"] = new JsonArray("private-result") };
+            response["charts"] = new JsonArray("private-result");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(response) });
+        };
+        await harness.Service.RefreshAsync(harness.Query, default);
+        Assert.Equal("completed", diagnostic.Status);
+        Assert.Equal("execution_completed", diagnostic.Stage);
+        Assert.NotNull(diagnostic.CompletedAt);
+        Assert.Contains("saved-version", diagnostic.ContextJson);
+        Assert.DoesNotContain("private-result", diagnostic.ContextJson);
+        QueryDiagnostics.Finish(diagnostic, null, null, "submitted", 1);
+        Assert.Equal("completed", diagnostic.Status);
+    }
 
     [Fact]
     public async Task SubmitSendsExactContractWithAuthenticationAndPersistsOriginalScope()
