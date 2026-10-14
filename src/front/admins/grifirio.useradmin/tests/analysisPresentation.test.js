@@ -1,8 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presentationEntries, tablePages } from '../src/utils/analysisPresentation.js';
+import { presentationEntries, presentationAvailability, tablePages } from '../src/utils/analysisPresentation.js';
 import resolveAgentResponse from '../src/utils/resolveAgentResponse.js';
 import restoreFromHistory from '../src/utils/restoreFromHistory.js';
+
+test('export availability distinguishes legacy, running and empty results using the export contract', () => {
+  const ready = { type: 'biAnalysisCard', data: { chart: {}, report: {} } };
+  const legacy = { type: 'biAnalysisCard', data: { chart: {} } };
+  const running = { type: 'biAnalysisCard', data: { ...ready.data, loading: true } };
+  const all = [ready, legacy, running, { type: 'other', data: ready.data }];
+  assert.equal(presentationAvailability(all).ready, presentationEntries(all).length);
+  assert.match(presentationAvailability([legacy]).message, /yeniden çalıştırın/);
+  assert.match(presentationAvailability([running]).message, /Analiz sürüyor/);
+  assert.match(presentationAvailability([]).message, /Önce tuvalde/);
+});
 
 test('export freezes result and preserves its identity after a failed follow-up', () => {
   const node = { id: 'one', type: 'biAnalysisCard', data: { queryId: 'failed-followup', resultQueryId: 'original', resultQuestion: 'Original question', chart: { title: 'Saved' }, report: { method: 'SUM', tables: [] } } };

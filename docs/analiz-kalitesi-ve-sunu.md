@@ -1,6 +1,10 @@
 # Analiz takibi, metrik kuralları ve PDF sunusu
 
 Analiz tuvalinin üst çubuğunda **Metrik kuralları** ve **PDF sunusu** bulunur.
+PDF sunusu düğmesi her zaman açılır. Hazır analiz varsa düğmedeki sayı bunu
+gösterir; yoksa sunu ekranı eksik açıklama, çalışan analiz veya boş tuval için
+ne yapılması gerektiğini söyler. Eski sonuçların açıklamaları için analiz yeniden
+çalıştırılmalıdır. Boş sunu ekranı açıkken ilk sonuç tamamlanırsa listeye eklenir.
 
 ## Kullanım
 

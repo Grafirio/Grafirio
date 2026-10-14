@@ -17,6 +17,7 @@ import {
 import './CanvasPage.css';
 import AnalysisPresentation from '../components/Canvas/AnalysisPresentation';
 import MetricRulesDialog from '../components/Canvas/MetricRulesDialog';
+import CanvasActions from '../components/Canvas/CanvasActions';
 
 
 /* ─────────────────────────────────────────────────────────────
@@ -357,8 +358,6 @@ export default function CanvasPage() {
         </div>
 
         <div className="cp-topbar-info">
-          <button disabled={!analysis} onClick={() => setMetricRulesOpen(true)}>Metrik kuralları</button>
-          <button disabled={!canvasNodes.some(n => n.data?.report && !n.data?.loading)} onClick={() => setPresentationOpen(true)}>PDF sunusu</button>
           {/* Bağlantı okunamadıysa söyleniyor. Yan panel kalktı ama bu uyarı
               onunla birlikte gitmemeli: sebebi yazmayan boş bir tuval,
               kullanıcıyı kendi hatasını aramaya gönderir. */}
@@ -378,6 +377,7 @@ export default function CanvasPage() {
             </span>
           )}
         </div>
+        <CanvasActions nodes={canvasNodes} hasConnection={Boolean(analysis)} onMetricRules={() => setMetricRulesOpen(true)} onPresentation={() => setPresentationOpen(true)} />
       </div>
 
       {/* ══ TUVAL ════════════════════════════════════════════

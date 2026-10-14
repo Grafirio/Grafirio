@@ -1,6 +1,20 @@
 // Clone once on opening: subsequent analysis updates cannot alter an export preview.
+const readyForPresentation = node => node.type === 'biAnalysisCard' && !node.data?.loading && node.data?.chart && node.data?.report;
+
+export function presentationAvailability(nodes) {
+  const cards = nodes.filter(n => n.type === 'biAnalysisCard');
+  const ready = cards.filter(readyForPresentation).length;
+  const loading = cards.filter(n => n.data?.loading).length;
+  const legacy = cards.filter(n => !n.data?.loading && n.data?.chart && !n.data?.report).length;
+  const message = ready ? `${ready} analiz sunuya hazır` : legacy
+    ? 'Eski sonuçlarda hesaplama açıklaması yok. İlgili karttan analizi yeniden çalıştırın; tamamlanınca sunuya eklenebilir.'
+    : loading ? 'Analiz sürüyor. Sonuç ve hesaplama açıklaması tamamlanınca sunuya eklenebilir.'
+    : 'Önce tuvalde bir analiz oluşturun. Sonuç ve hesaplama açıklaması tamamlanınca sunuya eklenebilir.';
+  return { ready, loading, legacy, message };
+}
+
 export function presentationEntries(nodes) {
-  return nodes.filter(n => n.type === 'biAnalysisCard' && !n.data?.loading && n.data?.chart && n.data?.report)
+  return nodes.filter(readyForPresentation)
     .map(n => structuredClone({ id: n.id, queryId: n.data.resultQueryId || n.data.queryId, chart: n.data.chart,
       charts: n.data.resultCharts || [n.data.chart], chartType: n.data.chartType,
       report: n.data.report, insights: n.data.insights || [],

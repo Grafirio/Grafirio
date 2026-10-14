@@ -1,19 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import BiChartNode from './nodes/BiChartNode';
 import AnalysisExplanation from './nodes/AnalysisExplanation';
-import { presentationEntries, tablePages } from '../../utils/analysisPresentation';
+import { presentationEntries, presentationAvailability, tablePages } from '../../utils/analysisPresentation';
+import { IconFileTypePdf, IconArrowRight, IconPrinter, IconX } from '@tabler/icons-react';
 import './AnalysisPresentation.css';
 
 const cellText = value => value == null ? '—' : typeof value === 'number' ? value.toLocaleString('tr-TR') : typeof value === 'object' ? JSON.stringify(value) : String(value);
 
 export default function AnalysisPresentation({ nodes, database, onClose }) {
   const [entries, setEntries] = useState(() => presentationEntries(nodes));
+  const availability = presentationAvailability(nodes);
   const [selected, setSelected] = useState(() => new Set(entries.map(e => e.id)));
   const [preview, setPreview] = useState(false);
   const [title, setTitle] = useState('Grafirio analiz sunusu');
   const [exportedAt] = useState(() => new Date().toLocaleString('tr-TR'));
   const chosen = entries.filter(e => selected.has(e.id));
+  useEffect(() => {
+    // An empty dialog can wait for the first result; an existing export stays frozen.
+    if (entries.length === 0) {
+      const ready = presentationEntries(nodes);
+      if (ready.length) { setEntries(ready); setSelected(new Set(ready.map(e => e.id))); }
+    }
+  }, [nodes, entries.length]);
   const tooLarge = chosen.reduce((total, entry) => total + (entry.report.tables || []).reduce((sum, table) => sum + table.rows.length, 0), 0) > 2000;
   const move = (index, direction) => setEntries(current => {
     const next = [...current], target = index + direction;
@@ -24,10 +33,11 @@ export default function AnalysisPresentation({ nodes, database, onClose }) {
   return createPortal(<div className={`analysis-modal-backdrop presentation-backdrop ${preview ? 'is-preview' : ''}`}>
     <section className="analysis-modal presentation-dialog" role="dialog" aria-modal="true" aria-label="PDF sunusu">
       <div className="presentation-controls">
-        <h2>PDF sunusu</h2>
+        <div className="presentation-heading"><span className="presentation-heading-icon"><IconFileTypePdf size={24} stroke={1.5} /></span><div><h2>PDF sunusu</h2><p>Analizlerini paylaşılabilir bir sunuya dönüştür.</p></div></div>
         {!preview && <><label>Sunu başlığı<input value={title} maxLength={160} onChange={e => setTitle(e.target.value)} /></label>
           <p>Analizleri seçip sıralayın. Grafikler, veri tabloları ve hesaplama açıklamaları aynı kaydedilmiş sonuçtan alınır.</p>
-          {!entries.length && <p>Açıklaması bulunan tamamlanmış analiz yok. Eski sonuçlar için analizi yeniden çalıştırın.</p>}
+          {!entries.length && <div className="presentation-empty" role="status"><IconFileTypePdf size={34} stroke={1.3} /><h3>{availability.loading ? 'Sonucun hazır olmasını bekliyoruz' : availability.legacy ? 'Bu sonuçların açıklaması eksik' : 'Henüz sunuya eklenecek analiz yok'}</h3><p>{availability.message}</p></div>}
+          {entries.length > 0 && availability.legacy > 0 && <p className="presentation-legacy-note">{availability.legacy} eski sonuç açıklaması bulunmadığı için listelenmedi. Eklemek için ilgili karttan analizi yeniden çalıştırın.</p>}
           {entries.map((entry, index) => <div className="presentation-selection" key={entry.id}>
             <label><input type="checkbox" checked={selected.has(entry.id)} onChange={e => setSelected(current => {
               const next = new Set(current); if (e.target.checked) next.add(entry.id); else next.delete(entry.id); return next;
@@ -36,9 +46,9 @@ export default function AnalysisPresentation({ nodes, database, onClose }) {
             <button aria-label="Aşağı taşı" disabled={index === entries.length - 1} onClick={() => move(index, 1)}>↓</button>
           </div>)}</>}
         <div className="analysis-modal-actions">
-          <button disabled={!chosen.length || tooLarge} onClick={() => setPreview(!preview)}>{preview ? 'Seçime dön' : 'Sunuyu önizle'}</button>
-          {preview && <button onClick={() => window.print()}>PDF olarak kaydet / Yazdır</button>}
-          <button onClick={onClose}>Kapat</button>
+          {entries.length > 0 && <button className="analysis-button-primary" disabled={!chosen.length || tooLarge} onClick={() => setPreview(!preview)}>{preview ? 'Seçime dön' : 'Sunuyu önizle'}<IconArrowRight size={16} /></button>}
+          {preview && <button className="analysis-button-primary" onClick={() => window.print()}><IconPrinter size={16} />PDF olarak kaydet / Yazdır</button>}
+          <button onClick={onClose}><IconX size={16} />{entries.length ? 'Kapat' : 'Tuvale dön'}</button>
         </div>
         {tooLarge && <p role="alert">Seçilen sonuçlar 2.000 tablo satırını aşıyor. Daha az analiz seçin veya veri filtresini daraltın; hiçbir satır sessizce kesilmeyecek.</p>}
         {preview && <p>Yazdırma penceresinde “PDF olarak kaydet” seçeneğini kullanın. Başlık ve altbilgileri kapatın. Önizlemedeki sayfaları kontrol edin.</p>}

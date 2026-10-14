@@ -6,7 +6,19 @@
 .analysis-modal fieldset { border: 1px solid #cbd5df; padding: 18px; margin: 16px 0; }
 .analysis-modal .inline-choice { display: inline-flex; gap: 6px; margin-right: 12px; }
 .analysis-modal-actions { display: flex; gap: 12px; margin: 20px 0; flex-wrap: wrap; }
-.analysis-modal button { padding: 8px 12px; border: 1px solid #aebbc9; border-radius: 6px; background: #eef3fa; color: #172b45; cursor: pointer; }
+.analysis-modal button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 8px 14px; border: 1px solid #d4dde8; border-radius: 8px; background: white; color: #172b45; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+.analysis-modal button:hover:not(:disabled) { background: #f3f6fb; border-color: #9bacc4; }
+.analysis-modal button:focus-visible { outline: 2px solid #1c3f7c; outline-offset: 3px; }
+.analysis-modal button.analysis-button-primary { background: #1c3f7c; border-color: #1c3f7c; color: white; box-shadow: 0 6px 16px -10px #1c3f7c; }
+.analysis-modal button.analysis-button-primary:hover:not(:disabled) { background: #163566; border-color: #163566; }
+.presentation-heading { display: flex; gap: 14px; align-items: center; margin-bottom: 24px; }
+.presentation-heading h2 { margin: 0 0 4px; }
+.presentation-heading p { margin: 0; font-size: 13px; color: #63758c; }
+.presentation-heading-icon { width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; background: #eef3fa; color: #1c3f7c; border-radius: 12px; flex-shrink: 0; }
+.presentation-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 36px 24px; margin: 24px 0; background: #f7f9fc; border: 1px dashed #cbd6e5; border-radius: 12px; color: #63758c; }
+.presentation-empty h3 { color: #172b45; font-size: 17px; margin: 16px 0 8px; }
+.presentation-empty p { max-width: 520px; font-size: 13px; line-height: 1.7; margin: 0; }
+.presentation-legacy-note { color: #875100; font-size: 13px; padding: 12px; background: #fff8ec; border-radius: 8px; }
 .analysis-modal button:disabled { opacity: .5; cursor: default; }
 .presentation-selection { display: flex; align-items: center; gap: 8px; }
 .presentation-selection label { flex: 1; }

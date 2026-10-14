@@ -45,6 +45,6 @@ export default function MetricRulesDialog({ connectionId, onClose }) {
     <div className="analysis-modal-actions"><button disabled={!snapshot || busy || !available.length || rules.length >= 100} onClick={() => {
       const c = available.find(c => !rules.some(r => r.table === c.table && r.column === c.column));
       if (c) setRules([...rules, { table: c.table, column: c.column, label: c.column, unit: '', allowedAggregations: ['sum'], dateColumn: null, forecastEnabled: false, missingPeriodPolicy: 'reject', minHistoryPeriods: 12, maxHorizon: 6 }]);
-    }}>Metrik ekle</button><button disabled={!snapshot || busy} onClick={save}>{busy ? 'Kaydediliyor…' : 'Kaydet'}</button><button disabled={busy} onClick={onClose}>Kapat</button></div>
+    }}>Metrik ekle</button><button className="analysis-button-primary" disabled={!snapshot || busy} onClick={save}>{busy ? 'Kaydediliyor…' : 'Kaydet'}</button><button disabled={busy} onClick={onClose}>Kapat</button></div>
   </section></div>, document.body);
 }
