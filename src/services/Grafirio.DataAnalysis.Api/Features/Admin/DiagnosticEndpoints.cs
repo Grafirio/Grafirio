@@ -276,7 +276,9 @@ public static class DiagnosticEndpoints
             ["model"] = llm.ModelIdentity, ["promptVersion"] = QueryDiagnostics.PromptVersion,
             ["expected"] = QueryDiagnostics.Parse(test.ExpectedJson),
             ["differences"] = JsonSerializer.SerializeToNode(differences), ["actual"] = QueryDiagnostics.Parse(QueryDiagnostics.SafeJson(result.Json)),
-            ["error"] = validationError ?? QueryDiagnostics.Mask(result.Error)
+            ["error"] = validationError ?? QueryDiagnostics.Mask(result.Error),
+            ["errorCode"] = result.ErrorCode,
+            ["semanticValidationError"] = QueryDiagnostics.SafeText(result.SemanticValidationError)
         };
         var runs = QueryDiagnostics.Parse(test.RunsJson) as JsonArray ?? [];
         runs.Insert(0, run); while (runs.Count > 20) runs.RemoveAt(runs.Count - 1);

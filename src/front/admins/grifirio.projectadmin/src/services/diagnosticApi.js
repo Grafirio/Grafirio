@@ -17,6 +17,7 @@ export const runDiagnosticTest = async (id) => (await client.post(`${BASE}/tests
 export const STATUS = { preparing: 'Hazırlanıyor', submitted: 'İletildi', processing: 'Çalışıyor', completed: 'Tamamlandı',
   failed: 'Başarısız', clarification: 'Açıklama gerekiyor', cancelled: 'İptal edildi', cancelling: 'İptal ediliyor' };
 export const ERRORS = { empty_result: 'Kayıt bulunamadı', insufficient_data: 'Veri yetersiz', timeout: 'Süre aşıldı',
+  entity_filter_mismatch: 'Ad / kod eşleme çelişkisi',
   invalid_parameters: 'Geçersiz parametreler', scope_mismatch: 'Kapsam uyuşmazlığı', translation_failed: 'Soru çevrilemedi',
   request_rejected: 'İstek reddedildi', execution_failed: 'Çalıştırma hatası' };
 export const STAGES = { received: 'İstek alındı', translation: 'Soru yorumlandı', validation: 'Parametre doğrulama', execution: 'Analiz çalıştırma' };
