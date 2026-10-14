@@ -10,7 +10,7 @@ namespace Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 
 public static class QueryDiagnostics
 {
-    public const string PromptVersion = "question-translation-v2-explicit-entity";
+    public const string PromptVersion = "question-translation-v3-metric-rules";
     private static readonly Regex PrivateText = new(@"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)\d{11}(?!\d)", RegexOptions.Compiled);
     public static string Mask(string? text) => PrivateText.Replace(text ?? "", "[gizlendi]");
     public static string SafeText(string? text)
@@ -60,6 +60,13 @@ public static class QueryDiagnostics
 
     public static void Finish(QueryDiagnostic row, IResult? result, Exception? exception, string outcome, int duration)
     {
+        // The worker can finish during submit. HTTP preparation must not overwrite its terminal status.
+        if (outcome == "submitted" && exception is null && row.Stage.StartsWith("execution_", StringComparison.Ordinal))
+        {
+            row.DurationMs = Math.Max(row.DurationMs, duration);
+            if (row.Status is "processing" or "queued" or "cancelling") row.CompletedAt = null;
+            return;
+        }
         row.DurationMs = duration;
         row.CompletedAt = DateTime.UtcNow;
         var status = (result as IStatusCodeHttpResult)?.StatusCode ?? 200;

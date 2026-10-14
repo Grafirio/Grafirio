@@ -140,6 +140,7 @@ function EvidenceNote({ evidence }) {
 
 export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   const rootRef = useRef(null);
+  const [printImage, setPrintImage] = useState(null);
 
   // Zeminin gerçekten koyu olup olmadığı hesaplanmış arka plandan okunuyor;
   // tema adına güvenmek yetmiyor (bkz. chartTheme.resolveTheme).
@@ -160,6 +161,20 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   const chartType = prepared.type;
   const labels = prepared.data?.labels ?? [];
   const rawDatasets = prepared.data?.datasets;
+  useEffect(() => {
+    if (!data?.printMode || !prepared.valid || prepared.type === 'table') return;
+    let secondFrame;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const canvas = rootRef.current?.querySelector('canvas');
+        if (canvas) {
+          ChartJS.getChart(canvas)?.render();
+          setPrintImage(canvas.toDataURL('image/png'));
+        }
+      });
+    });
+    return () => { cancelAnimationFrame(firstFrame); if (secondFrame) cancelAnimationFrame(secondFrame); };
+  }, [data, prepared.valid, prepared.type, theme]);
 
   const finalDatasets = useMemo(() => {
     if (!prepared.valid) return [];
@@ -261,6 +276,7 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   };
 
   const options = {
+    animation: data?.printMode ? false : undefined,
     responsive: true,
     maintainAspectRatio: false,
     layout: { padding: { top: 4, right: 8, bottom: 0, left: 0 } },
@@ -374,7 +390,7 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
   };
 
   return (
-    <div className="bi-node bi-chart-node" ref={rootRef}>
+    <div className={`bi-node bi-chart-node${printImage ? ' bi-print-chart-ready' : ''}`} ref={rootRef}>
       <div className="bi-node-header">
         <span className="bi-node-icon">{chartType === 'table' ? '📋' : '📊'}</span>
         <span className="bi-node-title">{data?.title || (chartType === 'table' ? 'Tablo' : 'Grafik')}</span>
@@ -382,6 +398,7 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
         <span className="bi-node-type-badge">{chartType === 'table' ? 'Tablo' : 'Chart'}</span>
       </div>
       <div className="bi-chart-body">
+        {printImage && <img className="bi-print-chart-image" src={printImage} alt={data?.title || 'Grafik'} />}
         {prepared.valid ? renderChart() : (
           <div className="gf-alert gf-alert--danger" role="alert">
             Grafik gösterilemiyor: {prepared.error}

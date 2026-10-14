@@ -33,6 +33,7 @@ public static class AgentAnalyzeEndpoints
 {
     public static void MapAgentAnalyzeEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapMetricRuleEndpoints();
         var group = app.MapGroup("/api/agent")
             .RequireAuthorization("CompanyAccess")
             .WithTags("AI Agent")
@@ -148,6 +149,9 @@ public static class AgentAnalyzeEndpoints
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };
+        var previousDictionary = previous.OrderByDescending(c => c.CreatedAt).FirstOrDefault()?.ConfigJson;
+        var previousRules = Infrastructure.Telemetry.QueryDiagnostics.Parse(previousDictionary)?["metricRules"];
+        config.ConfigJson = new JsonObject { ["metricRules"] = previousRules?.DeepClone() ?? new JsonArray() }.ToJsonString();
         db.AnalysisConfigs.Add(config);
         await db.SaveChangesAsync(ct);
 

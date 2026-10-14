@@ -238,6 +238,7 @@ public sealed class PyCaretQueryService(
         {
             await db.SaveChangesAsync(ct);
             RecordTerminal(originalStatus, query);
+            await UpdateDiagnosticAsync(query, ct);
             return;
         }
 
@@ -254,6 +255,56 @@ public sealed class PyCaretQueryService(
         // birden gorebiliyor, CAS'i ise yalnizca biri geciyor.
         if (written == 1) RecordTerminal(originalStatus, query);
         await entry.ReloadAsync(ct);
+        await UpdateDiagnosticAsync(query, ct);
+    }
+
+    private async Task UpdateDiagnosticAsync(QueryHistory query, CancellationToken ct)
+    {
+        // Diagnostics are observational: their failure must never turn a saved result into an error.
+        try
+        {
+            var row = await db.QueryDiagnostics.FirstOrDefaultAsync(d => d.QueryId == query.Id, ct);
+            if (row is null || row.CompletedAt is not null && row.Status != "submitted") return;
+            var stage = "execution_" + query.Status;
+            if (row.Stage != stage) QueryDiagnostics.Step(row, stage);
+            row.Status = query.Status;
+            row.CompletedAt = IsActive(query) ? null : query.CompletedAt;
+            row.DurationMs = (int)Math.Min(int.MaxValue, Math.Max(0,
+                ((query.CompletedAt ?? DateTime.UtcNow) - row.CreatedAt).TotalMilliseconds));
+            var result = QueryDiagnostics.Parse(query.ResultJson);
+            if (query.Status == "failed")
+            {
+                row.Error = QueryDiagnostics.SafeText(result?["error"]?.ToString());
+                row.ErrorCode = result?["audit"]?["errorCode"]?.ToString() ?? QueryDiagnostics.Classify(row.Error);
+            }
+            var context = QueryDiagnostics.Parse(row.ContextJson) as JsonObject ?? new JsonObject();
+            // Keep execution metadata, but never copy raw result tables into diagnostic logs.
+            var audit = result?["audit"] as JsonObject;
+            var metadata = new JsonObject();
+            foreach (var key in new[] { "analysisType", "targetTable", "resolvedTargetColumn", "aggregation",
+                "rowsRead", "groupCount", "periodCount", "filledGaps", "horizon", "forecastModel",
+                "durationMs", "events", "reportVersion", "errorCode", "truncated" })
+                if (audit?[key] is { } value) metadata[key] = value.DeepClone();
+            metadata["snapshotHash"] = result?["report"]?["snapshotHash"]?.DeepClone();
+            context["execution"] = metadata;
+            row.ContextJson = QueryDiagnostics.SafeJson(context.ToJsonString());
+            if (db.Database.IsRelational())
+            {
+                // A delayed progress poll cannot undo a terminal diagnostic written by another poll.
+                await db.QueryDiagnostics.Where(d => d.Id == row.Id && (d.CompletedAt == null || d.Status == "submitted")
+                        && db.QueryHistories.Any(q => q.Id == query.Id && q.Status == query.Status && q.ResultJson == query.ResultJson))
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.Stage, row.Stage).SetProperty(d => d.Status, row.Status)
+                        .SetProperty(d => d.CompletedAt, row.CompletedAt).SetProperty(d => d.DurationMs, row.DurationMs)
+                        .SetProperty(d => d.Error, row.Error).SetProperty(d => d.ErrorCode, row.ErrorCode)
+                        .SetProperty(d => d.ContextJson, row.ContextJson).SetProperty(d => d.EventsJson, row.EventsJson), ct);
+                await db.Entry(row).ReloadAsync(ct);
+            }
+            else await db.SaveChangesAsync(ct);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Execution diagnostic update failed for {QueryId}", query.Id);
+        }
     }
 
     /// <summary>

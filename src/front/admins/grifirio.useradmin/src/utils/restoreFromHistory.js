@@ -34,6 +34,11 @@ export default function restoreFromHistory(queries = [], relationshipDecisions =
       if (chart) {
         card.chart = chart;
         card.chartType = chart.type || card.chartType;
+        card.report = result.report ?? null;
+        card.insights = result.insights || [];
+        card.resultCharts = result.charts || [];
+        card.resultQueryId = item.queryId;
+        card.resultQuestion = item.question;
       }
       card.evidence = result.audit?.evidence ?? null;
       card.audit = { ...(result.audit || {}), llmParameters: item.llmParameters };

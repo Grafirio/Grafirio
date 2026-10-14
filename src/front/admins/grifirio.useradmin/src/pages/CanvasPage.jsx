@@ -15,6 +15,8 @@ import {
   getAgentQueryHistory, submitQueryChartType,
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
+import AnalysisPresentation from '../components/Canvas/AnalysisPresentation';
+import MetricRulesDialog from '../components/Canvas/MetricRulesDialog';
 
 
 /* ─────────────────────────────────────────────────────────────
@@ -25,6 +27,8 @@ export default function CanvasPage() {
   const location = useLocation();
 
   const [analysis, setAnalysis] = useState(null);
+  const [presentationOpen, setPresentationOpen] = useState(false);
+  const [metricRulesOpen, setMetricRulesOpen] = useState(false);
 
   /* Sol paneldeki sohbet KALDIRILDI. Bütün kartların soruları tek akışta
      toplandığı için ayrı konuların cümleleri alt alta düşüyor ve hangi
@@ -274,6 +278,11 @@ export default function CanvasPage() {
         // Grafik yalnızca YENİSİ geldiyse değişiyor: cevabı grafik
         // üretmeyen bir devam sorusu, ekrandaki grafiği silmemeli.
         chart: chart ?? d.chart,
+        report: chart ? res.report ?? null : d.report,
+        insights: chart ? res.insights || [] : d.insights,
+        resultCharts: chart ? res.charts : d.resultCharts,
+        resultQueryId: chart ? res.queryId : d.resultQueryId,
+        resultQuestion: chart ? text : d.resultQuestion,
         chartType: d.chartType || chart?.type || DEFAULT_CHART_TYPE,
         pendingConfirmations: getPendingConfirmations(res),
         needsRelationshipClarification: false,
@@ -348,6 +357,8 @@ export default function CanvasPage() {
         </div>
 
         <div className="cp-topbar-info">
+          <button disabled={!analysis} onClick={() => setMetricRulesOpen(true)}>Metrik kuralları</button>
+          <button disabled={!canvasNodes.some(n => n.data?.report && !n.data?.loading)} onClick={() => setPresentationOpen(true)}>PDF sunusu</button>
           {/* Bağlantı okunamadıysa söyleniyor. Yan panel kalktı ama bu uyarı
               onunla birlikte gitmemeli: sebebi yazmayan boş bir tuval,
               kullanıcıyı kendi hatasını aramaya gönderir. */}
@@ -396,6 +407,8 @@ export default function CanvasPage() {
           onConfirm={confirmDelete}
         />
       )}
+      {presentationOpen && <AnalysisPresentation nodes={canvasNodes} database={analysis?.database} onClose={() => setPresentationOpen(false)} />}
+      {metricRulesOpen && <MetricRulesDialog connectionId={connectionId} onClose={() => setMetricRulesOpen(false)} />}
     </div>
   );
 }
