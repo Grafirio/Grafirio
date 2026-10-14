@@ -7,6 +7,7 @@ using Grafirio.Shared.Identity.Services;
 using Microsoft.EntityFrameworkCore;
 using static Grafirio.DataAnalysis.Api.Features.Agent.AgentAnalyzeEndpoints;
 using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
+using Grafirio.DataAnalysis.Api.Application.Analysis;
 
 namespace Grafirio.DataAnalysis.Api.Features.Agent;
 
@@ -39,6 +40,8 @@ public static class MetricRuleEndpoints
             DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct) =>
         {
             if (identity.CurrentCompanyId is not { } company) return Results.Forbid();
+            if (!GeneralAnalysisPolicy.Read()["customizationEnabled"]!.GetValue<bool>())
+                return Results.Conflict(new { error = "Şu anda tüm analizlerde ortak kurallar uygulanıyor. Alan bazlı özelleştirme kapalıdır." });
             var companyId = company.ToString();
             var config = await db.AnalysisConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == request.ConfigId
                 && c.ConnectionId == connectionId && c.CompanyId == companyId && c.IsActive

@@ -36,7 +36,7 @@ test('long wide tables keep all cells across pages with repeated identity column
 });
 
 test('report and warnings survive transport and history restoration', () => {
-  const report = { version: 'analysis-report-v1', tables: [] };
+  const report = { version: 'analysis-report-v1', tables: [], notices: ['5 yıl istendi; 12 ay gösteriliyor.'] };
   const result = { charts: [{ type: 'bar' }], report, insights: [{ type: 'warning', description: 'Partial' }] };
   assert.deepEqual(resolveAgentResponse({ status: 'completed', result }, 'q').report, report);
   const restored = restoreFromHistory([{ queryId: 'q', status: 'completed', question: 'Total', result }]).nodes[0].data;

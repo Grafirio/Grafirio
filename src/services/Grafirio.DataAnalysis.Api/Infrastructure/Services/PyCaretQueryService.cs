@@ -283,7 +283,7 @@ public sealed class PyCaretQueryService(
             var metadata = new JsonObject();
             foreach (var key in new[] { "analysisType", "targetTable", "resolvedTargetColumn", "aggregation",
                 "rowsRead", "groupCount", "periodCount", "filledGaps", "horizon", "forecastModel",
-                "durationMs", "events", "reportVersion", "errorCode", "truncated" })
+                "durationMs", "events", "reportVersion", "policyVersion", "requestedHorizon", "horizonNotice", "errorCode", "truncated" })
                 if (audit?[key] is { } value) metadata[key] = value.DeepClone();
             metadata["snapshotHash"] = result?["report"]?["snapshotHash"]?.DeepClone();
             context["execution"] = metadata;

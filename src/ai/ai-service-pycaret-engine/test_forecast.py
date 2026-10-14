@@ -270,9 +270,6 @@ class ForecastTests(unittest.TestCase):
             "relationships": [],
         }
         fake = fake or FakeForecasterModule()
-        config["metricRules"] = [{"table": "dbo.Calculations", "column": "Amount", "label": "Tutar", "unit": "TL",
-                                  "allowedAggregations": ["sum", "avg", "min", "max", "count"],
-                                  "forecastEnabled": True, "missingPeriodPolicy": "zero", "maxHorizon": 36}]
         with patch.dict(sys.modules, {"forecaster": fake}):
             return analyzer.run_analysis(config, params), port, fake
 
@@ -280,43 +277,23 @@ class ForecastTests(unittest.TestCase):
     def months(pairs):
         return [{"Donem": period, "value": value} for period, value in pairs]
 
-    def test_forecast_fills_gaps_and_charts_history_plus_future(self):
-        result, port, fake = self.analyze(self.months([
-            ("2026-01", 10), ("2026-02", 20), ("2026-04", 40),
-            ("2026-05", 50), ("2026-06", 60),
-        ]), horizon=3)
+    def test_forecast_charts_history_plus_future_under_general_rules(self):
+        rows = self.months([(f"2025-{m:02}", m * 10) for m in range(1, 13)])
+        result, port, fake = self.analyze(rows, horizon=3)
         self.assertTrue(result["success"], result)
-
-        self.assertEqual(len(fake.calls), 1)
-        call = fake.calls[0]
-        self.assertEqual(call["horizon"], 3)
-        self.assertEqual(call["seasonality"], 12)
-        self.assertEqual([p["period"] for p in call["series"]],
-                         ["2026-01", "2026-02", "2026-03", "2026-04",
-                          "2026-05", "2026-06"])
-        self.assertEqual(call["series"][2]["value"], 0.0)
-
-        chart = result["charts"][0]
-        self.assertEqual(chart["type"], "line")
-        data = chart["data"]
-        self.assertEqual(len(data["labels"]), 9)
+        self.assertEqual(fake.calls[0]["horizon"], 3)
+        data = result["charts"][0]["data"]
+        self.assertEqual(len(data["labels"]), 15)
         self.assertEqual([d["label"] for d in data["datasets"]],
                          ["Gerçekleşen", "Tahmin", "Alt sınır (yaklaşık)", "Üst sınır (yaklaşık)"])
         actual, predicted, lower, upper = [d["data"] for d in data["datasets"]]
-        self.assertEqual(actual[-3:], [None, None, None])
-        self.assertEqual(actual[:2], [10.0, 20.0])
-        # The bridge point keeps the line connected; it is the last actual.
-        self.assertEqual(predicted[:5], [None, None, None, None, None])
-        self.assertEqual(predicted[5], 60.0)
-        self.assertEqual(lower[:6], [None] * 6)
-        self.assertEqual(upper[6:], [61.0, 61.0, 61.0])
-
-        self.assertEqual(result["audit"]["forecastModel"], "FakeModel")
-        self.assertEqual(result["audit"]["filledGaps"], 1)
-        self.assertEqual(result["audit"]["periodCount"], 6)
-        self.assertEqual(result["audit"]["horizon"], 3)
-        self.assertIn("Boş dönemler", str(result["insights"]))
-        self.assertIn("öngörü", str(result["insights"]).lower())
+        self.assertEqual(actual[-3:], [None] * 3)
+        self.assertEqual(predicted[:11], [None] * 11)
+        self.assertEqual(predicted[11], 120.0)
+        self.assertEqual(lower[:12], [None] * 12)
+        self.assertEqual(result["audit"]["periodCount"], 12)
+        self.assertEqual(result["audit"]["filledGaps"], 0)
+        self.assertEqual(result["report"]["notices"], [])
 
     def test_forecast_requires_monthly_time_axis(self):
         for overrides in [
@@ -341,18 +318,17 @@ class ForecastTests(unittest.TestCase):
                 self.assertEqual(port.queries, [])
                 self.assertEqual(fake.calls, [])
 
-    def test_forecast_needs_four_periods(self):
+    def test_forecast_needs_twelve_periods(self):
         result, port, fake = self.analyze(self.months([
             ("2026-01", 10), ("2026-02", 20), ("2026-03", 30),
         ]))
         self.assertFalse(result["success"])
-        self.assertIn("en az 4", result["error"])
+        self.assertIn("en az 12", result["error"])
         self.assertEqual(fake.calls, [])
 
     def test_forecast_horizon_is_clamped_and_defaulted(self):
-        rows = self.months([("2026-01", 1), ("2026-02", 2),
-                            ("2026-03", 3), ("2026-04", 4)])
-        for horizon, expected in [(99, 36), (0, 1), ("abc", 6), (None, 6)]:
+        rows = self.months([(f"2025-{m:02}", m) for m in range(1, 13)])
+        for horizon, expected in [(99, 12), (60, 12), (12, 12), (0, 1), ("abc", 6), (None, 6)]:
             with self.subTest(horizon=horizon):
                 result, _, fake = self.analyze(rows, horizon=horizon)
                 self.assertTrue(result["success"], result)

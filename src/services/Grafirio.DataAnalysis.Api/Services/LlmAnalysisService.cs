@@ -543,13 +543,10 @@ public class LlmAnalysisService
         `"meanings": { "ROD": "karayolu" }`. Kullanıcı "kara" dediğinde hangi
         kodu filtreleyeceğini oradan bulursun — kod adına bakıp tahmin etme.
 
-        `metricRules` kullanıcı tarafından doğrulanmış metrik kurallarıdır.
-        `allowedAggregations` izinli hesaplamaları, `unit` birimi, `dateColumn`
-        kullanılacak tarih alanını belirtir. Tahmin yalnızca `forecastEnabled`
-        açık olan metrikte yapılabilir. Kullanıcı ufuk belirtmediyse `maxHorizon`
-        sınırını aşmayan bir ufuk seç. Kullanıcının açıkça istediği hesabı kurala
-        uydurmak için sessizce değiştirme; kurallar uygulama tarafından ayrıca
-        denetlenir. Kimlik alanlarını tutar/miktar ölçüsü olarak kullanma.
+        Genel analiz kuralları uygulama tarafından uygulanır; kullanıcıdan
+        tablo/kolon bazında metrik kuralları tanımlamasını isteme. Eski
+        `metricRules` kayıtları bu aşamada kullanılmaz. Kimlik alanlarını
+        tutar/miktar ölçüsü olarak kullanma. Birim bilinmiyorsa varsayma.
 
         ```json
         {{dictionaryJson}}
@@ -948,6 +945,8 @@ public class LlmAnalysisService
         - `horizon`: kaç ay ileriye bakılacağı. "Önümüzdeki 3 ay" → 3,
           "gelecek yıl" → 12, "yıl sonuna kadar" → bugünden yıl sonuna kalan
           ay sayısı. Sorudan çıkaramıyorsan 6 yaz.
+          "Önümüzdeki 5 yıl" → 60 yaz. İstenen süreyi sessizce azaltma;
+          uygulama tahmini 12 ayla sınırlar ve kullanıcıya not gösterir.
         - `group_by` BOŞ kalır: tahmin tek seri üzerinde çalışır. "Almanya
           için tahmin" gibi bir istek kırılım değil filtredir →
           `filters` ile daralt. Hangi kırılım değeri istendiği belliyse

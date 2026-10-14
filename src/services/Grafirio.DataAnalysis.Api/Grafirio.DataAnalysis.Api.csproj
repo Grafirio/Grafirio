@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="..\..\ai\ai-service-pycaret-engine\analysis_policy.json" LogicalName="Grafirio.GeneralAnalysisPolicy.json" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />

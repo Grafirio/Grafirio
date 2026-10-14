@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import BiChartNode from './nodes/BiChartNode';
 import AnalysisExplanation from './nodes/AnalysisExplanation';
+import AnalysisNotices from './nodes/AnalysisNotices';
 import { presentationEntries, presentationAvailability, tablePages } from '../../utils/analysisPresentation';
 import { IconFileTypePdf, IconArrowRight, IconPrinter, IconX } from '@tabler/icons-react';
 import './AnalysisPresentation.css';
@@ -63,6 +64,7 @@ export default function AnalysisPresentation({ nodes, database, onClose }) {
           {entry.charts.filter(c => c.type !== 'table').map((chart, ci) => <section className="presentation-page" key={ci}>
             <p className="presentation-eyebrow">Analiz {index + 1} · Grafik {ci + 1}</p><h2>{chart.title}</h2><p>{entry.question}</p>
             <BiChartNode data={{ ...chart, printMode: true, displayType: ci === 0 ? entry.chartType : chart.type }} />
+            <AnalysisNotices notices={entry.report.notices} />
             <p>{entry.report.interpretation}</p><p>{entry.report.method}</p>
             {entry.report.warnings.map((w, wi) => <p className="analysis-warnings" key={wi}>{w}</p>)}
           </section>)}

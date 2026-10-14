@@ -1,0 +1,9 @@
+{
+  "version": "general-analysis-v1",
+  "granularity": "month",
+  "minHistoryPeriods": 12,
+  "maxHorizon": 12,
+  "defaultHorizon": 6,
+  "missingPeriodPolicy": "reject",
+  "customizationEnabled": false
+}

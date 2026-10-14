@@ -16,7 +16,7 @@ import {
 } from '../services/dataAnalysisService';
 import './CanvasPage.css';
 import AnalysisPresentation from '../components/Canvas/AnalysisPresentation';
-import MetricRulesDialog from '../components/Canvas/MetricRulesDialog';
+import AnalysisRulesDialog from '../components/Canvas/AnalysisRulesDialog';
 import CanvasActions from '../components/Canvas/CanvasActions';
 
 
@@ -377,7 +377,7 @@ export default function CanvasPage() {
             </span>
           )}
         </div>
-        <CanvasActions nodes={canvasNodes} hasConnection={Boolean(analysis)} onMetricRules={() => setMetricRulesOpen(true)} onPresentation={() => setPresentationOpen(true)} />
+        <CanvasActions nodes={canvasNodes} onAnalysisRules={() => setMetricRulesOpen(true)} onPresentation={() => setPresentationOpen(true)} />
       </div>
 
       {/* ══ TUVAL ════════════════════════════════════════════
@@ -408,7 +408,7 @@ export default function CanvasPage() {
         />
       )}
       {presentationOpen && <AnalysisPresentation nodes={canvasNodes} database={analysis?.database} onClose={() => setPresentationOpen(false)} />}
-      {metricRulesOpen && <MetricRulesDialog connectionId={connectionId} onClose={() => setMetricRulesOpen(false)} />}
+      {metricRulesOpen && <AnalysisRulesDialog onClose={() => setMetricRulesOpen(false)} />}
     </div>
   );
 }

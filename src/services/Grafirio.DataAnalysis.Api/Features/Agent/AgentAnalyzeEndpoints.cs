@@ -34,6 +34,8 @@ public static class AgentAnalyzeEndpoints
     public static void MapAgentAnalyzeEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMetricRuleEndpoints();
+        app.MapGet("/api/agent/analysis-policy", () => Results.Ok(GeneralAnalysisPolicy.Read()))
+            .RequireAuthorization("CompanyAccess").RequirePermission(AppPermissions.AnalysisRead);
         var group = app.MapGroup("/api/agent")
             .RequireAuthorization("CompanyAccess")
             .WithTags("AI Agent")

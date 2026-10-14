@@ -1,9 +1,11 @@
 import React from 'react';
+import AnalysisNotices from './AnalysisNotices';
 
 export default function AnalysisExplanation({ report, insights = [], queryId, printMode = false }) {
   return <section className="analysis-explanation">
     <h3>Analiz açıklaması</h3>
     {report ? <>
+      <AnalysisNotices notices={report.notices} />
       <dl>
         <dt>Ölçü / birim</dt><dd>{report.metric} / {report.unit}</dd>
         <dt>Veri kaynağı</dt><dd>{report.source || 'Belirtilmedi'}</dd>
@@ -26,6 +28,6 @@ export default function AnalysisExplanation({ report, insights = [], queryId, pr
         </table></div>
       </details>)}
     </> : <p>Bu eski sonuçta yöntem açıklaması kaydedilmemiş. Açıklamalı bir sonuç için analizi yeniden çalıştırın.</p>}
-    {insights.filter(i => !report || i.type !== 'warning').map((i, index) => <p key={index}><strong>{i.title}: </strong>{i.description}</p>)}
+    {insights.filter(i => !report || !['warning', 'notice'].includes(i.type)).map((i, index) => <p key={index}><strong>{i.title}: </strong>{i.description}</p>)}
   </section>;
 }
