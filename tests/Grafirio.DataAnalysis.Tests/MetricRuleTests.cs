@@ -5,6 +5,15 @@ namespace Grafirio.DataAnalysis.Tests;
 
 public class MetricRuleTests
 {
+    [Fact]
+    public void GeneralPolicyUsesSharedOneYearLimitAndDisablesCustomization()
+    {
+        var policy = Grafirio.DataAnalysis.Api.Application.Analysis.GeneralAnalysisPolicy.Read();
+        Assert.Equal(12, policy["maxHorizon"]!.GetValue<int>());
+        Assert.Equal(12, policy["minHistoryPeriods"]!.GetValue<int>());
+        Assert.False(policy["customizationEnabled"]!.GetValue<bool>());
+        Assert.Null(policy["columns"]);
+    }
     private static JsonObject Dictionary() => JsonNode.Parse("""
         {"columns":[{"table":"dbo.Orders","column":"Amount","role":"measure","dataType":"decimal"},
         {"table":"dbo.Orders","column":"Date","role":"date","dataType":"datetime"},

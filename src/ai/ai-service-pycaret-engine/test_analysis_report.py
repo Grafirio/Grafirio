@@ -16,51 +16,62 @@ def dictionary(policy="reject", minimum=4, horizon=6):
 
 
 class ReportTests(unittest.TestCase):
-    def test_rejected_metric_never_reads_data_and_keeps_trace(self):
+    def test_identifier_measure_rejected_without_user_configuration(self):
         port = TimePort([])
         result = AgentAnalyzer(port).run_analysis(dictionary(), {"target_table": "dbo.Calculations",
-            "target_column": "Amount", "analysis_type": "aggregation", "aggregation": "avg"})
+            "target_column": "Id", "analysis_type": "aggregation", "aggregation": "sum"})
         self.assertFalse(result["success"])
         self.assertEqual(port.queries, [])
-        self.assertEqual(result["audit"]["errorCode"], "metric_validation_failed")
         self.assertEqual(result["audit"]["events"][-1]["stage"], "failed")
 
-    def test_all_measures_and_qualified_columns_obey_rules(self):
+    def test_all_measures_and_qualified_identifiers_obey_general_rules(self):
         for params in [
-            {"target_column": "dbo.Calculations.Amount", "aggregation": "avg"},
-            {"target_column": "Amount", "measures": [{"column": "Amount", "aggregation": "sum"}, {"column": "Amount", "aggregation": "avg"}]},
-            {"target_column": "Id", "aggregation": "sum"},
+            {"target_column": "dbo.Calculations.Id", "aggregation": "sum"},
+            {"target_column": "Amount", "measures": [{"column": "Amount", "aggregation": "sum"}, {"column": "Id", "aggregation": "avg"}]},
         ]:
             with self.assertRaises(ValueError):
                 check_metrics(dictionary(), {"target_table": "dbo.Calculations", **params})
 
-    def test_missing_months_rejected_unless_explicitly_zero(self):
-        rows = [{"Donem": f"2026-{m:02}", "value": m * 10} for m in (1, 2, 4, 5, 6)]
+    def test_missing_months_rejected_even_with_old_zero_rule(self):
+        rows = [{"Donem": f"2025-{m:02}", "value": m * 10} for m in range(1, 13) if m != 3]
         params = {"target_table": "dbo.Calculations", "target_column": "Amount", "aggregation": "sum",
-                  "analysis_type": "forecast", "horizon": 3,
-                  "time_axis": {"column": "CreatedDate", "granularity": "month"}}
-        for policy, success in [("reject", False), ("zero", True)]:
-            fake = FakeForecasterModule()
-            with patch.dict("sys.modules", {"forecaster": fake}):
-                result = AgentAnalyzer(TimePort(rows)).run_analysis(dictionary(policy), params)
-            self.assertEqual(result["success"], success)
-            self.assertEqual(bool(fake.calls), success)
-            if success:
-                self.assertEqual(result["report"]["dataPeriod"], {"from": "2026-01", "to": "2026-06"})
-                self.assertEqual(result["report"]["quality"], "exploratory")
-                self.assertEqual(len(result["report"]["tables"][0]["rows"]), 9)
-                self.assertTrue(any(e["stage"] == "data_read" for e in result["audit"]["events"]))
+                  "analysis_type": "forecast", "horizon": 3, "time_axis": {"column": "CreatedDate", "granularity": "month"}}
+        fake = FakeForecasterModule()
+        with patch.dict("sys.modules", {"forecaster": fake}):
+            result = AgentAnalyzer(TimePort(rows)).run_analysis(dictionary("zero"), params)
+        self.assertFalse(result["success"])
+        self.assertEqual(fake.calls, [])
 
-    def test_history_and_horizon_gates_prevent_model_execution(self):
-        rows = [{"Donem": f"2026-{m:02}", "value": m} for m in range(1, 7)]
+    def test_five_year_request_returns_one_year_and_persisted_notice(self):
+        rows = [{"Donem": f"2025-{m:02}", "value": m} for m in range(1, 13)]
         params = {"target_table": "dbo.Calculations", "target_column": "Amount", "aggregation": "sum",
-                  "analysis_type": "forecast", "horizon": 7, "time_axis": {"column": "CreatedDate", "granularity": "month"}}
-        for config in (dictionary(horizon=6), dictionary(minimum=12, horizon=12)):
-            fake = FakeForecasterModule()
-            with patch.dict("sys.modules", {"forecaster": fake}):
-                result = AgentAnalyzer(TimePort(rows)).run_analysis(config, params)
-            self.assertFalse(result["success"])
-            self.assertEqual(fake.calls, [])
+                  "analysis_type": "forecast", "horizon": 60, "chart_title": "5 yıllık tahmin", "description": "5 yıllık sonuç",
+                  "time_axis": {"column": "CreatedDate", "granularity": "month"}}
+        config = dictionary(horizon=36)
+        config["metricRules"] = []
+        fake = FakeForecasterModule()
+        with patch.dict("sys.modules", {"forecaster": fake}):
+            result = AgentAnalyzer(TimePort(rows)).run_analysis(config, params)
+        self.assertTrue(result["success"], result)
+        self.assertEqual(fake.calls[0]["horizon"], 12)
+        self.assertEqual(result["audit"]["requestedHorizon"], 60)
+        self.assertEqual(result["audit"]["horizon"], 12)
+        self.assertIn("5 yıl", result["report"]["notices"][0])
+        self.assertIn("12 aylık", result["charts"][0]["title"])
+        self.assertIn("12 aylık", result["summary"])
+        self.assertEqual(len(result["report"]["tables"][0]["rows"]), 24)
+        self.assertEqual(result["report"]["quality"], "exploratory")
+
+    def test_old_per_metric_rules_cannot_relax_general_history_limit(self):
+        rows = [{"Donem": f"2026-{m:02}", "value": m} for m in range(1, 7)]
+        fake = FakeForecasterModule()
+        with patch.dict("sys.modules", {"forecaster": fake}):
+            result = AgentAnalyzer(TimePort(rows)).run_analysis(dictionary(minimum=4), {
+                "target_table": "dbo.Calculations", "target_column": "Amount", "aggregation": "sum",
+                "analysis_type": "forecast", "horizon": 3, "time_axis": {"column": "CreatedDate", "granularity": "month"}})
+        self.assertFalse(result["success"])
+        self.assertEqual(fake.calls, [])
+        self.assertIn("en az 12", result["error"])
 
     def test_explanation_comes_from_execution_not_llm_description(self):
         result = {"summary": "Hatalı iddia: sinir ağı ve yüzde yüz doğruluk", "insights": [],

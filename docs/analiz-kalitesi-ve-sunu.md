@@ -1,66 +1,61 @@
-# Analiz takibi, metrik kuralları ve PDF sunusu
+# Genel analiz kuralları ve PDF sunusu
 
-Analiz tuvalinin üst çubuğunda **Metrik kuralları** ve **PDF sunusu** bulunur.
-PDF sunusu düğmesi her zaman açılır. Hazır analiz varsa düğmedeki sayı bunu
-gösterir; yoksa sunu ekranı eksik açıklama, çalışan analiz veya boş tuval için
-ne yapılması gerektiğini söyler. Eski sonuçların açıklamaları için analiz yeniden
-çalıştırılmalıdır. Boş sunu ekranı açıkken ilk sonuç tamamlanırsa listeye eklenir.
+Analiz tuvalinin üst çubuğunda **Analiz kuralları** ve **PDF sunusu** bulunur.
+Kullanıcıdan veritabanı alanlarını öğrenmesi veya tek tek metrik tanımlaması istenmez.
+Analiz kuralları ekranı bilgi verir; tablo/kolon listesi indirmez ve ayar formu içermez.
+
+## Ortak kurallar
+
+- Tahmin aylık serilerde çalışır ve en az 12 aylık geçmiş gerektirir.
+- İleri tahmin en fazla 12 aydır. Kullanıcı 5 yıl isterse 12 aylık tahmin üretilir;
+  istenen ve uygulanan süre yeşil çerçeveli bir notla sonucun altında açıklanır.
+- Not sonuçla birlikte saklanır; geçmişten açılınca ve PDF sunusunda korunur.
+- Süre belirtilmezse 6 ay kullanılır. 12 ay ve daha kısa istekler için sınır notu yoktur.
+- Eksik aylar sıfır kabul edilmez; tahmin durdurulur ve çözüm yolu gösterilir.
+- Kimlik alanları tutar/miktar olarak toplanmaz. Birim bilinmiyorsa varsayılmaz.
+- Tahminler keşif amaçlıdır; yaklaşık bantlar doğrulanmış %95 kapsama olarak gösterilmez.
+  Geçmiş dönemlerde başarı ölçümü henüz eklenmemiştir.
+- Alan bazlı özelleştirme şu aşamada kapalıdır. Eski metrik ayarları yeni genel
+  kuralları değiştiremez; eski sonuçların hesaplama kayıtları değişmez.
+
+Ortak kural tanımı `src/ai/ai-service-pycaret-engine/analysis_policy.json` içindedir.
+Python motoru bu dosyayı okur; API aynı dosyayı gömülü kaynak olarak sunar.
+Kural değiştiğinde CI hem motoru hem API'yi yeniden derler.
 
 ## Kullanım
 
-1. Bağlantıyı analiz edip sözlüğü hazır hale getirin.
-2. Metrik kurallarından alanı, iş adını, birimini ve izinli işlemleri seçin.
-3. Tahmin gerekiyorsa tarih alanını, minimum geçmişi ve maksimum ufku tanımlayın.
-   Varsayılan yeni kural 12 dönem geçmiş ve 6 ay ufuktur; tahmin izni ayrıca açılır.
-4. Eksik dönemleri varsayılan olarak reddedin. Kayıt olmamasının gerçek sıfır olduğu
-   doğrulanırsa sayım/toplam için sıfır doldurma seçilebilir. Ortalama boşlukları
-   sıfırla doldurulmaz ve zaman aralığı sıkıştırılarak tahmin edilmez.
-5. Analizi çalıştırın. Grafik veya tablonun altındaki açıklama kaynak, filtreler,
-   yöntem, sütun anlamları ve sınırlamaları içerir.
-6. PDF sunusundan tamamlanmış analizleri seçip sıralayın ve önizleyin.
-   **PDF olarak kaydet / Yazdır** tarayıcının yazdırma penceresini açar.
-   PDF hedefini seçin; başlık/altbilgileri kapatın. Çıktı yatay A4 olarak hazırlanır.
+1. Bağlantının seçili tablolarını analiz edip sözlüğü hazır hale getirin.
+2. Tuvalde görmek istediğiniz sonucu kendi cümlelerinizle sorun.
+3. Grafik veya tablonun altındaki açıklama kaynak, filtreler, yöntem, sütun
+   anlamları, belirsizlikler ve uygulanan süre sınırını gösterir.
+4. PDF sunusundan tamamlanmış analizleri seçip sıralayın ve önizleyin.
+5. **PDF olarak kaydet / Yazdır** tarayıcının yazdırma penceresini açar.
+   PDF hedefini seçin; başlık/altbilgileri kapatın. Çıktı yatay A4 hazırlanır.
 
-## Davranış ve güvence
+PDF düğmesi her zaman açılır. Hazır analiz varsa düğmedeki sayı bunu gösterir;
+yoksa ekran eski sonuç, çalışan analiz veya boş tuval için ne yapılması gerektiğini
+açıklar. Boş sunu ekranı açıkken ilk sonuç tamamlanırsa listeye eklenir. Eski kayıtta
+rapor sözleşmesi yoksa açıklama uydurulmaz; yeniden analiz gerekir.
 
-- Kurallar şirket/bağlantı kapsamında saklanır; değiştirmek veri kaynağı güncelleme
-  yetkisi gerektirir. Sözlük değişmişse eski düzenleme kaydedilmez.
-- Yeniden şema analizinde geçerli kurallar taşınır. Artık geçerli olmayan kurallar
-  kaldırılır ve metrik ekranında yeniden tanımlama uyarısı gösterilir.
-- Kuralları tanımlanmamış ölçülerde mevcut hesaplamalar açıklamalı uyarı taşır.
-  Tahmin için kayıtlı ve tahmine izin verilen bir metrik zorunludur.
-- Açıklama çalıştırılan hesaplamanın izinden hazırlanır; LLM açıklaması yöntemin
-  kanıtı sayılmaz. Sonuç sürümü ve SHA-256 özeti sonuçla birlikte saklanır.
-- Motor doğrulama, veri okuma, sonuç ve hata aşamalarını süreleriyle kaydeder.
-  API takip kaydı tamamlanma/iptal/hata durumuna güncellenir. Ham sonuç tabloları
-  teşhis günlüklerine kopyalanmaz; asıl sonuç mevcut sorgu geçmişinde kalır.
-- Sunu açılırken sonuçların kopyası alınır. Hesap tekrar çalıştırılmaz.
+## Sonuç ve çıktı güvenceleri
+
+- Açıklama hesaplama izinden hazırlanır. Sonuç ve politika sürümü, SHA-256 özeti
+  saklanır. İstatistiksel ilişki nedensellik sayılmaz.
+- Motor aşamaları süreleriyle kaydeder. Ham sonuç tabloları teşhis günlüklerine
+  kopyalanmaz; sorgu geçmişinde kalır.
+- Sunu açılırken sonuçların kopyası alınır; hesap yeniden çalıştırılmaz.
   Başarısız takip sorusu önceki grafiğin sonuç kimliğini değiştirmez.
-- Uzun tablolar satır ve sütun gruplarına bölünür; ilk tanımlayıcı sütun tekrarlanır.
-  Grafikler yazdırma sırasında boyut değişiminden kesilmemesi için görüntüye alınır.
-- Ekrandaki ayrıntı tablosu ilk 100 satırı açıkça belirtilerek gösterir. Sunu seçimi
-  toplam 2.000 tablo satırıyla sınırlıdır; daha büyük çıktı sessizce kesilmez,
-  kullanıcıdan analizi filtrelemesi veya daha az sonuç seçmesi istenir.
-- Eski kayıtlarda yeni rapor sözleşmesi yoksa açıklama uydurulmaz; yeniden analiz
-  gerekir. Bu kayıtlar yeni sunu seçimine alınmaz.
-
-## Mevcut sınırlar
-
-Tahmin başarısını geçmiş dönemlerde ölçen doğrulama bu değişikliğin kapsamında
-değildir. Tahminler açıkça keşif amaçlı gösterilir. Yaklaşık bantlar doğrulanmış
-%95 tahmin aralığı olarak etiketlenmez. İstatistiksel ilişkiler nedensellik sayılmaz.
-PowerPoint dosyası ve otomatik sunucu PDF üretimi eklenmemiştir; PDF tarayıcı
-yazdırma akışıyla alınır.
+- Uzun tablolar satır ve sütun gruplarına bölünür. Grafikler yazdırma sırasında
+  eksenlerinin kesilmemesi için görüntüye alınır.
+- Ekrandaki tablo ilk 100 satırı açıkça belirtilerek gösterir. Sunu toplam 2.000
+  tablo satırıyla sınırlıdır; büyük seçimler sessizce kesilmez.
+- PowerPoint dosyası ve sunucu PDF üretimi yoktur; PDF tarayıcıdan alınır.
 
 ## Kontrol
 
-- `tests/Grafirio.DataAnalysis.Tests`: kural doğrulaması, mevcut API akışları ve
-  takip kaydının tamamlanması; ham tabloların teşhis kaydına taşınmaması.
-- Python motor testleri: eksik ay, ufuk/geçmiş sınırı, birden fazla ölçü ve
-  nitelenmiş alanlarla kural atlanmaması, açıklamaların kaynağı.
-- Ön yüz testleri: raporun sonuç/geçmiş boyunca korunması, sunu kopyasının
-  değişmemesi, geniş ve uzun tabloların hücre kaybetmeden bölünmesi.
-- `tests/fixtures/presentation.html`: geliştirme sunucusunda örnek sunu;
-  grafik, Türkçe karakterler, 40 satır/8 sütun tablo ve yazdırma görünümünün kontrolü.
+API, Python ve ön yüz testleri; genel politika, uzun ufkun sınırlandırılması,
+notların saklanması, eksik geçmiş/ay kontrolleri, takip kaydı ve sunu kopyasını
+kapsar. `tests/fixtures/presentation.html` geliştirme sunucusunda grafik, Türkçe
+karakterler, uzun tablo, yeşil süre notu ve bilgi ekranını gösterir.
 
-Yeni SQL kolonları eklenmediği için bu değişiklik veritabanı migration gerektirmez.
+Yeni SQL kolonları eklenmediği için veritabanı migration gerekmez.

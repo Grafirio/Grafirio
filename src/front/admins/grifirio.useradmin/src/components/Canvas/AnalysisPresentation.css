@@ -31,6 +31,18 @@
 .analysis-result-table table { border-collapse: collapse; min-width: 100%; }
 .analysis-result-table th, .analysis-result-table td { padding: 6px; border: 1px solid #cbd5df; text-align: left; }
 .analysis-warnings { color: #875100; }
+.analysis-notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #55a977; border-left: 3px solid #278348; border-radius: 8px; background: #f1faf4; color: #235d38; padding: 12px 14px; margin: 12px 0; font-size: 12px; line-height: 1.6; break-inside: avoid; }
+.analysis-notice > svg { flex-shrink: 0; margin-top: 2px; }
+.analysis-notice p { margin: 3px 0 0; }
+.analysis-rules-dialog { max-width: 760px; }
+.analysis-rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 24px 0; }
+.analysis-rules-grid section { border: 1px solid #dce4ef; border-radius: 10px; padding: 20px; background: #f8fafd; }
+.analysis-rules-grid svg { color: #1c3f7c; }
+.analysis-rules-grid h3 { font-size: 15px; margin: 10px 0 8px; }
+.analysis-rules-grid p, .analysis-rules-example p { font-size: 13px; color: #63758c; line-height: 1.7; margin: 0; }
+.analysis-rules-example { border-left: 3px solid #1c3f7c; padding: 14px 18px; background: #eef3fa; border-radius: 0 8px 8px 0; }
+.analysis-rules-footnote { font-size: 12px; color: #63758c; margin-top: 20px; }
+@media (max-width: 600px) { .analysis-rules-grid { grid-template-columns: 1fr; } }
 .analysis-reference { font-size: 11px; opacity: .75; overflow-wrap: anywhere; }
 .presentation-page { background: white; color: #172b45; padding: 24px; margin: 24px 0; border: 1px solid #ccd6e1; overflow-wrap: anywhere; }
 .presentation-page h1 { font-size: 34px; }

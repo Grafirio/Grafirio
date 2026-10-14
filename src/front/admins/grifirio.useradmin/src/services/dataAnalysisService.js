@@ -8,8 +8,7 @@ import { DATA_ANALYSIS_API_URL as API_BASE_URL } from '../constants/dataAnalysis
 import isDesktopApp from '../auth/desktop/isDesktopApp.js';
 import DesktopConnectionError from './connections/DesktopConnectionError.js';
 import normalizeHostAndPort from '../utils/connections/normalizeHostAndPort.js';
-export const getMetricRules = async (connectionId) => (await axios.get(`${API_BASE_URL}/api/agent/config/${connectionId}/metric-rules`)).data;
-export const saveMetricRules = async (connectionId, payload) => (await axios.put(`${API_BASE_URL}/api/agent/config/${connectionId}/metric-rules`, payload)).data;
+export const getAnalysisPolicy = async () => (await axios.get(`${API_BASE_URL}/api/agent/analysis-policy`)).data;
 export { normalizeHostAndPort };
 
 const DATABASE_OPERATION_PATH = /^\/api\/(?:connections\/[^/]+\/test|schema\/|analysis\/|agent\/(?:query$|analyze-connection\/|config\/[^/]+\/answers))/;

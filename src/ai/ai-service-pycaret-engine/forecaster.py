@@ -2,7 +2,7 @@
 Zaman serisi tahmini — /forecast endpoint'inin motoru.
 
 Kisa aylik BI serileri (12-36 nokta) icin statsmodels merdiveni kullanilir:
-  Holt-Winters (>= 2*seasonality nokta) -> Holt (trend) -> OLS lineer trend (<8 nokta)
+  Holt-Winters (>= 2*seasonality nokta) -> Holt (trend) -> OLS yedek lineer trend
 statsmodels pycaret 3.x'in bagimliligidir; imaj buyumez, sonuc deterministiktir
 ve milisaniyeler icinde doner.
 """
@@ -11,6 +11,7 @@ import math
 import re
 
 import numpy as np
+from analysis_policy import GENERAL_POLICY, forecast_horizon
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +46,23 @@ def forecast_series(series: list[dict], horizon: int = 12,
     for p in series:
         try:
             v = float(p['value'])
-            if not math.isnan(v):
-                clean.append({'period': str(p['period']), 'value': v})
+            period = str(p['period'])
+            match = re.fullmatch(r'(\d{4})-(\d{2})', period)
+            if not math.isfinite(v) or not match or not 1 <= int(match.group(2)) <= 12:
+                raise ForecastError("Tahmin için geçerli aylık dönemler ve sonlu sayısal değerler gerekir.")
+            clean.append({'period': period, 'value': v})
         except (KeyError, TypeError, ValueError):
-            continue
+            raise ForecastError("Eksik veya geçersiz tahmin verisi var. Veri aktarımını kontrol edin.")
     clean.sort(key=lambda p: p['period'])
+    for previous, current in zip(clean, clean[1:]):
+        previous_year, previous_month = map(int, previous['period'].split('-'))
+        current_year, current_month = map(int, current['period'].split('-'))
+        if (current_year - previous_year) * 12 + current_month - previous_month != 1:
+            raise ForecastError("Tahmin geçmişinde eksik veya tekrar eden aylar var; dönemler sıfırla doldurulmaz.")
 
-    if len(clean) < 4:
-        raise ForecastError(f"En az 4 veri noktasi gerekir ({len(clean)} verildi)")
-    horizon = max(1, min(int(horizon), 36))
+    if len(clean) < GENERAL_POLICY["minHistoryPeriods"]:
+        raise ForecastError(f"En az {GENERAL_POLICY['minHistoryPeriods']} aylik veri gerekir ({len(clean)} verildi)")
+    requested_horizon, horizon, notice = forecast_horizon(horizon)
 
     values = np.array([p['value'] for p in clean], dtype=float)
     n = len(values)
@@ -112,4 +121,6 @@ def forecast_series(series: list[dict], horizon: int = 12,
 
     logger.info("Forecast uretildi | model=%s | girdi=%d nokta | ufuk=%d",
                 model_name, n, horizon)
-    return {'forecast': forecast, 'model_name': model_name}
+    return {'forecast': forecast, 'model_name': model_name,
+            'requested_horizon': requested_horizon, 'horizon': horizon,
+            'notices': [notice] if notice else [], 'policy_version': GENERAL_POLICY['version']}

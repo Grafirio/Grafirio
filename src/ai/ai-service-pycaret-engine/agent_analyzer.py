@@ -10,6 +10,7 @@ import re
 import time
 from datetime import datetime, timezone
 from analysis_report import build_report, check_metrics, TracedDataPort
+from analysis_policy import GENERAL_POLICY, forecast_horizon
 import pandas as pd
 from typing import Dict, Any, List, Optional
 
@@ -168,6 +169,7 @@ class AgentAnalyzer:
         self.audit["durationMs"] = round((time.perf_counter() - started) * 1000)
         self.audit["completedAt"] = datetime.now(timezone.utc).isoformat()
         self.audit["reportVersion"] = "analysis-report-v1"
+        self.audit["policyVersion"] = GENERAL_POLICY["version"]
         events.append({"stage": "completed" if result.get("success") else "clarification" if result.get("needsClarification") else "failed",
                        "at": self.audit["completedAt"], "elapsedMs": self.audit["durationMs"]})
         self.audit["events"] = events
@@ -179,6 +181,8 @@ class AgentAnalyzer:
             self.audit.setdefault("errorCode", code)
         result["audit"] = dict(self.audit)
         if result.get("success"):
+            if self.audit.get("horizonNotice"):
+                result.setdefault("insights", []).append({"type": "notice", "title": "Tahmin süresi hakkında", "description": self.audit["horizonNotice"]})
             result["report"] = build_report(result, self.audit, config)
         return result
 
@@ -1661,8 +1665,8 @@ class AgentAnalyzer:
     #: birden fazla katman geciyor ve kolon adi surucuden surucuye tasiniyor.
     PERIOD_LABEL = "Donem"
 
-    FORECAST_DEFAULT_HORIZON = 6
-    FORECAST_MAX_HORIZON = 36
+    FORECAST_DEFAULT_HORIZON = GENERAL_POLICY["defaultHorizon"]
+    FORECAST_MAX_HORIZON = GENERAL_POLICY["maxHorizon"]
 
     def _resolve_time_axis(self, time_axis: Any,
                            scope: ColumnScope) -> Optional[PeriodBucket]:
@@ -2035,12 +2039,10 @@ class AgentAnalyzer:
             target_ref = None
             value_label = "Adet"
 
-        horizon = params.get("horizon", self.FORECAST_DEFAULT_HORIZON)
-        try:
-            horizon = int(horizon)
-        except (TypeError, ValueError):
-            horizon = self.FORECAST_DEFAULT_HORIZON
-        horizon = min(max(horizon, 1), self.FORECAST_MAX_HORIZON)
+        requested_horizon, horizon, horizon_notice = forecast_horizon(params.get("horizon", GENERAL_POLICY["defaultHorizon"]))
+        self.audit["requestedHorizon"] = requested_horizon
+        if horizon_notice:
+            self.audit["horizonNotice"] = horizon_notice
 
         taken = {c.lower() for c in scope.known_columns()} | {self.PERIOD_LABEL.lower()}
         alias = "value"
@@ -2099,24 +2101,16 @@ class AgentAnalyzer:
                 last_year, last_month = map(int, series[-1]["period"].split("-"))
                 expected = (last_year - first_year) * 12 + last_month - first_month + 1
                 if expected != len(series):
-                    raise ValueError("Geçmişte eksik aylar var. Veri aktarımını tamamlayın veya gerçek sıfır olduğunu metrik kurallarında doğrulayın.")
+                    raise ValueError("Geçmişte eksik aylar var. Eksik dönemleri içermeyen bir tarih aralığı seçin veya veri aktarımını kontrol edin; boş aylar sıfır kabul edilmez.")
         except ValueError as error:
             return self._error_result(str(error))
         self.audit["periodCount"] = len(series)
         self.audit["filledGaps"] = filled_gaps
         self.audit["dataPeriod"] = {"from": series[0]["period"], "to": series[-1]["period"]} if series else None
 
-        minimum = self._metric_rule.get("minHistoryPeriods", 4)
+        minimum = GENERAL_POLICY["minHistoryPeriods"]
         if len(series) < minimum:
             return self._error_result(f"Tahmin için en az {minimum} dönem gerekir; eldeki {len(series)}. Tarih aralığını genişletin.")
-        maximum = self._metric_rule.get("maxHorizon", 12)
-        if horizon > maximum:
-            return self._error_result(f"Bu metrik için tahmin ufku en fazla {maximum} ay olabilir.")
-
-        if len(series) < 4:
-            return self._error_result(
-                f"Tahmin için en az 4 dönemlik geçmiş gerekir (eldeki: "
-                f"{len(series)}). Tarih aralığını genişletmeyi deneyin.")
 
         from forecaster import ForecastError, forecast_series
         try:
@@ -2166,7 +2160,7 @@ class AgentAnalyzer:
                 # Tahmin yalnizca cizgide okunur; istenen tip ne olursa olsun
                 # pasta/sutunda guven bandi cizilemez.
                 "type": "line",
-                "title": title or f"{value_label} — {horizon} aylık tahmin",
+                "title": f"{value_label} — {horizon} aylık tahmin" if horizon_notice else title or f"{value_label} — {horizon} aylık tahmin",
                 "data": {"labels": labels, "datasets": [
                     {"label": "Gerçekleşen", "data": actual},
                     {"label": "Tahmin", "data": predicted},
@@ -2175,7 +2169,7 @@ class AgentAnalyzer:
                 ]},
             }],
             "insights": insights,
-            "summary": desc or (f"{value_label} için {horizon} aylık ileri "
+            "summary": (desc if not horizon_notice else None) or (f"{value_label} için {horizon} aylık ileri "
                                 f"tahmin üretildi (model: {model_name})."),
         }
 

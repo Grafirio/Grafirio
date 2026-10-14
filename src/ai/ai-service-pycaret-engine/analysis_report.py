@@ -39,56 +39,25 @@ class TracedDataPort:
 
 
 def check_metric(config, params):
-    """Rules come exclusively from the persisted dictionary, never the question."""
+    """Common rules apply without requiring users to identify database columns."""
+    from analysis_policy import GENERAL_POLICY
     table = str(params.get("target_table") or "").replace("[", "").replace("]", "").casefold()
-    if not table and len(config.get("tables", [])) == 1:
-        entry = config["tables"][0]
-        table = str(entry.get("name") if isinstance(entry, dict) else entry).casefold()
-    if table and "." not in table:
-        matches = [str(t.get("name") if isinstance(t, dict) else t) for t in config.get("tables", [])
-                   if str(t.get("name") if isinstance(t, dict) else t).split(".")[-1].casefold() == table]
-        if len(matches) == 1:
-            table = matches[0].casefold()
-    raw_column = str(params.get("target_column") or "").replace("[", "").replace("]", "")
-    if "." in raw_column:
-        qualifier, raw_column = raw_column.rsplit(".", 1)
-        candidates = [str(t.get("name") if isinstance(t, dict) else t) for t in config.get("tables", [])]
-        matches = [t for t in candidates if t.casefold() == qualifier.casefold() or t.split(".")[-1].casefold() == qualifier.casefold()]
-        if len(matches) == 1:
-            table = matches[0].casefold()
-        else:
-            # Unknown aliases must not bypass rules for the underlying metric.
-            matches = [c for c in config.get("columns", []) if str(c.get("column", "")).casefold() == raw_column.casefold()]
-            if len(matches) == 1:
-                table = str(matches[0]["table"]).casefold()
-            elif any(str(r.get("column", "")).casefold() == raw_column.casefold() for r in config.get("metricRules", [])):
-                raise ValueError("Metrik kuralını uygulamak için alanı gerçek tablo adıyla belirtin.")
-    column = raw_column.casefold()
-    rules = config.get("metricRules", [])
-    rule = next((r for r in rules if str(r.get("table", "")).casefold() == table
-                 and str(r.get("column", "")).casefold() == column), None)
-    role = next((c.get("role") for c in config.get("columns", [])
-                 if str(c.get("table", "")).casefold() == table
-                 and str(c.get("column", "")).casefold() == column), None)
+    raw = str(params.get("target_column") or "").replace("[", "").replace("]", "")
+    column = raw.rsplit(".", 1)[-1].casefold()
+    candidates = [c for c in config.get("columns", []) if str(c.get("column", "")).casefold() == column]
+    qualifier = raw.rsplit(".", 1)[0].casefold() if "." in raw else table
+    matches = [c for c in candidates if str(c.get("table", "")).casefold() == qualifier
+               or str(c.get("table", "")).split(".")[-1].casefold() == qualifier]
+    metadata = matches[0] if len(matches) == 1 else candidates[0] if len(candidates) == 1 else None
     kind = str(params.get("analysis_type") or "aggregation").strip().lower()
     if kind not in ("aggregation", "list", "forecast", "statistics", "correlation", "regression", "classification", "anomaly", "clustering"):
         kind = "aggregation"
     aggregation = str(params.get("aggregation") or "count").strip().lower()
-    if kind == "forecast" and rule is None and not params.get("measures"):
-        raise ValueError("Tahmin için önce Metrik kuralları ekranından birim, tarih alanı ve tahmin sınırlarını tanımlayın.")
-    if role == "identifier" and aggregation != "count" and kind in ("aggregation", "forecast"):
-        raise ValueError("Kimlik alanı ölçü olarak kullanılamaz. Bir tutar veya miktar alanı seçin.")
-    if rule and kind in ("aggregation", "forecast", "anomaly"):
-        if aggregation not in rule["allowedAggregations"]:
-            raise ValueError(f"Bu metrik için '{aggregation}' işlemi izinli değil. Metrik kurallarını kontrol edin.")
-        axis = params.get("time_axis") or {}
-        date = str(axis.get("column", "")).replace("[", "").replace("]", "")
-        if rule.get("dateColumn") and axis and (date.split(".")[-1].casefold() != rule["dateColumn"].casefold()
-                or "." in date and date.rsplit(".", 1)[0].casefold() not in (table, table.split(".")[-1])):
-            raise ValueError(f"Bu metriğin zaman alanı {rule['dateColumn']} olmalı.")
-        if kind == "forecast" and not rule.get("forecastEnabled", False):
-            raise ValueError("Bu metrik için tahmin kapalı. Önce metrik kurallarından uygunluğunu doğrulayın.")
-    return rule
+    if kind in ("aggregation", "forecast") and aggregation != "count" and any(c.get("role") == "identifier" for c in (matches or candidates)):
+        raise ValueError("Kimlik alanı ölçü olarak kullanılamaz. Hangi tutar veya miktarı hesaplamak istediğinizi sorunuzu açıklayarak belirtin.")
+    meaning = metadata.get("meaning") if metadata else None
+    return {**GENERAL_POLICY, "source": "platform", "label": meaning if meaning and meaning != "unknown" else raw or "Kayıt sayısı",
+            "unit": "adet" if aggregation == "count" else "Belirtilmedi", "forecastEnabled": True}
 
 
 def check_metrics(config, params):
@@ -101,8 +70,6 @@ def check_metrics(config, params):
                                              "aggregation": measure.get("aggregation")})
                 if index == 0:
                     primary = rule
-    if str(params.get("analysis_type") or "").lower() == "forecast" and primary is None:
-        raise ValueError("Tahmin için seçilen metriğin kurallarını önce tanımlayın.")
     union = params.get("union")
     branches = union if isinstance(union, list) else union.get("with", []) if isinstance(union, dict) else []
     for branch in branches:
@@ -117,8 +84,8 @@ def build_report(result, audit, config=None):
     rule = audit.get("metricRule") or {}
     warnings = [str(i.get("description")) for i in result.get("insights", [])
                 if i.get("type") == "warning" and i.get("description")]
-    if not rule:
-        warnings.append("Bu ölçünün birimi ve iş kuralları henüz doğrulanmadı.")
+    if not rule.get("unit") or rule.get("unit") == "Belirtilmedi":
+        warnings.append("Ölçünün birimi doğrulanmadığı için para birimi veya başka bir birim varsayılmadı.")
     methods = {
         "sum": "Seçilen kayıtların toplamı", "count": "Seçilen kayıtların sayısı",
         "avg": "Seçilen kayıtların ortalaması", "min": "En küçük değer",
@@ -172,16 +139,13 @@ def build_report(result, audit, config=None):
         units = []
         for column in table["columns"]:
             aggregate = re.fullmatch(r"(SUM|AVG|MIN|MAX|COUNT)\(([^)]+)\)", column, re.IGNORECASE)
-            source_column = aggregate.group(2) if aggregate else audit.get("resolvedTargetColumn") if len(table["columns"]) == 2 else None
-            column_rule = next((r for r in (config or {}).get("metricRules", []) if r.get("table") == audit.get("targetTable")
-                                and r.get("column") == source_column), None)
-            unit = column_rule.get("unit") if column_rule else None
+            unit = None
             if column == "Dönem / kategori":
                 unit = None
             elif column.startswith("Adet") or aggregate and aggregate.group(1).upper() == "COUNT":
                 unit = "adet"
-            elif kind == "forecast":
-                unit = "adet" if audit.get("aggregation") == "count" else rule.get("unit")
+            elif kind == "forecast" and audit.get("aggregation") == "count":
+                unit = "adet"
             units.append(unit)
             description = {
                 "Dönem / kategori": "Hesaplamanın gruplandığı dönem veya kategori.",
@@ -216,6 +180,8 @@ def build_report(result, audit, config=None):
         "interpretation": "Satırlar dönem veya kategorileri, sütunlar hesaplanan ölçüleri gösterir. Boş hücreler sıfır değildir."
             if kind != "forecast" else "Gerçekleşen değerler geçmişi, tahmin sütunu geleceğe yönelik öngörüyü gösterir. Tahmin kesin sonuç değildir.",
         "warnings": list(dict.fromkeys(warnings)), "tables": tables,
+        "notices": [audit["horizonNotice"]] if audit.get("horizonNotice") else [],
+        "policyVersion": rule.get("version"),
         "quality": "exploratory" if kind == "forecast" else "warning" if warnings else "rules_applied",
     }
     if audit.get("aggregation") == "count" and kind in ("aggregation", "forecast"):
