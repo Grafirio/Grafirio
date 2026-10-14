@@ -31,6 +31,20 @@ Manager panelinde **Sorgu izleme** (`/diagnostics`) bölümü bulunur. API, gate
 Model deployment adı kaydedilir. Uygulama sürümü önce `GRAFIRIO_BUILD_SHA`, yoksa assembly informational version'dan alınır.
 Dağıtımda `GRAFIRIO_BUILD_SHA` değişkenine commit kimliğini verin. Prompt değiştiğinde `QueryDiagnostics.PromptVersion` değerini güncelleyin.
 
+### Açık ad/kod ifadelerinde çeviri kontrolü
+
+`X adlı ürün`, `X isimli müşteri`, `ürün adı X` ve açık SKU/kod ifadeleri, sözlükteki ilgili
+ad/kod alanlarıyla karşılaştırılır. Sayı içeren bir adın sayısı SKU veya kimlik olarak yorumlanamaz.
+Basit `X adlı ...` ifadelerinde adın tümü korunur; örneğin `Şarjlı tablet 7863` yalnızca `7863` veya
+`Şarjlı tablet` hâline getirilemez. Müşteri, ürün, tedarikçi, depo, kategori ve marka için
+sözlük anlamları, eş anlamlıları ve sorgunun gerçek tablo/alias kapsamı dikkate alınır.
+
+Çelişki varsa modelin çevirisi en fazla **bir kez** yeniden istenir. Çelişki devam ederse
+`entity_filter_mismatch` ile durulur; SQL işi oluşturulmaz. Doğru ilk çeviride ikinci model çağrısı yoktur.
+İki denemenin maskelenmiş yanıtları ve son doğrulama notu teşhis kaydında görülebilir.
+Bu kontrol açık Türkçe ad/kod kalıplarına yöneliktir; belirsiz ifadeler için genel varlık araması
+ve veride eşleşme doğrulamasının yerini tutmaz. Tahmin süresi sınırlarını değiştirmez.
+
 ## İyileştirme sinyalleri
 
 Özet: tamamlanmış/başarısız istekler, boş sonuçlar, açıklama gereksinimi, olumsuz kullanıcı oyları,

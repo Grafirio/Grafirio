@@ -10,7 +10,7 @@ namespace Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 
 public static class QueryDiagnostics
 {
-    public const string PromptVersion = "question-translation-v1";
+    public const string PromptVersion = "question-translation-v2-explicit-entity";
     private static readonly Regex PrivateText = new(@"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)\d{11}(?!\d)", RegexOptions.Compiled);
     public static string Mask(string? text) => PrivateText.Replace(text ?? "", "[gizlendi]");
     public static string SafeText(string? text)
@@ -68,7 +68,7 @@ public static class QueryDiagnostics
         var payload = (result as IValueHttpResult)?.Value;
         var json = payload is null ? null : JsonSerializer.SerializeToNode(payload);
         row.Error = SafeText(exception?.Message ?? json?["error"]?.ToString() ?? json?["detail"]?.ToString());
-        if (row.Status == "failed") row.ErrorCode = Classify(row.Error, row.Stage);
+        if (row.Status == "failed") row.ErrorCode ??= Classify(row.Error, row.Stage);
         Step(row, row.Stage);
     }
 

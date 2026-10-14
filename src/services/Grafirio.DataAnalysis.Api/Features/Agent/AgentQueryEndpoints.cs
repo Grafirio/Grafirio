@@ -326,10 +326,17 @@ public static class AgentQueryEndpoints
         if (outcome.Diagnostic is { } translated)
         {
             translated.ParametersJson = QueryDiagnostics.SafeJson(translation.Json);
+            translated.ErrorCode = translation.ErrorCode;
             var context = QueryDiagnostics.Parse(translated.ContextJson)!.AsObject();
             var raw = QueryDiagnostics.SafeText(translation.RawResponse);
             context["translationResponse"] = raw[..Math.Min(raw.Length, 64000)];
             context["translationResponseTruncated"] = raw.Length > 64000;
+            context["translationAttempts"] = new JsonArray(translation.TranslationAttempts.Select(attempt =>
+            {
+                var safe = QueryDiagnostics.SafeText(attempt);
+                return (JsonNode?)JsonValue.Create(safe[..Math.Min(safe.Length, 64000)]);
+            }).ToArray());
+            context["semanticValidationError"] = QueryDiagnostics.SafeText(translation.SemanticValidationError);
             translated.ContextJson = context.ToJsonString();
         }
 
