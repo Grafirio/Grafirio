@@ -3,8 +3,21 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import AnalysisPresentation from '/src/components/Canvas/AnalysisPresentation.jsx';
 import '/src/components/Canvas/Canvas.css';
+import CanvasActions from '/src/components/Canvas/CanvasActions.jsx';
+import '/src/pages/CanvasPage.css';
+import '/src/styles/theme.css';
 const chart = { title: 'Aylık gelir öngörüsü', type: 'line', data: { labels: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06'], datasets: [{ label: 'Gerçekleşen', data: [100, 130, 0, 170, null, null] }, { label: 'Tahmin', data: [null, null, null, 170, 185, 192] }] } };
 const report = { version: 'analysis-report-v1', generatedAt: '2026-10-14T08:00:00Z', snapshotHash: '0123456789abcdef'.repeat(4), metric: 'Net gelir', unit: 'TL', source: 'dbo.Faturalar', filters: ['Durum = Onaylı'], dataPeriod: { from: '2026-01', to: '2026-04' }, method: 'Holt; 4 aylık geçmişten 2 ay ileri tahmin.', interpretation: 'Gerçekleşen sütunu geçmişi, tahmin sütunu geleceğe yönelik öngörüyü gösterir.', warnings: ['Tahmin başarısı henüz ölçülmedi; sonuç keşif amaçlıdır.', 'Alt ve üst sınırlar yaklaşık belirsizlik bantlarıdır.'], tables: [{ title: 'Tahmin ayrıntıları', columns: ['Dönem', 'Gerçekleşen', 'Tahmin'], columnExplanations: ['Ay', 'Gözlenen tutar', 'Öngörü'], rows: chart.data.labels.map((p, i) => [p, chart.data.datasets[0].data[i], i === 3 ? null : chart.data.datasets[1].data[i]]) }, { title: 'Uzun tablo', columns: ['Kategori', 'A', 'B', 'C', 'D', 'E', 'F', 'G'], columnExplanations: Array(8).fill('Ölçü açıklaması'), rows: Array.from({length: 40}, (_, i) => [`Müşteri ${i + 1} — Türkçe ş, ğ, ı, İ, ö, ü`, ...Array.from({length: 7}, (_, j) => i * 10 + j)]) }] };
 const nodes = [{ id: 'test', type: 'biAnalysisCard', data: { chart, resultCharts: [chart], report, queryId: 'saved-analysis-id', turns: [{ role: 'user', content: 'Önümüzdeki ay gelirimiz nasıl olabilir?' }] } }];
-createRoot(document.getElementById('root')).render(React.createElement(AnalysisPresentation, { nodes, database: 'Pilot firma', onClose: () => {} }));
+const query = new URLSearchParams(window.location.search);
+const state = query.get('state');
+const scenarioNodes = state === 'empty' ? [] : state === 'legacy' ? nodes.map(n => ({ ...n, data: { ...n.data, report: null } })) : state === 'loading' ? nodes.map(n => ({ ...n, data: { ...n.data, loading: true } })) : nodes;
+function Harness() {
+  const [open, setOpen] = React.useState(!query.has('toolbar'));
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { className: 'cp-topbar' }, React.createElement('div', { className: 'cp-breadcrumb' }, 'Pilot firma / Analiz Tuvali'),
+      React.createElement(CanvasActions, { nodes: scenarioNodes, hasConnection: true, onMetricRules: () => {}, onPresentation: () => setOpen(true) })),
+    open && React.createElement(AnalysisPresentation, { nodes: scenarioNodes, database: 'Pilot firma', onClose: () => setOpen(false) }));
+}
+createRoot(document.getElementById('root')).render(React.createElement(Harness));
 </script></body></html>
