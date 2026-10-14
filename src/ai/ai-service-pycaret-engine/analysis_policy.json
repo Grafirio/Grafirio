@@ -1,5 +1,6 @@
 {
-  "version": "general-analysis-v1",
+  "version": "general-analysis-v2",
+  "completeMonthsOnly": true,
   "granularity": "month",
   "minHistoryPeriods": 12,
   "maxHorizon": 12,

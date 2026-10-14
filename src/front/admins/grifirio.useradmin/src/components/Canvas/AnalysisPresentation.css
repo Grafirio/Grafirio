@@ -45,6 +45,28 @@
 @media (max-width: 600px) { .analysis-rules-grid { grid-template-columns: 1fr; } }
 .analysis-reference { font-size: 11px; opacity: .75; overflow-wrap: anywhere; }
 .presentation-page { background: white; color: #172b45; padding: 24px; margin: 24px 0; border: 1px solid #ccd6e1; overflow-wrap: anywhere; }
+.forecast-summary { margin: 20px 0; }
+.forecast-summary h3 { margin-bottom: 8px; }
+.forecast-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.forecast-summary-grid > div { border: 1px solid #d9e2ed; background: #f7f9fc; border-radius: 10px; padding: 18px; }
+.forecast-summary-grid span, .forecast-summary-grid small { display: block; color: #63758c; font-size: 12px; line-height: 1.5; }
+.forecast-summary-grid strong { display: block; font-size: 22px; margin: 10px 0; }
+.forecast-summary-grid .forecast-summary-main { border-color: #1c3f7c; background: #eef3fa; }
+.bi-card .forecast-summary-grid { grid-template-columns: 1fr 1fr; }
+.bi-card .forecast-summary-main { grid-column: 1 / -1; }
+.bi-card .forecast-summary-grid strong { font-size: 18px; }
+.forecast-summary-caution { color: #875100; font-size: 12px; }
+.forecast-business-context { margin-top: 16px; padding: 14px 18px; background: #fff8ec; border-radius: 8px; font-size: 13px; }
+.forecast-business-context ul { margin-bottom: 0; }
+.presentation-options { margin: 20px 0; padding: 14px 18px; border: 1px solid #d9e2ed; border-radius: 8px; }
+.presentation-options label { display: flex; gap: 8px; align-items: center; }
+.presentation-options p { font-size: 12px; color: #63758c; margin-bottom: 0; }
+.presentation-footer { display: flex; justify-content: space-between; border-top: 1px solid #d9e2ed; padding-top: 8px; margin-top: 24px; font-size: 10px; color: #63758c; }
+.presentation-brand { color: #1c3f7c; font-weight: 700; letter-spacing: 2px; }
+.presentation-limitations { font-size: 11px; color: #875100; margin-top: 12px; }
+.presentation-limitations summary { font-weight: 600; }
+.presentation-table-total { padding: 12px; background: #eef3fa; border-radius: 6px; }
+@media (max-width: 600px) { .forecast-summary-grid { grid-template-columns: 1fr; } }
 .presentation-page h1 { font-size: 34px; }
 .presentation-page h2 { font-size: 22px; }
 .presentation-page .bi-chart-body { height: 330px; }
@@ -54,12 +76,14 @@
 .presentation-page th, .presentation-page td { padding: 7px; border: 1px solid #ccd6e1; overflow-wrap: anywhere; }
 .presentation-page th { background: #eef3fa; }
 @media print {
-  @page { size: A4 landscape; margin: 12mm; }
+  @page { size: A4 landscape; margin: 0; }
   body > *:not(.presentation-backdrop) { display: none !important; }
   .presentation-backdrop { position: static; padding: 0; background: white; overflow: visible; }
   .presentation-dialog { max-width: none; padding: 0; border-radius: 0; }
   .presentation-controls { display: none !important; }
-  .presentation-page { margin: 0; padding: 0; border: 0; break-before: page; }
+  .presentation-page { margin: 0; padding: 12mm; border: 0; break-before: page; min-height: 210mm; box-sizing: border-box; position: relative; }
+  .presentation-page-content { padding-bottom: 9mm; }
+  .presentation-footer { position: absolute; bottom: 9mm; left: 12mm; right: 12mm; margin-top: 0; }
   .presentation-page { font-size: 12px; line-height: 1.4; }
   .presentation-page p { margin: 7px 0; }
   .presentation-page h2 { font-size: 20px; margin: 10px 0; line-height: 1.3; }
@@ -72,6 +96,9 @@
   .presentation-page .bi-print-chart-image { display: block; width: 100%; height: 100%; object-fit: contain; }
   .presentation-page .analysis-explanation { padding: 0; font-size: 11px; line-height: 1.4; }
   .presentation-page .analysis-explanation dl { gap: 3px 10px; }
+  .presentation-page .bi-node-header { display: none; }
+  .presentation-page .forecast-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .presentation-page .forecast-summary-grid strong { font-size: 24px; }
   .presentation-page button { display: none !important; }
   * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

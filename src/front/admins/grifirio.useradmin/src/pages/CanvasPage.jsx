@@ -92,6 +92,7 @@ export default function CanvasPage() {
           requestId: connectionId,
           connectionId,
           database: conn?.database || conn?.name || 'Veritabanı',
+          reportSourceName: conn?.name || conn?.database || 'Veri bağlantısı',
           tables: selection?.tables ?? [],
         });
         setAnalysisMissing(false);
@@ -407,7 +408,7 @@ export default function CanvasPage() {
           onConfirm={confirmDelete}
         />
       )}
-      {presentationOpen && <AnalysisPresentation nodes={canvasNodes} database={analysis?.database} onClose={() => setPresentationOpen(false)} />}
+      {presentationOpen && <AnalysisPresentation nodes={canvasNodes} database={analysis?.reportSourceName || analysis?.database} onClose={() => setPresentationOpen(false)} />}
       {metricRulesOpen && <AnalysisRulesDialog onClose={() => setMetricRulesOpen(false)} />}
     </div>
   );

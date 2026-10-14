@@ -6,7 +6,14 @@ Analiz kuralları ekranı bilgi verir; tablo/kolon listesi indirmez ve ayar form
 
 ## Ortak kurallar
 
-- Tahmin aylık serilerde çalışır ve en az 12 aylık geçmiş gerektirir.
+- Tahmin aylık serilerde çalışır ve en az 12 tamamlanmış aylık geçmiş gerektirir.
+  Tarih aralığı genişletilmez: kısmi ilk ay sonraki ay başına, bitiş önceki tam
+  ayın sonuna daraltılır. İçinde bulunulan ay eğitim verisine alınmaz. Örneğin
+  14.10.2024–14.10.2026 filtresinde Kasım 2024–Eylül 2026 arasındaki 23 tam ay
+  kullanılır. Kullanılan dönem ve çıkarılan aylar sonuç açıklamasına kaydedilir.
+  Göreli "son 2 yıl" soruları çeviride son 24 tamamlanmış aya hizalanır;
+  kullanıcı açık tarih verdiyse aralık genişletilmez. Son tamamlanmış ayda veri
+  yoksa eski bir ayı son dönem sayarak geçmiş tarihlere tahmin üretilmez.
 - İleri tahmin en fazla 12 aydır. Kullanıcı 5 yıl isterse 12 aylık tahmin üretilir;
   istenen ve uygulanan süre yeşil çerçeveli bir notla sonucun altında açıklanır.
 - Not sonuçla birlikte saklanır; geçmişten açılınca ve PDF sunusunda korunur.
@@ -29,6 +36,9 @@ Kural değiştiğinde CI hem motoru hem API'yi yeniden derler.
 3. Grafik veya tablonun altındaki açıklama kaynak, filtreler, yöntem, sütun
    anlamları, belirsizlikler ve uygulanan süre sınırını gösterir.
 4. PDF sunusundan tamamlanmış analizleri seçip sıralayın ve önizleyin.
+   Ana raporda toplam öngörü (yalnızca toplam/sayım ölçülerinde), karşılaştırma,
+   grafik, yöntem açıklaması ve ayrı tahmin tablosu bulunur. Geçmiş veri tabloları
+   ile teknik yöntem eki isteğe bağlıdır. Tablo sayfaları dengeli bölünür.
 5. **PDF olarak kaydet / Yazdır** tarayıcının yazdırma penceresini açar.
    PDF hedefini seçin; başlık/altbilgileri kapatın. Çıktı yatay A4 hazırlanır.
 
@@ -50,6 +60,10 @@ rapor sözleşmesi yoksa açıklama uydurulmaz; yeniden analiz gerekir.
 - Ekrandaki tablo ilk 100 satırı açıkça belirtilerek gösterir. Sunu toplam 2.000
   tablo satırıyla sınırlıdır; büyük seçimler sessizce kesilmez.
 - PowerPoint dosyası ve sunucu PDF üretimi yoktur; PDF tarayıcıdan alınır.
+  Yazdırma alanı kendi başlık/altbilgilerini ve sayfa numaralarını taşır;
+  kaydetme başlığı sunu adıdır. Tarayıcı üst/altbilgilerini kapalı tutun.
+- Eski raporlar düzen açısından iyileştirilebilir; değerleri yeniden hesaplanmaz.
+  Tam ay kontrolünden önceki kayıtlar açıkça yeniden analiz uyarısı taşır.
 
 ## Kontrol
 

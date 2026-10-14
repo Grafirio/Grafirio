@@ -9,8 +9,9 @@ import math
 import re
 import time
 from datetime import datetime, timezone
-from analysis_report import build_report, check_metrics, TracedDataPort
+from analysis_report import build_report, check_metrics, TracedDataPort, VERSION as REPORT_VERSION
 from analysis_policy import GENERAL_POLICY, forecast_horizon
+from forecast_history import complete_month_history
 import pandas as pd
 from typing import Dict, Any, List, Optional
 
@@ -168,7 +169,7 @@ class AgentAnalyzer:
         self.audit["metricRule"] = rule
         self.audit["durationMs"] = round((time.perf_counter() - started) * 1000)
         self.audit["completedAt"] = datetime.now(timezone.utc).isoformat()
-        self.audit["reportVersion"] = "analysis-report-v1"
+        self.audit["reportVersion"] = REPORT_VERSION
         self.audit["policyVersion"] = GENERAL_POLICY["version"]
         events.append({"stage": "completed" if result.get("success") else "clarification" if result.get("needsClarification") else "failed",
                        "at": self.audit["completedAt"], "elapsedMs": self.audit["durationMs"]})
@@ -184,6 +185,13 @@ class AgentAnalyzer:
             if self.audit.get("horizonNotice"):
                 result.setdefault("insights", []).append({"type": "notice", "title": "Tahmin süresi hakkında", "description": self.audit["horizonNotice"]})
             result["report"] = build_report(result, self.audit, config)
+            self.audit['reportVersion'] = result['report']['version']
+            result['audit']['reportVersion'] = result['report']['version']
+            overview = result['report'].get('forecastSummary')
+            if overview and overview['total'] is not None:
+                total = f"{overview['total']:,.2f}".replace(',', '_').replace('.', ',').replace('_', '.')
+                unit = result['report']['unit']
+                result['summary'] = f"{overview['period']['from']} – {overview['period']['to']} için {overview['horizon']} aylık toplam öngörü {total} ({unit.lower()}). {self.audit['periodCount']} tamamlanmış aylık geçmiş kullanıldı; bu sonuç kesinlik değil öngörüdür."
         return result
 
     def _run_analysis(self, config: Dict, params: Dict) -> Dict[str, Any]:
@@ -2044,6 +2052,12 @@ class AgentAnalyzer:
         if horizon_notice:
             self.audit["horizonNotice"] = horizon_notice
 
+        try:
+            predicates, where_params, history_policy = complete_month_history(period_ref, predicates, where_params)
+        except ValueError as error:
+            return self._error_result(str(error))
+        self.audit["historyPolicy"] = history_policy
+
         taken = {c.lower() for c in scope.known_columns()} | {self.PERIOD_LABEL.lower()}
         alias = "value"
         while alias.lower() in taken:
@@ -2084,6 +2098,9 @@ class AgentAnalyzer:
         series: List[Dict[str, Any]] = []
         for period, value in zip(grouped[self.PERIOD_LABEL].tolist(),
                                  grouped[alias].tolist()):
+            label = self._label(period)
+            if label >= history_policy["toExclusive"][:7] or (history_policy["fromInclusive"] and label < history_policy["fromInclusive"][:7]):
+                continue
             number = self._number_or_none(value)
             if number is None:
                 # Bos SUM NULL'dur; sayim/toplam anlaminda bu "hic yok"
@@ -2111,6 +2128,8 @@ class AgentAnalyzer:
         minimum = GENERAL_POLICY["minHistoryPeriods"]
         if len(series) < minimum:
             return self._error_result(f"Tahmin için en az {minimum} dönem gerekir; eldeki {len(series)}. Tarih aralığını genişletin.")
+        if series[-1]['period'] != history_policy['lastCompleteMonth']:
+            return self._error_result(f"Seçilen aralığın son tamamlanmış ayı ({history_policy['lastCompleteMonth']}) için veri yok. Eski bir ayı son dönem kabul ederek tahmin üretilmedi; veri aktarımını kontrol edin veya tarih aralığını netleştirin.")
 
         from forecaster import ForecastError, forecast_series
         try:

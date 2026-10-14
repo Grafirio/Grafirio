@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { presentationEntries, presentationAvailability, tablePages } from '../src/utils/analysisPresentation.js';
+import { presentationEntries, presentationAvailability, tablePages, presentationPages, preparePresentationReport } from '../src/utils/analysisPresentation.js';
 import resolveAgentResponse from '../src/utils/resolveAgentResponse.js';
 import restoreFromHistory from '../src/utils/restoreFromHistory.js';
 
@@ -33,6 +33,29 @@ test('long wide tables keep all cells across pages with repeated identity column
     assert(pages.some(p => p.columns.includes(table.columns[c]) && p.rows.some(r => r[0] === row[0] && r[p.columns.indexOf(table.columns[c])] === row[c])));
   }
   assert(pages.every(p => p.rows.length <= 12 && p.columns.length <= 5));
+});
+
+test('balances table pages instead of leaving a single orphan row', () => {
+  const table = { columns: ['Month', 'Value'], rows: Array.from({length:25}, (_, i) => [i, i]) };
+  assert.deepEqual(tablePages(table, 12).map(p => p.rows.length), [9, 9, 7]);
+});
+
+test('legacy forecast becomes a three-page report without modifying its calculation', () => {
+  const chart = { type: 'line', title: 'SUM(LineTotal)', data: { labels: Array.from({length:37}, (_, i) => String(i)),
+    datasets: [{label:'Gerçekleşen', data:Array.from({length:37}, (_, i) => i<25 ? 100 : null)},
+               {label:'Tahmin', data:Array.from({length:37}, (_, i) => i>=24 ? 200 : null)}] } };
+  const original = { metric:'Satırın toplam tutarı', unit:'Belirtilmedi', filters:['Name = Test ürün'], warnings:[], tables:[] };
+  const report = preparePresentationReport(original, [chart], {aggregation:'sum'});
+  assert.equal(report.forecastSummary.total, 2400);
+  assert.equal(report.forecastSummary.previousTotal, null);
+  assert.equal(report.forecastSummary.changePercent, null);
+  assert.match(report.title, /Test ürün/);
+  assert.match(report.warnings[0], /tam ay kontrolünden önce/);
+  assert.deepEqual(report.tables.map(t => t.rows.length), [25,12]);
+  const entries = [{report,charts:[chart]}];
+  assert.deepEqual(presentationPages(entries).map(p => p.kind), ['cover','chart','table']);
+  assert.equal(presentationPages(entries, {includeHistory:true,includeTechnical:true}).length, 6);
+  assert.deepEqual(original.tables, []);
 });
 
 test('report and warnings survive transport and history restoration', () => {

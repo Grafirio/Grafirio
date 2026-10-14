@@ -12,6 +12,7 @@ import re
 
 import numpy as np
 from analysis_policy import GENERAL_POLICY, forecast_horizon
+from forecast_history import today_utc
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ def forecast_series(series: list[dict], horizon: int = 12,
         except (KeyError, TypeError, ValueError):
             raise ForecastError("Eksik veya geçersiz tahmin verisi var. Veri aktarımını kontrol edin.")
     clean.sort(key=lambda p: p['period'])
+    cutoff = today_utc().strftime('%Y-%m')
+    excluded = [p['period'] for p in clean if p['period'] >= cutoff]
+    clean = [p for p in clean if p['period'] < cutoff]
     for previous, current in zip(clean, clean[1:]):
         previous_year, previous_month = map(int, previous['period'].split('-'))
         current_year, current_month = map(int, current['period'].split('-'))
@@ -123,4 +127,5 @@ def forecast_series(series: list[dict], horizon: int = 12,
                 model_name, n, horizon)
     return {'forecast': forecast, 'model_name': model_name,
             'requested_horizon': requested_horizon, 'horizon': horizon,
-            'notices': [notice] if notice else [], 'policy_version': GENERAL_POLICY['version']}
+            'notices': [notice] if notice else [], 'policy_version': GENERAL_POLICY['version'],
+            'excluded_open_or_future_periods': excluded}

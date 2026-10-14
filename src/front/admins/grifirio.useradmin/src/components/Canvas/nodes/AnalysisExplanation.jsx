@@ -1,10 +1,12 @@
 import React from 'react';
 import AnalysisNotices from './AnalysisNotices';
+import ForecastSummary from './ForecastSummary';
 
 export default function AnalysisExplanation({ report, insights = [], queryId, printMode = false }) {
   return <section className="analysis-explanation">
     <h3>Analiz açıklaması</h3>
     {report ? <>
+      {!printMode && <ForecastSummary report={report} />}
       <AnalysisNotices notices={report.notices} />
       <dl>
         <dt>Ölçü / birim</dt><dd>{report.metric} / {report.unit}</dd>
@@ -14,6 +16,7 @@ export default function AnalysisExplanation({ report, insights = [], queryId, pr
         {report.timeAxis && <><dt>Zaman alanı</dt><dd>{report.timeAxis.column} ({report.timeAxis.granularity})</dd></>}
         <dt>Filtreler</dt><dd>{report.filters?.length ? report.filters.join(' · ') : 'Ek filtre yok'}</dd>
         <dt>Hesaplama yöntemi</dt><dd>{report.method}</dd>
+        {report.historyPolicy?.description && <><dt>Geçmiş seçimi</dt><dd>{report.historyPolicy.description}</dd></>}
         <dt>Nasıl okunmalı?</dt><dd>{report.interpretation}</dd>
       </dl>
       {report.warnings?.length > 0 && <ul className="analysis-warnings">{report.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
