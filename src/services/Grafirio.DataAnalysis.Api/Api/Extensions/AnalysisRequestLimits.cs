@@ -32,7 +32,8 @@ public static class AnalysisRequestLimits
 
     private static bool IsExpensive(HttpContext context) => HttpMethods.IsPost(context.Request.Method)
         && (context.Request.Path.StartsWithSegments("/api/agent")
-            || context.Request.Path.StartsWithSegments("/api/analysis"));
+            || context.Request.Path.StartsWithSegments("/api/analysis")
+            || context.Request.Path.StartsWithSegments("/api/admin/diagnostics/tests"));
 
     private static string Key(HttpContext context) => context.User.FindFirst("company_id")?.Value
         ?? context.User.FindFirst("sub")?.Value

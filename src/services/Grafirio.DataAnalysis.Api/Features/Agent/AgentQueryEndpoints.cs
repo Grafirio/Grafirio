@@ -35,6 +35,17 @@ public static class AgentQueryEndpoints
         // gecmisi okumak READ ile yetiniyor — bir kullaniciya "analizleri
         // gorsun ama yenisini kosturmasin" denebilmeli.
         group.MapPost("/query", SubmitQuery)
+            .AddEndpointFilter(async (context, next) =>
+            {
+                try { return await next(context); }
+                finally
+                {
+                    var diagnostic = context.HttpContext.RequestServices.GetRequiredService<DataAnalysisDbContext>()
+                        .ChangeTracker.Entries<QueryDiagnostic>().FirstOrDefault()?.Entity;
+                    if (diagnostic is not null && !context.HttpContext.Response.HasStarted)
+                        context.HttpContext.Response.Headers["X-Diagnostic-Id"] = diagnostic.Id.ToString();
+                }
+            })
             .RequirePermission(AppPermissions.AnalysisCreate)
             .WithName("SubmitAgentQuery")
             .WithDescription("Kullanıcı sorusunu LLM ile analiz edip PyCaret'e gönderir");
@@ -90,6 +101,7 @@ public static class AgentQueryEndpoints
     private sealed class QuestionOutcome
     {
         public string Value { get; set; } = "rejected";
+        public QueryDiagnostic? Diagnostic { get; set; }
     }
 
     private static async Task<IResult> SubmitQuery(
@@ -108,19 +120,70 @@ public static class AgentQueryEndpoints
         using var usage = LlmUsage.Begin("question");
         using var activity = AnalysisTelemetry.Source.StartActivity("question.submit");
         var outcome = new QuestionOutcome();
+        IResult? result = null;
+        Exception? failure = null;
 
         try
         {
-            return await SubmitQueryCore(request, db, llm, pycaret, profiles, identity, logger,
+            if (identity.CurrentCompanyId is null) return result = Results.Forbid();
+            if (!pycaret.IsConfigured)
+            {
+                logger.LogWarning("Question submission rejected: internal PyCaret authentication is not configured");
+                return result = Results.Problem(detail: "Internal PyCaret authentication is not configured.", statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            // Only owned connections are eligible for detailed diagnostics.
+            if (identity.CurrentCompanyId is { } company && await db.SavedConnections.AsNoTracking()
+                .AnyAsync(c => c.Id == request.ConnectionId && c.CompanyId == company.ToString(), ct))
+            {
+                outcome.Diagnostic = new QueryDiagnostic
+                {
+                    Id = Guid.NewGuid(), ConnectionId = request.ConnectionId, CompanyId = company.ToString(),
+                    CreatedAt = DateTime.UtcNow, Question = QueryDiagnostics.Mask(request.Question)[..Math.Min(QueryDiagnostics.Mask(request.Question).Length, MaxQuestionLength)],
+                    Model = llm.ModelIdentity, PromptVersion = QueryDiagnostics.PromptVersion,
+                    BuildVersion = Environment.GetEnvironmentVariable("GRAFIRIO_BUILD_SHA")
+                        ?? typeof(AgentQueryEndpoints).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "unknown"
+                };
+                QueryDiagnostics.Step(outcome.Diagnostic, "received");
+                db.QueryDiagnostics.Add(outcome.Diagnostic);
+                await db.SaveChangesAsync(ct);
+                activity?.SetTag("grafirio.diagnostic.id", outcome.Diagnostic.Id);
+            }
+            result = await SubmitQueryCore(request, db, llm, pycaret, profiles, identity, logger,
                 started, usage.Usage, outcome, ct);
+            return result;
         }
-        catch
+        catch (Exception exception)
         {
+            failure = exception;
             outcome.Value = "error";
             throw;
         }
         finally
         {
+            if (outcome.Diagnostic is { } diagnostic)
+            {
+                var context = QueryDiagnostics.Parse(diagnostic.ContextJson) as JsonObject ?? new JsonObject();
+                context["usage"] = JsonSerializer.SerializeToNode(usage.Usage.ToResponse());
+                diagnostic.ContextJson = context.ToJsonString();
+                QueryDiagnostics.Finish(diagnostic, result, failure, outcome.Value, ElapsedMs(started));
+                try
+                {
+                    // Do not save other tracked mutations after a failed submission.
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    if (!db.Database.IsRelational()) await db.SaveChangesAsync(timeout.Token);
+                    else
+                    await db.QueryDiagnostics.Where(d => d.Id == diagnostic.Id).ExecuteUpdateAsync(s => s
+                        .SetProperty(d => d.Stage, diagnostic.Stage).SetProperty(d => d.Status, diagnostic.Status)
+                        .SetProperty(d => d.ErrorCode, diagnostic.ErrorCode).SetProperty(d => d.Error, diagnostic.Error)
+                        .SetProperty(d => d.CompletedAt, diagnostic.CompletedAt).SetProperty(d => d.DurationMs, diagnostic.DurationMs)
+                        .SetProperty(d => d.QueryId, diagnostic.QueryId).SetProperty(d => d.ConfigId, diagnostic.ConfigId)
+                        .SetProperty(d => d.ContextHash, diagnostic.ContextHash).SetProperty(d => d.DictionaryHash, diagnostic.DictionaryHash)
+                        .SetProperty(d => d.ContextJson, diagnostic.ContextJson).SetProperty(d => d.ParametersJson, diagnostic.ParametersJson)
+                        .SetProperty(d => d.EventsJson, diagnostic.EventsJson), timeout.Token);
+                }
+                catch (Exception logError) { logger.LogError(logError, "Diagnostic persistence failed: {DiagnosticId}", diagnostic.Id); }
+            }
             var outcomeTag = AnalysisTelemetry.Tag("question.outcome", outcome.Value);
             AnalysisTelemetry.QuestionDuration.Record(GrafirioTelemetry.Seconds(started), outcomeTag);
             AnalysisTelemetry.QuestionOutcome.Add(1, outcomeTag);
@@ -148,9 +211,6 @@ public static class AgentQueryEndpoints
         if (companyId is null) return Results.Forbid();
         var scopedCompanyId = companyId.Value.ToString();
 
-        if (!pycaret.IsConfigured)
-            return Results.Problem(detail: "Internal PyCaret authentication is not configured.",
-                statusCode: StatusCodes.Status503ServiceUnavailable);
         if (string.IsNullOrWhiteSpace(request.Question) || request.Question.Length > MaxQuestionLength)
             return Results.BadRequest(new { error = "Question must contain between 1 and 2000 characters." });
 
@@ -163,6 +223,11 @@ public static class AgentQueryEndpoints
                      && c.IsActive)
             .OrderByDescending(c => c.CreatedAt)
             .FirstOrDefaultAsync(ct);
+        if (config is not null && outcome.Diagnostic is { } configDiagnostic)
+        {
+            configDiagnostic.ConfigId = config.Id;
+            configDiagnostic.DictionaryHash = QueryDiagnostics.Hash(config.ConfigJson);
+        }
 
         if (config is null || config.Status != AgentAnalyzeEndpoints.AnalysisStatus.Ready)
         {
@@ -215,6 +280,11 @@ public static class AgentQueryEndpoints
         }
 
         var originalConfigJson = config.ConfigJson;
+        if (outcome.Diagnostic is { } diagnostic)
+        {
+            diagnostic.ConfigId = config.Id;
+            diagnostic.DictionaryHash = QueryDiagnostics.Hash(config.ConfigJson);
+        }
 
         // 3. Konusmanin gecmisi. Zincirin kapsami BAGLANTI: "Analiz Et" her
         // calistiginda yeni bir config uretiliyor, dolayisiyla bir onceki tur
@@ -235,6 +305,17 @@ public static class AgentQueryEndpoints
         // gonderebilir; kapsam disi bir kimligi kayda gecirmek, hicbir zaman
         // cozulmeyecek bir isaretciyi kalici hale getirmek olurdu.
         var parentQueryId = conversation.Count > 0 ? request.ParentQueryId : null;
+        var conversationText = ConversationContext.Render(conversation);
+        if (outcome.Diagnostic is { } contextDiagnostic)
+        {
+            contextDiagnostic.ContextHash = QueryDiagnostics.Hash(JsonSerializer.Serialize(new
+            { request.Question, conversationText, config.ConfigJson, config.TablesJson, model = llm.ModelIdentity,
+                prompt = QueryDiagnostics.PromptVersion, build = contextDiagnostic.BuildVersion, date = DateTime.UtcNow.Date }));
+            contextDiagnostic.ContextJson = QueryDiagnostics.SafeJson(JsonSerializer.Serialize(new
+            { dictionary = QueryDiagnostics.SafeJson(config.ConfigJson), schema = QueryDiagnostics.Mask(config.SchemaSummary), conversation = QueryDiagnostics.Mask(conversationText), tables = selectedTables, parentQueryId, date = DateTime.UtcNow.Date }));
+        }
+        QueryDiagnostics.Step(outcome.Diagnostic, "translation");
+        if (outcome.Diagnostic is not null) await db.SaveChangesAsync(ct);
 
         // 4. Soruyu semantik sozlukle birlikte LLM'e gonder → analiz parametreleri.
         // Sozluk, "Analiz Et" adiminin ciktisi: kolon adlari, ne anlama
@@ -242,6 +323,15 @@ public static class AgentQueryEndpoints
         var translation = await llm.TranslateQuestionAsync(
             request.Question, config.ConfigJson, config.SchemaSummary,
             ConversationContext.Render(conversation), ct);
+        if (outcome.Diagnostic is { } translated)
+        {
+            translated.ParametersJson = QueryDiagnostics.SafeJson(translation.Json);
+            var context = QueryDiagnostics.Parse(translated.ContextJson)!.AsObject();
+            var raw = QueryDiagnostics.SafeText(translation.RawResponse);
+            context["translationResponse"] = raw[..Math.Min(raw.Length, 64000)];
+            context["translationResponseTruncated"] = raw.Length > 64000;
+            translated.ContextJson = context.ToJsonString();
+        }
 
         // Eksik yapilandirma bir cokme degil; 500 yerine 503 donuluyor ki
         // arayuz "sunucu hatasi" yerine sebebi gosterebilsin.
@@ -266,6 +356,8 @@ public static class AgentQueryEndpoints
         // bir tablodan cikmis, dogru gorunen bir grafik gosteriyordu. Sorunun
         // neresinin anlasilmadigini sormak, uydurma cevaptan iyidir.
         List<RelationshipProposal> proposals;
+        QueryDiagnostics.Step(outcome.Diagnostic, "validation");
+        if (outcome.Diagnostic is not null) await db.SaveChangesAsync(ct);
         try
         {
             AgentQueryTableScope.Validate(translation.Json, config.ConfigJson, selectedTables);
@@ -347,6 +439,7 @@ public static class AgentQueryEndpoints
             }.ToJsonString();
 
             db.QueryHistories.Add(clarificationRow);
+            if (outcome.Diagnostic is { } clarificationDiagnostic) clarificationDiagnostic.QueryId = clarificationRow.Id;
             await db.SaveChangesAsync(ct);
             outcome.Value = "clarification";
             AnalysisTelemetry.QueryCompleted.Add(1, AnalysisTelemetry.Tag("query.status", "clarification"));
@@ -385,6 +478,8 @@ public static class AgentQueryEndpoints
         }.ToJsonString();
 
         db.QueryHistories.Add(queryHistory);
+        if (outcome.Diagnostic is { } executionDiagnostic) executionDiagnostic.QueryId = queryHistory.Id;
+        QueryDiagnostics.Step(outcome.Diagnostic, "execution");
         await db.SaveChangesAsync(ct);
         await pycaret.SubmitAsync(queryHistory, config, ct);
         outcome.Value = "submitted";

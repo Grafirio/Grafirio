@@ -61,6 +61,8 @@ public sealed class LlmClient : ILlmClient
             IsConfigured);
     }
 
+    public string Deployment => Read("AZURE_OPENAI_DEPLOYMENT", "AzureOpenAI:Deployment") ?? "unconfigured";
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Read("AZURE_OPENAI_API_KEY", "AzureOpenAI:ApiKey"));
 

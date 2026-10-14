@@ -22,6 +22,7 @@ namespace Grafirio.DataAnalysis.Api.Services;
 /// </summary>
 public class LlmAnalysisService
 {
+    public string ModelIdentity => _model is LlmClient client ? client.Deployment : _model?.GetType().Name ?? "unconfigured";
     private readonly ILlmClient? _model;
     private readonly ILogger<LlmAnalysisService> _logger;
 
@@ -195,7 +196,7 @@ public class LlmAnalysisService
     /// </param>
     public async Task<LlmResult> TranslateQuestionAsync(
         string question, string dictionaryJson, string schemaSummary,
-        string conversation = "", CancellationToken ct = default)
+        string conversation = "", CancellationToken ct = default, DateTime? referenceDate = null)
     {
         if (_model is null) return NotConfigured();
 
@@ -213,7 +214,7 @@ public class LlmAnalysisService
             // ortasinda kesiliyordu. Sozluk uretimi ayni dersi 16000'de
             // ogrenmisti.
             var text = await _model.GenerateAsync(
-                BuildTranslationPrompt(question, dictionaryJson, schemaSummary, DateTime.UtcNow, conversation),
+                BuildTranslationPrompt(question, dictionaryJson, schemaSummary, referenceDate ?? DateTime.UtcNow, conversation),
                 temperature: 0.1, maxTokens: 16000, cancellationToken: ct);
 
             var json = ExtractJson(text);
