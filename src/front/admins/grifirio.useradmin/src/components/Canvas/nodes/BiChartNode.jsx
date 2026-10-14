@@ -168,7 +168,9 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
       secondFrame = requestAnimationFrame(() => {
         const canvas = rootRef.current?.querySelector('canvas');
         if (canvas) {
-          ChartJS.getChart(canvas)?.render();
+          const chart = ChartJS.getChart(canvas);
+          chart?.resize(1080, 340);
+          chart?.render();
           setPrintImage(canvas.toDataURL('image/png'));
         }
       });
@@ -206,8 +208,12 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
       ];
     }
 
-    return buildDatasets(rawDatasets, chartType, theme);
-  }, [chartType, rawDatasets, prepared.valid, theme]);
+    return buildDatasets(rawDatasets, chartType, theme).map(dataset => {
+      if (!data?.printMode || !dataset.label?.includes('sınır')) return dataset;
+      return { ...dataset, borderColor: 'rgba(99,117,140,.35)', backgroundColor: 'rgba(99,117,140,.10)',
+        borderWidth: 1, pointRadius: 0, fill: dataset.label.startsWith('Üst') ? '-1' : false };
+    });
+  }, [chartType, rawDatasets, prepared.valid, theme, data?.printMode]);
 
   // ── Loading state ──────────────────────────────────────────────────
   if (data?.loading) {
@@ -290,6 +296,7 @@ export default function BiChartNode({ data, onDelete, onConfirmMatch }) {
             position: 'top',
             align: 'end',
             labels: {
+              filter: item => !data?.printMode || !item.text.includes('sınır'),
               color: theme.muted,
               font: tickFont,
               boxWidth: 10,

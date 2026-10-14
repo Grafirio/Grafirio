@@ -18,7 +18,7 @@ export default function AnalysisRulesDialog({ onClose }) {
     {!policy && !error && <p role="status">Kurallar yükleniyor…</p>}
     {error && <p role="alert">Kurallar şu anda okunamadı. Ekranı kapatıp tekrar açın.</p>}
     {policy && <div className="analysis-rules-grid">
-      <section><IconCalendar size={22} /><h3>En az {policy.minHistoryPeriods} aylık geçmiş</h3><p>Tahmin için yeterli geçmiş gerekir. Daha kısa geçmiş varsa bunun nedenini açıklarız.</p></section>
+      <section><IconCalendar size={22} /><h3>En az {policy.minHistoryPeriods} tamamlanmış ay</h3><p>İçinde bulunulan ay ve tarih filtresinde kısmi kalan aylar eğitim geçmişine alınmaz. Kullanılan dönem sonucun altında açıklanır.</p></section>
       <section><IconTimeline size={22} /><h3>En fazla {policy.maxHorizon} ay ileri tahmin</h3><p>Daha uzun bir süre isterseniz {policy.maxHorizon} aylık tahmin gösterilir. Uygulanan sınır sonucun altında yeşil bir notla belirtilir.</p></section>
       <section><IconShieldCheck size={22} /><h3>Eksik aylar sıfır sayılmaz</h3><p>Veri eksikse tahmin durdurulur. Eksik dönemleri içermeyen bir tarih aralığı seçebilir veya veri aktarımını kontrol edebilirsiniz.</p></section>
       <section><IconInfoCircle size={22} /><h3>Her sonucun açıklaması var</h3><p>Hangi verinin kullanıldığını, nasıl hesaplandığını ve belirsizlikleri sonucun altında görürsünüz. Bu açıklamalar PDF sunusuna da eklenir.</p></section>

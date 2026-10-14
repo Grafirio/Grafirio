@@ -19,14 +19,15 @@ chart.data.datasets = [{ label: 'Gerçekleşen', data: Array.from({length:24}, (
 report.tables[0].rows = chart.data.labels.map((p, i) => [p, chart.data.datasets[0].data[i], i === 11 ? null : chart.data.datasets[1].data[i]]);
 const query = new URLSearchParams(window.location.search);
 const state = query.get('state');
-const scenarioNodes = state === 'empty' ? [] : state === 'legacy' ? nodes.map(n => ({ ...n, data: { ...n.data, report: null } })) : state === 'loading' ? nodes.map(n => ({ ...n, data: { ...n.data, loading: true } })) : nodes;
+const suppliedNodes = window.__presentationFixture || nodes;
+const scenarioNodes = state === 'empty' ? [] : state === 'legacy' ? suppliedNodes.map(n => ({ ...n, data: { ...n.data, report: null } })) : state === 'loading' ? suppliedNodes.map(n => ({ ...n, data: { ...n.data, loading: true } })) : suppliedNodes;
 function Harness() {
   const [open, setOpen] = React.useState(!query.has('toolbar'));
   const [rulesOpen, setRulesOpen] = React.useState(false);
   return React.createElement(React.Fragment, null,
     React.createElement('div', { className: 'cp-topbar' }, React.createElement('div', { className: 'cp-breadcrumb' }, 'Pilot firma / Analiz Tuvali'),
       React.createElement(CanvasActions, { nodes: scenarioNodes, onAnalysisRules: () => setRulesOpen(true), onPresentation: () => setOpen(true) })),
-    open && React.createElement(AnalysisPresentation, { nodes: scenarioNodes, database: 'Pilot firma', onClose: () => setOpen(false) }),
+    open && React.createElement(AnalysisPresentation, { nodes: scenarioNodes, database: window.__presentationDatabase || 'Pilot firma', onClose: () => setOpen(false) }),
     rulesOpen && React.createElement(AnalysisRulesDialog, { onClose: () => setRulesOpen(false) }));
 }
 createRoot(document.getElementById('root')).render(React.createElement(Harness));

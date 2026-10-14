@@ -10,7 +10,7 @@ namespace Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 
 public static class QueryDiagnostics
 {
-    public const string PromptVersion = "question-translation-v4-general-rules";
+    public const string PromptVersion = "question-translation-v5-complete-months";
     private static readonly Regex PrivateText = new(@"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)\d{11}(?!\d)", RegexOptions.Compiled);
     public static string Mask(string? text) => PrivateText.Replace(text ?? "", "[gizlendi]");
     public static string SafeText(string? text)

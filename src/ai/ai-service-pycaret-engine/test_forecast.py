@@ -4,6 +4,7 @@ import importlib
 import sys
 import types
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 from query_spec import (
@@ -270,7 +271,7 @@ class ForecastTests(unittest.TestCase):
             "relationships": [],
         }
         fake = fake or FakeForecasterModule()
-        with patch.dict(sys.modules, {"forecaster": fake}):
+        with patch.dict(sys.modules, {"forecaster": fake}), patch('forecast_history.today_utc', return_value=date(2026, 1, 15)):
             return analyzer.run_analysis(config, params), port, fake
 
     @staticmethod
@@ -336,8 +337,8 @@ class ForecastTests(unittest.TestCase):
 
     def test_average_series_rejects_missing_months_instead_of_compressing_time(self):
         result, _, fake = self.analyze(self.months([
-            ("2026-01", 10), ("2026-02", None), ("2026-03", 30),
-            ("2026-04", 40), ("2026-05", 50),
+            ("2025-01", 10), ("2025-02", None), ("2025-03", 30),
+            ("2025-04", 40), ("2025-05", 50),
         ]), aggregation="avg")
         self.assertFalse(result["success"], result)
         self.assertEqual(fake.calls, [])

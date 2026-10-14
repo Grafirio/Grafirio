@@ -952,7 +952,12 @@ public class LlmAnalysisService
           `filters` ile daralt. Hangi kırılım değeri istendiği belliyse
           filtrele, belli değilse Kural 9 ile sor.
         - Geçmişi `filters` ile KISITLAMA — kullanıcı açıkça istemedikçe tüm
-          geçmiş kalsın; model ne kadar geçmiş görürse o kadar iyi.
+          geçmişi kullan. Tahmin için "son 2 yıl" gibi göreli geçmiş istekleri
+          tamamlanmış takvim aylarına çevrilir: içinde bulunulan ayın ilk
+          günü hariç bitiş, bundan 24 ay önceki ayın ilk günü dahil başlangıç.
+          Kullanıcı açık tarih verdiyse bu tarihleri genişletme; motor kısmi
+          ayları aralıktan çıkarır. Örneğin 14 Ekim 2026'da "son 2 yıl" için
+          başlangıç 2024-10-01, bitiş (hariç) 2026-10-01 olur.
         - `chart_type: "line"`.
 
         ## Zaman serisinde sapma — `anomaly` + `time_axis`

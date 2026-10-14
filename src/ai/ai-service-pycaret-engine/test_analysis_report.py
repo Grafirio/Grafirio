@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import patch
 from analysis_report import check_metrics, build_report
 from test_forecast import AgentAnalyzer, TimePort, FakeForecasterModule
@@ -16,6 +17,10 @@ def dictionary(policy="reject", minimum=4, horizon=6):
 
 
 class ReportTests(unittest.TestCase):
+    def setUp(self):
+        clock = patch('forecast_history.today_utc', return_value=date(2026, 1, 15))
+        clock.start()
+        self.addCleanup(clock.stop)
     def test_identifier_measure_rejected_without_user_configuration(self):
         port = TimePort([])
         result = AgentAnalyzer(port).run_analysis(dictionary(), {"target_table": "dbo.Calculations",
@@ -59,7 +64,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("5 yıl", result["report"]["notices"][0])
         self.assertIn("12 aylık", result["charts"][0]["title"])
         self.assertIn("12 aylık", result["summary"])
-        self.assertEqual(len(result["report"]["tables"][0]["rows"]), 24)
+        self.assertEqual([len(t['rows']) for t in result['report']['tables']], [12, 12])
+        self.assertEqual(result['report']['forecastSummary']['total'], 144.0)
+        self.assertEqual(result['report']['forecastSummary']['previousTotal'], 78.0)
         self.assertEqual(result["report"]["quality"], "exploratory")
 
     def test_old_per_metric_rules_cannot_relax_general_history_limit(self):

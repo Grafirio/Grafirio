@@ -5,7 +5,40 @@ import json
 import time
 import re
 
-VERSION = "analysis-report-v1"
+VERSION = "analysis-report-v2"
+
+
+def forecast_overview(result, audit, metric):
+    chart = result["charts"][0]
+    data = chart["data"]
+    history = audit["periodCount"]
+    future = data["datasets"][1]["data"][history:]
+    periods = data["labels"][history:]
+    observed = data["datasets"][0]["data"][:history]
+    horizon = len(future)
+    additive = audit.get("aggregation") in ("sum", "count")
+    total = round(sum(future), 2) if additive else None
+    previous = round(sum(observed[-horizon:]), 2) if additive and len(observed) >= horizon else None
+    change = round((total - previous) / abs(previous) * 100, 1) if previous not in (None, 0) and total is not None else None
+    peak = max(zip(periods, future), key=lambda item: item[1])
+    negative = sum(v is not None and v < 0 for v in data["datasets"][2]["data"][history:])
+    short_metric = 'Kayıt sayısı' if audit.get('aggregation') == 'count' else ('Tutar' if any(w in metric.casefold() for w in ('tutar', 'ciro', 'gelir')) else metric if len(metric) < 48 and metric not in (audit.get('targetColumn'), audit.get('resolvedTargetColumn')) and not re.search(r'[()._]', metric) else 'Ölçüm')
+    subject = next((match.group(1) for note in audit.get('appliedFilters', [])
+                    if (match := re.match(r'^(?:Name|Ad|Adi|Adı|ProductName|CustomerName|ÜrünAdı) = (.+)$', note, re.IGNORECASE))), None)
+    if subject:
+        subject = subject[:1].upper() + subject[1:]
+    title = f"{subject + ' — ' if subject else ''}{horizon} aylık {short_metric.lower()} öngörüsü"
+    for c in result['charts']:
+        c['title'] = title
+    return {
+        'title': title, 'metricLabel': short_metric, 'horizon': horizon,
+        'period': {'from': periods[0], 'to': periods[-1]}, 'total': total,
+        'totalLabel': f'{horizon} aylık toplam öngörü' if additive else None,
+        'previousTotal': previous, 'previousLabel': f'Önceki {horizon} tamamlanmış ayın toplamı',
+        'changePercent': change, 'peak': {'period': peak[0], 'value': peak[1]},
+        'negativeLowerCount': negative,
+        'lastValue': future[-1],
+    }
 
 
 class TracedDataPort:
@@ -83,7 +116,10 @@ def build_report(result, audit, config=None):
     kind = audit.get("analysisType", "unknown")
     rule = audit.get("metricRule") or {}
     warnings = [str(i.get("description")) for i in result.get("insights", [])
-                if i.get("type") == "warning" and i.get("description")]
+                if i.get("type") == "warning" and i.get("description")
+                and not (kind == 'forecast' and 'kesinlik' in str(i.get('description')))]
+    metric = rule.get("label") or audit.get("resolvedTargetColumn") or audit.get("targetColumn") or "Kayıt sayısı"
+    overview = forecast_overview(result, audit, metric) if kind == 'forecast' else None
     if not rule.get("unit") or rule.get("unit") == "Belirtilmedi":
         warnings.append("Ölçünün birimi doğrulanmadığı için para birimi veya başka bir birim varsayılmadı.")
     methods = {
@@ -132,15 +168,23 @@ def build_report(result, audit, config=None):
             history = audit.get("periodCount", 0)
             if kind == "forecast" and history and len(rows) >= history and len(datasets) >= 2:
                 rows[history - 1][2] = None
-            tables.append({"title": chart.get("title"), "columns": ["Dönem / kategori"] +
-                           [d.get("label") or "Değer" for d in datasets], "rows": rows})
+            if kind == 'forecast':
+                tables.extend([
+                    {'title': 'Gerçekleşen geçmiş', 'kind': 'history', 'columns': ['Dönem', 'Gerçekleşen'],
+                     'rows': [row[:2] for row in rows[:history]]},
+                    {'title': 'Aylık öngörüler', 'kind': 'forecast', 'columns': ['Dönem', 'Tahmin', 'Alt sınır (yaklaşık)', 'Üst sınır (yaklaşık)'],
+                     'rows': [[row[0]] + row[2:] for row in rows[history:]]},
+                ])
+            else:
+                tables.append({"title": chart.get("title"), "columns": ["Dönem / kategori"] +
+                               [d.get("label") or "Değer" for d in datasets], "rows": rows})
     for table in tables:
         explanations = []
         units = []
         for column in table["columns"]:
             aggregate = re.fullmatch(r"(SUM|AVG|MIN|MAX|COUNT)\(([^)]+)\)", column, re.IGNORECASE)
             unit = None
-            if column == "Dönem / kategori":
+            if column in ("Dönem / kategori", "Dönem"):
                 unit = None
             elif column.startswith("Adet") or aggregate and aggregate.group(1).upper() == "COUNT":
                 unit = "adet"
@@ -149,6 +193,7 @@ def build_report(result, audit, config=None):
             units.append(unit)
             description = {
                 "Dönem / kategori": "Hesaplamanın gruplandığı dönem veya kategori.",
+                "Dönem": "Takvim ayı.",
                 "Gerçekleşen": "Geçmiş veriden hesaplanan gözlenen değer.",
                 "Tahmin": "Gelecek dönem için modelin ürettiği öngörü.",
                 "Alt sınır (yaklaşık)": "Yaklaşık belirsizlik bandının alt sınırı.",
@@ -172,7 +217,10 @@ def build_report(result, audit, config=None):
             period = {"from": min(labels), "to": max(labels)}
     report = {
         "version": VERSION, "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "metric": rule.get("label") or audit.get("resolvedTargetColumn") or audit.get("targetColumn") or "Kayıt sayısı",
+        "metric": metric,
+        "title": overview['title'] if overview else next(iter(result.get('charts') or []), {}).get('title', 'Analiz'),
+        "forecastSummary": overview,
+        "historyPolicy": audit.get('historyPolicy'),
         "unit": rule.get("unit") or "Belirtilmedi", "source": audit.get("targetTable"),
         "joins": audit.get("joins") or [],
         "filters": audit.get("appliedFilters") or [], "timeAxis": audit.get("timeAxis"),
@@ -184,6 +232,23 @@ def build_report(result, audit, config=None):
         "policyVersion": rule.get("version"),
         "quality": "exploratory" if kind == "forecast" else "warning" if warnings else "rules_applied",
     }
+    if overview:
+        history_policy = report.get('historyPolicy')
+        if history_policy and overview['period']['from'] == history_policy['referenceDate'][:7]:
+            history_policy = dict(history_policy)
+            history_policy['description'] += f" İçinde bulunulan {overview['period']['from']} ayının tamamı gerçekleşen değil öngörü olarak gösterilir."
+            report['historyPolicy'] = history_policy
+        if overview['negativeLowerCount']:
+            report['warnings'].append(f"{overview['horizon']} dönemin {overview['negativeLowerCount']}'inde yaklaşık alt sınır negatiftir; belirsizlik bandı geniştir. Ölçünüz negatif olamıyorsa bu sınırlar iş açısından geçerli değildir; değerler otomatik sıfırlanmadı.")
+        report['methodDescription'] = {
+            'HoltWinters': 'Geçmiş aylardaki eğilim ve yıllık mevsimsel desen kullanılarak öngörü üretildi.',
+            'Holt': 'Geçmiş aylardaki eğilim kullanılarak öngörü üretildi; mevsimsel etki ayrıca modellenmedi.',
+            'LinearTrend': 'Geçmiş değerlerin doğrusal eğilimi geleceğe taşındı.',
+        }.get(audit.get('forecastModel'), 'Geçmiş aylık değerlerin desenlerinden öngörü üretildi.')
+        report['businessQuestions'] = []
+        if report['unit'] == 'Belirtilmedi' and any(w in metric.casefold() for w in ('tutar', 'ciro', 'gelir')):
+            report['businessQuestions'] = ['Tutarların para birimi nedir?', 'Tutar net mi brüt mü; iptal ve iadeler dahil mi?']
+            report['warnings'].append('Para birimi, net/brüt tutar ve iptal/iade kapsamı doğrulanmadı; bu çıktı kesin bir ciro tanımı olarak kullanılmamalıdır.')
     if audit.get("aggregation") == "count" and kind in ("aggregation", "forecast"):
         report["unit"] = "adet"
     if audit.get("measures"):
