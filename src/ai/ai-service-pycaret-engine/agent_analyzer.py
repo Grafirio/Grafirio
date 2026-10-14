@@ -2129,6 +2129,7 @@ class AgentAnalyzer:
         if len(series) < minimum:
             return self._error_result(f"Tahmin için en az {minimum} dönem gerekir; eldeki {len(series)}. Tarih aralığını genişletin.")
         if series[-1]['period'] != history_policy['lastCompleteMonth']:
+            self.audit['errorCode'] = 'incomplete_history'
             return self._error_result(f"Seçilen aralığın son tamamlanmış ayı ({history_policy['lastCompleteMonth']}) için veri yok. Eski bir ayı son dönem kabul ederek tahmin üretilmedi; veri aktarımını kontrol edin veya tarih aralığını netleştirin.")
 
         from forecaster import ForecastError, forecast_series

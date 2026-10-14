@@ -69,3 +69,4 @@ class CompleteMonthTests(unittest.TestCase):
         self.assertFalse(result['success'])
         self.assertEqual(fake.calls, [])
         self.assertIn('2026-09', result['error'])
+        self.assertEqual(result['audit']['errorCode'], 'incomplete_history')
