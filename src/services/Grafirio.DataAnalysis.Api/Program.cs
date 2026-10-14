@@ -66,6 +66,7 @@ builder.Services.AddHttpClient(nameof(LlmClient), client =>
 builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<IPyCaretClient, PyCaretClient>();
 builder.Services.AddScoped<IPyCaretQueryService, PyCaretQueryService>();
+builder.Services.AddHostedService<Grafirio.DataAnalysis.Api.Infrastructure.Telemetry.DiagnosticRetentionService>();
 builder.Services.AddAnalysisRequestLimits();
 builder.Services.AddSingleton<ILlmClient, LlmClient>();
 builder.Services.AddSingleton<LlmAnalysisService>();
@@ -184,7 +185,8 @@ builder.Services.AddCors(options =>
     {
         policy.AllowAnyOrigin()
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .WithExposedHeaders("X-Diagnostic-Id");
     });
 });
 
@@ -282,6 +284,7 @@ using (var scope = app.Services.CreateScope())
         // EnsureCreated var olan tabloya dokunmuyor: yeni kolon yalnizca bos
         // veritabaninda olusur. Eksik kolonlar burada elle ekleniyor.
         SchemaPatches.Apply(db, app.Logger);
+        DiagnosticSchema.Apply(db);
 
         app.Logger.LogInformation("✅ Database initialized successfully");
     }
@@ -322,6 +325,7 @@ app.MapAgentQueryEndpoints();      // Sorgu: soru -> parametre -> PyCaret
 app.MapInternalDataEndpoints();    // PyCaret'in veri okudugu ic uc (gateway'e tanimlanmaz)
 app.MapBridgeEndpoints();          // Bridge kaydi ve yonetimi
 app.MapSemanticSignalEndpoints();  // Platform yonetimi: semantik zeka sinyalleri (yalnizca toplu)
+app.MapDiagnosticEndpoints();
 
 // Musteri agindaki bridge'lerin bagli durdugu kanal. Baglantiyi bridge kurar;
 // sunucu hicbir zaman musteri agina baglanmaya calismaz.

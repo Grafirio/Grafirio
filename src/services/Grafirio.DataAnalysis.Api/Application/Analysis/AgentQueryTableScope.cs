@@ -17,13 +17,14 @@ public static class AgentQueryTableScope
             QueryTableScope.RequireCurrentConfig(JsonSerializer.Serialize(tables), selected);
 
             using var parameters = JsonDocument.Parse(parametersJson);
+            RequireShapes(parameters.RootElement);
             ValidateBranch(parameters.RootElement, selected, "target_table", allowEmptyTarget: true);
             if (parameters.RootElement.TryGetProperty("relationship_proposals", out var proposals))
                 foreach (var proposal in proposals.EnumerateArray())
                     QueryTableScope.RequireSelected(
                         [proposal.GetProperty("fromTable").GetString()!, proposal.GetProperty("toTable").GetString()!], selected);
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+        catch (Exception exception) when (exception is not QueryPolicyException && (exception is JsonException or InvalidOperationException or KeyNotFoundException))
         {
             throw new QueryPolicyException("Analysis parameters or dictionary table scope is invalid.", true);
         }
@@ -32,6 +33,7 @@ public static class AgentQueryTableScope
     private static void ValidateBranch(JsonElement branch, IReadOnlyList<string> selected,
         string tableProperty, bool allowEmptyTarget = false)
     {
+        RequireShapes(branch);
         if (branch.TryGetProperty(tableProperty, out var table) && table.ValueKind == JsonValueKind.String &&
             !string.IsNullOrWhiteSpace(table.GetString()))
             QueryTableScope.RequireSelected([table.GetString()!], selected);
@@ -53,6 +55,18 @@ public static class AgentQueryTableScope
             var branches = union.ValueKind == JsonValueKind.Array ? union : union.GetProperty("with");
             foreach (var child in branches.EnumerateArray()) ValidateBranch(child, selected, "table");
         }
+    }
+
+    private static void RequireShapes(JsonElement branch)
+    {
+        if (branch.ValueKind != JsonValueKind.Object)
+            throw new QueryPolicyException("Invalid analysis parameter: branch must be an object.", true);
+        foreach (var key in new[] { "group_by", "feature_columns", "joins", "relationship_proposals" })
+            if (branch.TryGetProperty(key, out var value) && value.ValueKind is not (JsonValueKind.Array or JsonValueKind.Null))
+                throw new QueryPolicyException($"Invalid analysis parameter '{key}': expected an array.", true);
+        foreach (var key in new[] { "filters", "filter", "preAggregate" })
+            if (branch.TryGetProperty(key, out var value) && value.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
+                throw new QueryPolicyException($"Invalid analysis parameter '{key}': expected an object.", true);
     }
 
     private static void ValidateColumns(JsonElement branch, IReadOnlyList<string> selected, HashSet<string> aliases)

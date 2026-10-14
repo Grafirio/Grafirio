@@ -16,10 +16,27 @@ public class DataAnalysisDbContext : DbContext
     public DbSet<SavedConnection> SavedConnections { get; set; }
     public DbSet<AnalysisConfig> AnalysisConfigs { get; set; }
     public DbSet<QueryHistory> QueryHistories { get; set; }
+    public DbSet<QueryDiagnostic> QueryDiagnostics { get; set; }
+    public DbSet<DiagnosticTestCase> DiagnosticTestCases { get; set; }
+    public DbSet<DiagnosticSettings> DiagnosticSettings { get; set; }
+    public DbSet<DiagnosticAdminEvent> DiagnosticAdminEvents { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<QueryDiagnostic>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.CreatedAt);
+            entity.HasIndex(x => x.QueryId).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.ConnectionId, x.CreatedAt });
+            entity.HasIndex(x => x.ContextHash);
+        });
+        modelBuilder.Entity<DiagnosticTestCase>().HasKey(x => x.Id);
+        modelBuilder.Entity<DiagnosticTestCase>().Property(x => x.RunsJson).IsConcurrencyToken();
+        modelBuilder.Entity<DiagnosticSettings>().HasKey(x => x.Id);
+        modelBuilder.Entity<DiagnosticAdminEvent>().HasKey(x => x.Id);
+        modelBuilder.Entity<DiagnosticAdminEvent>().HasIndex(x => x.CreatedAt);
         
         // SavedConnection configuration
         modelBuilder.Entity<SavedConnection>(entity =>

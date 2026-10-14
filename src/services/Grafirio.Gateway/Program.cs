@@ -48,7 +48,7 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod()
         // Kimlik Authorization basligiyla tasiniyor, cerezle degil; bu yuzden
         // AllowCredentials gerekmiyor ve origin listesi dar tutulabiliyor.
-        .WithExposedHeaders("X-Correlation-Id"));
+        .WithExposedHeaders("X-Correlation-Id", "X-Diagnostic-Id"));
 });
 
 var app = builder.Build();

@@ -4,6 +4,7 @@ import { useKeycloak } from '@react-keycloak/web';
 const NAV = [
   { to: '/observability', label: 'Sistem metrikleri' },
   { to: '/semantic', label: 'Semantik zekâ' },
+  { to: '/diagnostics', label: 'Sorgu izleme' },
   { to: '/companies', label: 'Firmalar' },
   { to: '/services', label: 'Servisler' },
 ];
