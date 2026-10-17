@@ -81,7 +81,7 @@ jobs:
             dotnet test $project.FullName -c Release --no-restore --logger trx --results-directory "artifacts/quality/$($project.BaseName)"
             if ($LASTEXITCODE -ne 0) { throw "Tests failed: $($project.Name)" }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: dotnet-test-results
@@ -180,7 +180,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-test-results
