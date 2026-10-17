@@ -20,6 +20,305 @@ namespace Grafirio.DataAnalysis.Tests;
 
 public sealed class DiagnosticTests
 {
+    [Theory]
+    [InlineData(1, 50)]
+    [InlineData(2, 11)]
+    [InlineData(3, 0)]
+    public async Task CombinedResponseSharesTheWholeFilteredPopulationAndPreservesPaging(int page, int expectedItems)
+    {
+        await using var db = Database();
+        var connection = Guid.NewGuid();
+        db.QueryDiagnostics.AddRange(Enumerable.Range(0, 61).Select(i => new QueryDiagnostic {
+            Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow.AddMinutes(-i), CompanyId = "company",
+            ConnectionId = connection, Status = "failed", ErrorCode = "empty_result", Question = "Ciro", DurationMs = 100 }));
+        db.Add(new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+            CompanyId = "other", ConnectionId = connection, Status = "completed" });
+        await db.SaveChangesAsync();
+        var combined = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, days: 7, page: page,
+            companyId: "company", connectionId: connection, status: "failed", errorCode: "empty_result", search: "Ciro", includeSummary: true));
+        Assert.Equal(expectedItems, combined["items"]!.AsArray().Count);
+        Assert.Equal(61, combined["total"]!.GetValue<int>());
+        Assert.Equal(61, combined["summary"]!["total"]!.GetValue<int>());
+        Assert.Equal(61, combined["summary"]!["failed"]!.GetValue<int>());
+        Assert.Equal(61, combined["summary"]!["emptyResults"]!.GetValue<int>());
+        Assert.Equal(100, combined["summary"]!["p95Ms"]!.GetValue<int>());
+        Assert.Equal(0d, combined["summary"]!["successRate"]!.GetValue<double>());
+        Assert.Equal(page, combined["page"]!.GetValue<int>());
+        Assert.Equal(50, combined["pageSize"]!.GetValue<int>());
+        Assert.True(combined["capturedAt"]!.GetValue<DateTime>() <= DateTime.UtcNow);
+        var oldSummary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, days: 7,
+            companyId: "company", connectionId: connection, status: "failed", errorCode: "empty_result", search: "Ciro"));
+        // Separate HTTP reads have different reference timestamps, but the same stable data/metrics.
+        var combinedSummary = combined["summary"]!.DeepClone();
+        oldSummary.AsObject().Remove("comparison");
+        combinedSummary.AsObject().Remove("comparison");
+        Assert.True(JsonNode.DeepEquals(oldSummary, combinedSummary));
+        Assert.Equal("Microsoft.EntityFrameworkCore.InMemory", db.Database.ProviderName);
+    }
+
+    [Fact]
+    public async Task CombinedResponsePreservesEmptyLegacyAndTrackingScopesWithoutChangingOldContract()
+    {
+        await using var db = Database();
+        var empty = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, includeSummary: true));
+        Assert.Empty(empty["items"]!.AsArray());
+        Assert.Equal(0, empty["summary"]!["total"]!.GetValue<int>());
+        Assert.Null(empty["summary"]!["successRate"]);
+        var config = new AnalysisConfig { Id = Guid.NewGuid(), CompanyId = "company", ConnectionId = Guid.NewGuid() };
+        var query = new QueryHistory { Id = Guid.NewGuid(), ConfigId = config.Id, Status = "completed",
+            CreatedAt = DateTime.UtcNow.AddDays(-60), CompletedAt = DateTime.UtcNow.AddDays(-60).AddSeconds(1) };
+        db.AddRange(config, query); await db.SaveChangesAsync();
+        var found = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, companyId: "company",
+            search: query.Id.ToString(), includeSummary: true));
+        Assert.Single(found["items"]!.AsArray());
+        Assert.True(found["items"]![0]!["legacy"]!.GetValue<bool>());
+        Assert.Equal(1, found["summary"]!["completed"]!.GetValue<int>());
+        var mismatch = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, companyId: "other",
+            search: query.Id.ToString(), includeSummary: true));
+        Assert.Empty(mismatch["items"]!.AsArray());
+        Assert.Equal(0, mismatch["summary"]!["total"]!.GetValue<int>());
+        var original = Body(await DiagnosticEndpoints.List(db, Admin().Object, default));
+        Assert.False(original.AsObject().ContainsKey("summary"));
+        Assert.False(original.AsObject().ContainsKey("capturedAt"));
+    }
+
+    [Fact]
+    public async Task CombinedResponseRejectsUnauthorizedCallBeforeDatabaseAccess()
+    {
+        var result = await DiagnosticEndpoints.List(null!, Admin(false).Object, default, includeSummary: true);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>(result);
+    }
+
+    [Fact]
+    public async Task MergedPagesCoverDiagnosticAndLegacySourcesWithoutGapsOrDuplicates()
+    {
+        await using var db = Database();
+        var config = new AnalysisConfig { Id = Guid.NewGuid(), CompanyId = "company", ConnectionId = Guid.NewGuid() };
+        db.Add(config);
+        var created = DateTime.UtcNow.AddHours(-1);
+        var expected = new HashSet<Guid>();
+        for (var i = 0; i < 121; i++)
+        {
+            var id = Guid.NewGuid(); expected.Add(id);
+            if (i % 2 == 0)
+                db.Add(new QueryDiagnostic { Id = id, CreatedAt = created, CompanyId = config.CompanyId,
+                    ConnectionId = config.ConnectionId, Status = "completed" });
+            else
+                db.Add(new QueryHistory { Id = id, ConfigId = config.Id, CreatedAt = created, Status = "completed" });
+        }
+        await db.SaveChangesAsync();
+        var actual = new List<Guid>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var list = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, page: page, companyId: config.CompanyId));
+            Assert.Equal(121, list["total"]!.GetValue<int>());
+            actual.AddRange(list["items"]!.AsArray().Select(item => item!["id"]!.GetValue<Guid>()));
+        }
+        Assert.Equal(121, actual.Count);
+        Assert.Equal(expected, actual.ToHashSet());
+        var beyond = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, page: int.MaxValue));
+        Assert.Empty(beyond["items"]!.AsArray());
+        Assert.Equal(121, beyond["total"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task CountsIncludeAllMatchesBeyondFormerSampleAndDoNotChangeAcrossPages()
+    {
+        await using var db = Database();
+        var connection = Guid.NewGuid();
+        db.QueryDiagnostics.AddRange(Enumerable.Range(0, 5101).Select(i => new QueryDiagnostic {
+            Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow.AddMinutes(-i), CompanyId = "target",
+            ConnectionId = connection, Status = "completed", Question = "Ciro" }));
+        db.QueryDiagnostics.Add(new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+            CompanyId = "other", Status = "failed" });
+        await db.SaveChangesAsync();
+        var list = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, companyId: "target", connectionId: connection));
+        var last = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, page: 103, companyId: "target", connectionId: connection));
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, companyId: "target", connectionId: connection));
+        Assert.Equal(5101, list["total"]!.GetValue<int>());
+        Assert.Equal(5101, last["total"]!.GetValue<int>());
+        Assert.Equal(5101, summary["completed"]!.GetValue<int>());
+        Assert.Equal(list["total"]!.GetValue<int>(), summary["total"]!.GetValue<int>());
+        Assert.Equal(50, list["items"]!.AsArray().Count);
+        Assert.Single(last["items"]!.AsArray());
+        Assert.False(list["sampled"]!.GetValue<bool>());
+        Assert.False(summary["sampled"]!.GetValue<bool>());
+        Assert.Null(list["items"]![0]!["context"]);
+        var combined = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, page: 103,
+            companyId: "target", connectionId: connection, includeSummary: true));
+        Assert.Single(combined["items"]!.AsArray());
+        Assert.Equal(5101, combined["total"]!.GetValue<int>());
+        Assert.Equal(5101, combined["summary"]!["completed"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task OlderScopedRequestsRemainDiscoverableBehindThousandsOfOtherCompanies()
+    {
+        await using var db = Database();
+        db.QueryDiagnostics.AddRange(Enumerable.Range(0, 5001).Select(i => new QueryDiagnostic {
+            Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow, CompanyId = "other", Status = "completed" }));
+        var row = new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow.AddDays(-2),
+            CompanyId = "target", Status = "failed", ErrorCode = "empty_result", Question = "Ciro" };
+        db.Add(row); await db.SaveChangesAsync();
+        var list = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, companyId: "target", errorCode: "empty_result"));
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, companyId: "target", errorCode: "empty_result"));
+        Assert.Equal(1, list["total"]!.GetValue<int>());
+        Assert.Equal(1, summary["emptyResults"]!.GetValue<int>());
+        Assert.Equal(row.Id, list["items"]![0]!["id"]!.GetValue<Guid>());
+    }
+
+    [Theory]
+    [InlineData(7, null, null, null, null, 3)]
+    [InlineData(7, "company", null, null, null, 2)]
+    [InlineData(7, "company", "failed", null, null, 1)]
+    [InlineData(7, "company", null, "empty_result", null, 1)]
+    [InlineData(7, "company", null, null, "Ciro", 1)]
+    [InlineData(1, "company", null, null, null, 1)]
+    public async Task ListAndSummaryShareAllFiltersAndLegacyHistory(int days, string? company, string? status,
+        string? errorCode, string? search, int expected)
+    {
+        await using var db = Database();
+        var connection = Guid.NewGuid();
+        var config = new AnalysisConfig { Id = Guid.NewGuid(), CompanyId = "company", ConnectionId = connection };
+        var linked = new QueryHistory { Id = Guid.NewGuid(), ConfigId = config.Id, CreatedAt = DateTime.UtcNow,
+            Status = "failed", ResultJson = "{\"audit\":{\"errorCode\":\"empty_result\"}}" };
+        db.AddRange(config, linked, new QueryDiagnostic { Id = Guid.NewGuid(), QueryId = linked.Id,
+            CreatedAt = linked.CreatedAt, CompanyId = "company", ConnectionId = connection, Status = "submitted", Question = "Ciro" },
+            new QueryHistory { Id = Guid.NewGuid(), ConfigId = config.Id, CreatedAt = DateTime.UtcNow.AddDays(-2),
+                Status = "completed", Question = "Satış" },
+            new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow, CompanyId = "other",
+                ConnectionId = connection, Status = "completed" },
+            new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow, CompanyId = "company",
+                ConnectionId = Guid.NewGuid(), Status = "completed" });
+        await db.SaveChangesAsync();
+        var list = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, days: days,
+            companyId: company, connectionId: connection, status: status, errorCode: errorCode, search: search));
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, days: days,
+            companyId: company, connectionId: connection, status: status, errorCode: errorCode, search: search));
+        Assert.Equal(expected, list["total"]!.GetValue<int>());
+        Assert.Equal(expected, summary["total"]!.GetValue<int>());
+        Assert.Equal(expected, summary["completed"]!.GetValue<int>() + summary["failed"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task StalePreparationAndOutOfPeriodTrackingSearchUseTheSameScopeInSummary()
+    {
+        await using var db = Database();
+        var old = new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow.AddDays(-60),
+            CompanyId = "company", Status = "failed" };
+        db.AddRange(old, new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow.AddMinutes(-20),
+            Status = "preparing", CompanyId = "company" });
+        await db.SaveChangesAsync();
+        var list = Body(await DiagnosticEndpoints.List(db, Admin().Object, default, status: "failed"));
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, status: "failed"));
+        Assert.Equal(1, list["total"]!.GetValue<int>());
+        Assert.Equal(1, summary["failed"]!.GetValue<int>());
+        var lookup = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, search: old.Id.ToString(), companyId: "company"));
+        Assert.Equal(1, lookup["total"]!.GetValue<int>());
+        var mismatch = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default, search: old.Id.ToString(), companyId: "other"));
+        Assert.Equal(0, mismatch["total"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ScopedFiltersTranslateToPostgresSqlWithoutOpeningAConnection()
+    {
+        using var db = new DataAnalysisDbContext(new DbContextOptionsBuilder<DataAnalysisDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=translation_only;Username=unused;Password=unused").Options);
+        var query = (IQueryable)typeof(DiagnosticEndpoints).GetMethod("ScopedDiagnostics", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [db, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow.AddMinutes(-15), "company", Guid.NewGuid(), "failed"])!;
+        var sql = query.ToQueryString();
+        Assert.Contains("LEFT JOIN", sql);
+        Assert.Contains("CASE", sql);
+        Assert.Contains("CompanyId", sql);
+        Assert.Contains("ConnectionId", sql);
+        Assert.DoesNotContain("LIMIT", sql);
+        var statuses = (IQueryable<string>)typeof(DiagnosticEndpoints).GetMethod("ScopedStatuses", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [db, DateTime.UtcNow.AddDays(-7), DateTime.UtcNow.AddMinutes(-15), "company", Guid.NewGuid(), "failed"])!;
+        var aggregateSql = statuses.GroupBy(value => value).Select(g => new { Status = g.Key, Count = g.Count() }).ToQueryString();
+        Assert.Contains("UNION ALL", aggregateSql);
+        Assert.Contains("GROUP BY", aggregateSql);
+        Assert.Contains("NOT EXISTS", aggregateSql);
+        Assert.DoesNotContain("LIMIT", aggregateSql);
+    }
+
+    [Fact]
+    public async Task SummaryPartitionsEveryStatusAndCountsEmptyResultsOnlyWithinFailures()
+    {
+        await using var db = Database();
+        Assert.Equal("Microsoft.EntityFrameworkCore.InMemory", db.Database.ProviderName);
+        var statuses = new[] { "completed", "failed", "failed", "preparing", "submitted", "queued",
+            "processing", "cancelling", "clarification", "cancelled", "future_status" };
+        foreach (var status in statuses.Select((value, index) => (value, index)))
+            db.QueryDiagnostics.Add(new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow,
+                Status = status.value, ErrorCode = status.index == 1 || status.value == "completed" ? "empty_result" : null,
+                DurationMs = status.value == "completed" ? 100 : status.value == "failed" ? 200
+                    : status.value == "clarification" ? 300 : status.value == "cancelled" ? 400 : 99999 });
+        await db.SaveChangesAsync();
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default));
+        Assert.Equal(11, summary["total"]!.GetValue<int>());
+        Assert.Equal(1, summary["completed"]!.GetValue<int>());
+        Assert.Equal(2, summary["failed"]!.GetValue<int>());
+        Assert.Equal(1, summary["emptyResults"]!.GetValue<int>());
+        Assert.Equal(5, summary["pending"]!.GetValue<int>());
+        Assert.Equal(1, summary["clarification"]!.GetValue<int>());
+        Assert.Equal(1, summary["cancelled"]!.GetValue<int>());
+        Assert.Equal(1, summary["other"]!.GetValue<int>());
+        Assert.Equal(summary["total"]!.GetValue<int>(), new[] { "completed", "failed", "pending", "clarification", "cancelled", "other" }
+            .Sum(key => summary[key]!.GetValue<int>()));
+        Assert.Equal(1d / 3, summary["successRate"]!.GetValue<double>(), 10);
+        Assert.Equal(5, summary["terminalCount"]!.GetValue<int>());
+        Assert.Equal(400, summary["p95Ms"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task EmptyOrPendingOnlyPopulationHasNoSuccessRateOrTerminalLatency()
+    {
+        await using var db = Database();
+        var empty = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default));
+        Assert.Null(empty["successRate"]);
+        Assert.Null(empty["p95Ms"]);
+        db.QueryDiagnostics.Add(new QueryDiagnostic { Id = Guid.NewGuid(), CreatedAt = DateTime.UtcNow, Status = "processing" });
+        await db.SaveChangesAsync();
+        var pending = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default));
+        Assert.Null(pending["successRate"]);
+        Assert.Null(pending["p95Ms"]);
+        Assert.Equal(0, pending["terminalCount"]!.GetValue<int>());
+    }
+
+    [Theory]
+    [InlineData("{\"errorCode\":\"timeout\",\"audit\":{\"errorCode\":\"empty_result\"}}", "timeout")]
+    [InlineData("{\"audit\":{\"errorCode\":\"empty_result\"}}", "empty_result")]
+    [InlineData("{\"errorCode\":\" \",\"audit\":{\"errorCode\":\"empty_result\"}}", "empty_result")]
+    [InlineData("{}", "stored_code")]
+    public void StructuredErrorCodesUseTheSamePrecedenceInDiagnosticViews(string json, string expected)
+    {
+        var result = QueryDiagnostics.Parse(json);
+        Assert.Equal(expected, QueryDiagnostics.ResolveErrorCode(result, "stored_code", "timeout"));
+        var view = DiagnosticEndpoints.ToView(new QueryDiagnostic { ErrorCode = "stored_code" },
+            new QueryHistory { Status = "failed", ResultJson = json });
+        Assert.Equal(expected, view.ErrorCode);
+        Assert.Equal("empty_result", QueryDiagnostics.ResolveErrorCode(null, null, "Sorguya uyan kayıt bulunamadı."));
+        Assert.Null(DiagnosticEndpoints.ToView(new QueryDiagnostic { Status = "completed", ErrorCode = "empty_result" }).ErrorCode);
+    }
+
+    [Fact]
+    public async Task LinkedHistoryIsCountedOnceAndOverridesSubmittedStatus()
+    {
+        await using var db = Database();
+        var config = new AnalysisConfig { Id = Guid.NewGuid(), CompanyId = "company", ConnectionId = Guid.NewGuid() };
+        var query = new QueryHistory { Id = Guid.NewGuid(), ConfigId = config.Id, CreatedAt = DateTime.UtcNow,
+            CompletedAt = DateTime.UtcNow, Status = "failed", ResultJson = "{\"audit\":{\"errorCode\":\"empty_result\"}}" };
+        db.AddRange(config, query, new QueryDiagnostic { Id = Guid.NewGuid(), QueryId = query.Id,
+            CreatedAt = DateTime.UtcNow, Status = "submitted" });
+        await db.SaveChangesAsync();
+        var summary = Body(await DiagnosticEndpoints.Summary(db, Admin().Object, default));
+        Assert.Equal(1, summary["total"]!.GetValue<int>());
+        Assert.Equal(1, summary["failed"]!.GetValue<int>());
+        Assert.Equal(1, summary["emptyResults"]!.GetValue<int>());
+        Assert.Equal(0, summary["pending"]!.GetValue<int>());
+        Assert.Equal(0d, summary["successRate"]!.GetValue<double>());
+    }
+
     private const string Dictionary = """
         {"technicalSchemaComplete":true,"tables":[{"name":"dbo.Orders"},{"name":"dbo.Customers"}],
          "columns":[{"table":"dbo.Orders","column":"Id"},{"table":"dbo.Customers","column":"Id"}],"questions":[]}

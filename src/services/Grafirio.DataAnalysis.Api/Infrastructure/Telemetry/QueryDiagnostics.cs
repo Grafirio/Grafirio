@@ -79,6 +79,14 @@ public static class QueryDiagnostics
         Step(row, row.Stage);
     }
 
+    // Structured worker codes take precedence; historical rows fall back to their stored code/text.
+    public static string ResolveErrorCode(JsonNode? result, string? storedCode, string? error, string stage = "execution")
+    {
+        foreach (var code in new[] { result?["errorCode"]?.ToString(), result?["audit"]?["errorCode"]?.ToString(), storedCode })
+            if (!string.IsNullOrWhiteSpace(code)) return code;
+        return Classify(error, stage);
+    }
+
     public static string Classify(string? error, string stage = "execution")
     {
         var text = (error ?? "").ToLowerInvariant();

@@ -3,7 +3,7 @@ import client, { GATEWAY } from './authClient';
 const BASE = `${GATEWAY}/data-analysis/api/admin/diagnostics`;
 export const getDiagnostics = async (params) => (await client.get(BASE, { params })).data;
 export const getDiagnostic = async (id) => (await client.get(`${BASE}/${id}`)).data;
-export const getDiagnosticSummary = async (days) => (await client.get(`${BASE}/summary`, { params: { days } })).data;
+export const getDiagnosticSummary = async (filters) => (await client.get(`${BASE}/summary`, { params: typeof filters === 'number' ? { days: filters } : filters })).data;
 export const saveReview = (id, data) => client.put(`${BASE}/${id}/review`, data);
 export const getDiagnosticSettings = async () => (await client.get(`${BASE}/settings`)).data;
 export const saveDiagnosticSettings = async (data) => (await client.put(`${BASE}/settings`, data)).data;
@@ -14,7 +14,7 @@ export const updateDiagnosticTest = (id, data) => client.put(`${BASE}/tests/${id
 export const deleteDiagnosticTest = (id) => client.delete(`${BASE}/tests/${id}`);
 export const runDiagnosticTest = async (id) => (await client.post(`${BASE}/tests/${id}/run`, {}, { timeout: 660000 })).data;
 
-export const STATUS = { preparing: 'Hazırlanıyor', submitted: 'İletildi', processing: 'Çalışıyor', completed: 'Tamamlandı',
+export const STATUS = { preparing: 'Hazırlanıyor', submitted: 'İletildi', queued: 'Kuyrukta', processing: 'Çalışıyor', completed: 'Tamamlandı',
   failed: 'Başarısız', clarification: 'Açıklama gerekiyor', cancelled: 'İptal edildi', cancelling: 'İptal ediliyor' };
 export const ERRORS = { empty_result: 'Kayıt bulunamadı', insufficient_data: 'Veri yetersiz', timeout: 'Süre aşıldı',
   entity_filter_mismatch: 'Ad / kod eşleme çelişkisi',
