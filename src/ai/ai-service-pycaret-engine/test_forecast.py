@@ -6,6 +6,7 @@ import types
 import unittest
 from datetime import date
 from unittest.mock import patch
+import forecast_history
 
 from query_spec import (
     Aggregate, ColumnRef, OrderBy, PeriodBucket, QuerySpec, QuerySpecError,
@@ -271,7 +272,7 @@ class ForecastTests(unittest.TestCase):
             "relationships": [],
         }
         fake = fake or FakeForecasterModule()
-        with patch.dict(sys.modules, {"forecaster": fake}), patch('forecast_history.today_utc', return_value=date(2026, 1, 15)):
+        with patch.dict(sys.modules, {"forecaster": fake}), patch.object(forecast_history, 'today_utc', return_value=date(2026, 1, 15)):
             return analyzer.run_analysis(config, params), port, fake
 
     @staticmethod

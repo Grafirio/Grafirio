@@ -46,6 +46,11 @@ def _fitted_values(values: list, seasonality) -> tuple:
     """Beklenen degerler + kullanilan model adi, gucluden zayifa merdivenle."""
     n = len(values)
 
+    # Fitting a constant series can create machine-precision residuals. Dividing
+    # those by their equally tiny sigma otherwise invents high-scoring anomalies.
+    if all(value == values[0] for value in values):
+        return list(values), 'Constant'
+
     if seasonality and n >= 2 * seasonality:
         try:
             from statsmodels.tsa.holtwinters import ExponentialSmoothing
