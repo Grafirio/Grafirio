@@ -13,7 +13,8 @@ export function planChecks(files, all = false) {
   const ops = all || tooling || paths.some((p) => p.startsWith(`${apps[1]}/api/`));
   // Admin API changes can break the panel without changing any JSX.
   const browser = all || tooling || frontends.includes(apps[1]) || paths.some((p) => p.startsWith('src/services/Grafirio.DataAnalysis.Api/'));
-  return { dotnet, python, frontends, ops, browser };
+  const analysis_image = all || tooling || paths.some((p) => p.startsWith('src/ai/ai-service-pycaret-engine/'));
+  return { dotnet, python, frontends, ops, browser, analysis_image };
 }
 
 export function changedFiles(base) {

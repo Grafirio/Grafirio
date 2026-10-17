@@ -1,4 +1,5 @@
-FROM python:3.14-slim-bookworm
+# PyCaret 3.3.x supports Python through 3.11; upgrade the ML stack before this minor.
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 

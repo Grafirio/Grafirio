@@ -19,6 +19,7 @@ jobs:
     outputs:
       dotnet: ${{ steps.plan.outputs.dotnet }}
       python: ${{ steps.plan.outputs.python }}
+      analysis_image: ${{ steps.plan.outputs.analysis_image }}
       frontends: ${{ steps.plan.outputs.frontends }}
       ops: ${{ steps.plan.outputs.ops }}
       browser: ${{ steps.plan.outputs.browser }}
@@ -109,6 +110,22 @@ jobs:
       - run: 'python -m pip install --only-binary=:all: -r tools/quality/requirements.txt'
       - run: python tools/quality/run-python-tests.py
 
+  analysis-image:
+    name: Analysis production image
+    needs: plan
+    if: needs.plan.outputs.analysis_image == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the full production dependency environment (no push or deploy)
+        run: docker build --progress plain -t grafirio-analysis-check:ci src/ai/ai-service-pycaret-engine
+      - name: Check installed dependency constraints
+        run: docker run --rm --network none --entrypoint python grafirio-analysis-check:ci -m pip check
+      - name: Import the application, ML runtime and native database drivers offline
+        run: |
+          docker run --rm --network none --entrypoint python grafirio-analysis-check:ci -c "import main, psycopg2, pyodbc; from pycaret.regression import RegressionExperiment; from pycaret.time_series import TSForecastingExperiment; assert 'ODBC Driver 18 for SQL Server' in pyodbc.drivers(); print('Application, PyCaret and database drivers imported successfully')"
+
   infrastructure:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -190,7 +207,7 @@ jobs:
   gate:
     name: Quality gate
     if: always()
-    needs: [plan, dotnet, python, frontend, ops, browser, infrastructure, repository]
+    needs: [plan, dotnet, python, analysis-image, frontend, ops, browser, infrastructure, repository]
     runs-on: ubuntu-latest
     steps:
       - name: Reject failed or cancelled checks

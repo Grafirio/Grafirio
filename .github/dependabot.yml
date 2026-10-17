@@ -73,6 +73,10 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
+      # Python 3.11 -> 3.14 is a minor version bump, but breaks PyCaret 3.3.x.
+      - dependency-name: python
+        update-types: ['version-update:semver-minor']
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
