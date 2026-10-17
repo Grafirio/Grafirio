@@ -1,0 +1,12 @@
+{
+  "threshold": 100,
+  "minLines": 12,
+  "minTokens": 80,
+  "reporters": ["json", "console"],
+  "output": "../../artifacts/quality/duplicates",
+  "ignore": [
+    "**/node_modules/**", "**/bin/**", "**/obj/**", "**/dist/**",
+    "**/__pycache__/**", "**/Migrations/**", "**/migrations/**",
+    "**/e2e/**", "**/*.min.js", "**/package-lock.json"
+  ]
+}

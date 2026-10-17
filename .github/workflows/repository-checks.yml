@@ -1,0 +1,75 @@
+name: Repository maintenance checks
+
+on:
+  workflow_call:
+    inputs:
+      history_scan:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      history_scan:
+        description: Scan all Git history (including old findings)
+        type: boolean
+        default: true
+  schedule:
+    # Tuesday 08:00 Istanbul. Historical findings fail the run for review.
+    - cron: '0 5 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/quality/package-lock.json
+      - name: Install checksum-pinned local scanners
+        run: python tools/quality/install-binaries.py gitleaks actionlint
+      - name: Validate all GitHub workflows
+        run: .quality/bin/actionlint -shellcheck=
+      - name: Verify scanner detection, redaction and commit-range behavior
+        run: python -m unittest discover -s tools/quality -p test_repository_tools.py
+      - name: Secret scanning
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FULL_HISTORY: ${{ github.event_name == 'schedule' || inputs.history_scan }}
+        run: |
+          if [ "$FULL_HISTORY" = true ]; then
+            python tools/quality/scan-secrets.py --history
+          elif [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            if previous=$(git rev-parse --verify HEAD^); then
+              python tools/quality/scan-secrets.py --base "$previous"
+            else
+              python tools/quality/scan-secrets.py --history
+            fi
+          else
+            python tools/quality/scan-secrets.py --base "$BASE"
+          fi
+      - name: Install pinned duplication detector
+        if: always()
+        run: npm ci --ignore-scripts --prefix tools/quality
+      - name: Report duplication (existing duplicates do not fail the gate)
+        if: always()
+        run: npm run duplicates --prefix tools/quality
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repository-maintenance-report
+          path: |
+            artifacts/quality/secrets.json
+            artifacts/quality/duplicates
+          if-no-files-found: ignore
+          retention-days: 14

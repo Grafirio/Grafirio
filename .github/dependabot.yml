@@ -1,0 +1,83 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directories:
+      - /src/front/grifirio.front
+      - /src/front/admins/grifirio.projectadmin
+      - /src/front/admins/grifirio.projectadmin/api
+      - /src/front/admins/grifirio.useradmin
+      - /src/services/Grafirio.DataAnalysis.Api
+      - /tools/quality
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: '09:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2
+    groups:
+      frontend-compatible:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  # NuGet bot is deferred until read-only package registry access is available.
+  # .NET CI still builds pinned shared sources without registry credentials.
+  - package-ecosystem: pip
+    directories:
+      - /src/ai/ai-service-pycaret-engine
+      - /tools/quality
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: '10:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2
+    groups:
+      python-compatible:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+      # Numerical/ML minor upgrades require a separate compatibility exercise.
+      - dependency-name: pycaret
+        update-types: ['version-update:semver-minor']
+      - dependency-name: numpy
+        update-types: ['version-update:semver-minor']
+      - dependency-name: pandas
+        update-types: ['version-update:semver-minor']
+      - dependency-name: scipy
+        update-types: ['version-update:semver-minor']
+      - dependency-name: statsmodels
+        update-types: ['version-update:semver-minor']
+
+  - package-ecosystem: docker
+    directories:
+      - /src/services/Grafirio.Gateway
+      - /src/services/Grafirio.Commerce.Api
+      - /src/services/Grafirio.DataAnalysis.Api
+      - /src/services/Grafirio.Identity.Api/Grafirio.Identity.Api
+      - /src/ai/ai-service-pycaret-engine
+      - /src/front/grifirio.front
+      - /src/front/admins/grifirio.projectadmin
+      - /src/front/admins/grifirio.useradmin
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: '10:30'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: '11:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 2

@@ -1,0 +1,12 @@
+# Boundary/SQL/forecast tests; deliberately excludes the production PyCaret runtime.
+-r ../../src/ai/ai-service-pycaret-engine/requirements-test.txt
+fastapi==0.115.0
+pydantic==2.9.2
+python-dotenv==1.0.1
+requests==2.32.3
+numpy==1.26.4
+pandas==2.1.4
+statsmodels==0.14.2
+scipy==1.11.4
+PyYAML==6.0.3
+hypothesis==6.170.1

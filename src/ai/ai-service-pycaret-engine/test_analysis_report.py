@@ -1,6 +1,7 @@
 import unittest
 from datetime import date
 from unittest.mock import patch
+import forecast_history
 from analysis_report import check_metrics, build_report
 from test_forecast import AgentAnalyzer, TimePort, FakeForecasterModule
 
@@ -18,7 +19,7 @@ def dictionary(policy="reject", minimum=4, horizon=6):
 
 class ReportTests(unittest.TestCase):
     def setUp(self):
-        clock = patch('forecast_history.today_utc', return_value=date(2026, 1, 15))
+        clock = patch.object(forecast_history, 'today_utc', return_value=date(2026, 1, 15))
         clock.start()
         self.addCleanup(clock.stop)
     def test_identifier_measure_rejected_without_user_configuration(self):

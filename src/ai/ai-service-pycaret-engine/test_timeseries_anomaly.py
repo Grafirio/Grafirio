@@ -34,9 +34,13 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(outcome["expected"]), len(values))
 
     def test_constant_series_has_no_anomalies(self):
-        outcome = detect_anomalies(self.series([42.0] * 12))
-        self.assertEqual(outcome["anomalies"], [])
-        self.assertEqual(outcome["sigma"], 0)
+        for value in (0.0, 42.0, -42.0, 1e12):
+            for count in (8, 12, 24):
+                with self.subTest(value=value, count=count):
+                    outcome = detect_anomalies(self.series([value] * count))
+                    self.assertEqual(outcome["anomalies"], [])
+                    self.assertEqual(outcome["sigma"], 0)
+                    self.assertEqual([p["value"] for p in outcome["expected"]], [value] * count)
 
     def test_requires_minimum_history_and_sorts_input(self):
         with self.assertRaises(AnomalyError):
