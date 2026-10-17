@@ -33,13 +33,14 @@ export default function ServicesPage() {
   };
 
   const handleConfirm = () => {
-    const { service, action } = pendingConfirmation;
+    const { service, action, execute } = pendingConfirmation;
     setPendingConfirmation(null);
-    executeServiceAction(service, action);
+    if (execute) execute();
+    else executeServiceAction(service, action);
   };
 
   const handleStartDocker = () => run('docker', startDocker, 'Docker Desktop başlatılıyor; hazır olması bir dakika sürebilir.');
-  const handleInfrastructureUp = () => run('infrastructure', bringInfrastructureUp, 'Altyapı kaldırılıyor; ilerlemeyi aşağıdan izleyin.');
+  const handleInfrastructureUp = () => run('infrastructure', bringInfrastructureUp, 'Altyapı ayağa kaldırılıyor; ilerlemeyi aşağıdan izleyin.');
   const handleSaveAutoHeal = (settings) => run('autoheal', () => updateAutoHeal(settings), 'Otomatik onarma ayarları kaydedildi.');
 
   return (
@@ -72,7 +73,9 @@ export default function ServicesPage() {
             operation={status.operation}
             isBusy={isBusy}
             onStartDocker={handleStartDocker}
-            onInfrastructureUp={handleInfrastructureUp}
+            onInfrastructureUp={() => setPendingConfirmation({ title: 'Altyapıyı ayağa kaldır',
+              message: 'Veritabanı, mesajlaşma ve kimlik altyapısı için eksik konteynerler oluşturulacak ve servisler başlatılacak. İşlem ortak altyapıyı etkiler.',
+              confirmLabel: 'Altyapıyı başlat', execute: handleInfrastructureUp })}
           />
           <ServiceTable
             services={status.services}
@@ -84,7 +87,9 @@ export default function ServicesPage() {
             settings={status.autoHeal}
             emailAlertsEnabled={status.emailAlertsEnabled}
             isBusy={isBusy}
-            onSave={handleSaveAutoHeal}
+            onSave={(settings) => setPendingConfirmation({ title: 'Otomatik onarma ayarlarını değiştir',
+              message: `Otomatik onarma ${settings.enabled ? 'açılacak' : 'kapatılacak'}. Açık olduğunda eşiklere göre servisler otomatik başlatılabilir veya yeniden başlatılabilir.`,
+              confirmLabel: 'Ayarları uygula', execute: () => handleSaveAutoHeal(settings) })}
           />
           <EventsPanel events={status.events} />
           <AuditLogPanel version={version} />
@@ -93,9 +98,9 @@ export default function ServicesPage() {
 
       {pendingConfirmation && (
         <ConfirmDialog
-          title={`${pendingConfirmation.service.name}: ${ACTION_LABELS[pendingConfirmation.action]}`}
-          message={`${pendingConfirmation.service.impact} Bu servisi ${ACTION_LABELS[pendingConfirmation.action].toLowerCase()} istediğinize emin misiniz?`}
-          confirmLabel={ACTION_LABELS[pendingConfirmation.action]}
+          title={pendingConfirmation.title ?? `${pendingConfirmation.service.name}: ${ACTION_LABELS[pendingConfirmation.action]}`}
+          message={pendingConfirmation.message ?? `${pendingConfirmation.service.impact} Bu servisi ${ACTION_LABELS[pendingConfirmation.action].toLowerCase()} istediğinize emin misiniz?`}
+          confirmLabel={pendingConfirmation.confirmLabel ?? ACTION_LABELS[pendingConfirmation.action]}
           onConfirm={handleConfirm}
           onCancel={() => setPendingConfirmation(null)}
         />

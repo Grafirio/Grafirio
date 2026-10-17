@@ -7,28 +7,28 @@
 .dg-detail { padding: 24px; display: grid; gap: 16px; min-width: 0; }
 .dg-question { font-size: 18px; line-height: 1.6; }
 .dg-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
-.dg-meta dt { font-size: 12px; color: #65748b; }
+.dg-meta dt { font-size: 12px; color: var(--text-muted); }
 .dg-meta dd, .dg-id { overflow-wrap: anywhere; }
 .dg-meta dd { margin: 4px 0 0; }
-.dg-id { display: block; color: #65748b; margin-top: 4px; }
+.dg-id { display: block; color: var(--text-muted); margin-top: 4px; }
 .dg-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .dg-page label { display: grid; gap: 6px; font-size: 13px; }
-.dg-page input:not([type=checkbox]), .dg-page select, .dg-page textarea { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: white; color: #17243b; font: inherit; width: 100%; }
+.dg-page input:not([type=checkbox]), .dg-page select, .dg-page textarea { border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--surface); color: var(--text); font: inherit; width: 100%; }
 .dg-form { display: grid; gap: 12px; }
 .dg-form button { justify-self: start; }
-.dg-json { border: 1px solid #dce4ee; border-radius: 8px; padding: 12px; min-width: 0; }
+.dg-json { border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
 .dg-json summary { cursor: pointer; font-weight: 600; }
-.dg-json pre { margin-top: 12px; padding: 12px; background: #f3f6fb; max-height: 460px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.dg-json pre { margin-top: 12px; padding: 12px; background: var(--surface-sunken); max-height: 460px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .dg-code { font-family: monospace !important; }
-.dg-error { background: #fff0ef; border: 1px solid #f6c4c0; padding: 14px; border-radius: 8px; color: #972c24; overflow-wrap: anywhere; }
-.dg-notice { background: #f0f5ff; padding: 12px; border-radius: 8px; line-height: 1.5; }
+.dg-error { background: var(--danger-soft); border: 1px solid var(--danger); padding: 14px; border-radius: 8px; color: var(--danger); overflow-wrap: anywhere; }
+.dg-notice { background: var(--info-soft); padding: 12px; border-radius: 8px; line-height: 1.5; }
 .dg-table-wrap { overflow: auto; }
 .dg-table-wrap th, .dg-table-wrap td { vertical-align: top; }
 .dg-table-wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 400px; font-size: 12px; }
-.dg-changed td { background: #fff4d9; }
-.dg-link { border: 0; background: none; color: #2456a8; cursor: pointer; text-align: left; font: inherit; text-decoration: underline; }
+.dg-changed td { background: var(--warning-soft); }
+.dg-link { border: 0; background: none; color: var(--accent); cursor: pointer; text-align: left; font: inherit; text-decoration: underline; }
 .dg-timeline { padding-left: 24px; display: grid; gap: 8px; }
-.dg-timeline span { color: #65748b; font-size: 12px; margin-left: 12px; }
-.dg-test { border-top: 1px solid #dce4ee; padding-top: 16px; display: grid; gap: 12px; }
+.dg-timeline span { color: var(--text-muted); font-size: 12px; margin-left: 12px; }
+.dg-test { border-top: 1px solid var(--border); padding-top: 16px; display: grid; gap: 12px; }
 .dg-page button:disabled { opacity: .55; cursor: default; }
 @media (max-width: 600px) { .dg-detail { padding: 14px; } .dg-meta { grid-template-columns: 1fr; } }

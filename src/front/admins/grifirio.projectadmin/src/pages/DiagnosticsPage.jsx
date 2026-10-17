@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { describeError } from '../services/authClient';
+import { createDiagnosticLoader } from '../utils/diagnosticLoader';
 import { comparisonRows, createDiagnosticTest, deleteDiagnosticTest, ERRORS, getDiagnostic, getDiagnosticEvents, getDiagnostics,
-  getDiagnosticSettings, getDiagnosticSummary, getDiagnosticTests, REVIEWS, runDiagnosticTest,
+  getDiagnosticSettings, getDiagnosticTests, REVIEWS, runDiagnosticTest,
   saveDiagnosticSettings, saveReview, STAGES, STATUS, updateDiagnosticTest } from '../services/diagnosticApi';
 import '../styles/diagnostics.css';
+import DiagnosticsOverview from '../components/DiagnosticsOverview';
+import PriorityIssues from '../components/PriorityIssues';
+import ConfirmDialog from '../components/ops/ConfirmDialog';
 
 const date = (value) => value ? new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—';
 const seconds = (value) => `${((value ?? 0) / 1000).toFixed(1)} sn`;
@@ -136,6 +140,7 @@ function TestsPanel({ onError, revision }) {
 function SettingsPanel({ onError }) {
   const [settings, setSettings] = useState(null); const [events, setEvents] = useState([]);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => { let active = true;
     Promise.all([getDiagnosticSettings(), getDiagnosticEvents()]).then(([s, e]) => { if (active) { setSettings(s); setEvents(e); } })
       .catch((e) => onError(describeError(e))); return () => { active = false; };
@@ -152,7 +157,9 @@ function SettingsPanel({ onError }) {
     ].map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} value={settings[key]}
       onChange={(e) => setSettings({ ...settings, [key]: Number(e.target.value) })} /></label>)}
       <p>Süreyi geçen teşhis kayıtları altı saatte bir temizlenir. Kaydedilmiş test örnekleri ve mevcut kullanıcı sorgu geçmişi korunur. E-posta ve 11 haneli numaralar maskelenir; ayrıntılar platform yöneticilerine açıktır.</p>
-      <button className="gf-btn gf-btn--primary" disabled={busy} onClick={save}>Ayarları kaydet</button></div>}
+      <button className="gf-btn gf-btn--primary" disabled={busy} onClick={() => setConfirming(true)}>Ayarları kaydet</button></div>}
+    {confirming && <ConfirmDialog title="Saklama ve uyarı ayarlarını değiştir" message={`Saklama süresi ${settings.retentionDays} gün olacak. Süre dışında kalan teşhis kayıtları sonraki temizlikte silinebilir. Uyarı eşikleri de güncellenecek.`}
+      confirmLabel="Ayarları uygula" onCancel={() => setConfirming(false)} onConfirm={() => { setConfirming(false); save(); }} />}
     {message && <p role="status">{message}</p>}
     <h3>Son yönetim işlemleri</h3><div className="dg-table-wrap"><table className="pa-table"><thead><tr><th>Tarih</th><th>İşlem</th><th>Yönetici</th><th>Ayrıntı</th></tr></thead>
       <tbody>{events.map((e) => <tr key={e.id}><td>{date(e.createdAt)}</td><td>{e.action}</td><td>{e.actor}</td><td>{e.detailJson}</td></tr>)}</tbody></table></div>
@@ -161,24 +168,31 @@ function SettingsPanel({ onError }) {
 
 export default function DiagnosticsPage() {
   const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState('queries'); const [days, setDays] = useState(30);
-  const [status, setStatus] = useState(''); const [errorCode, setErrorCode] = useState('');
-  const [search, setSearch] = useState(''); const [companyId, setCompanyId] = useState(''); const [connectionId, setConnectionId] = useState('');
+  const [tab, setTab] = useState('queries'); const [days, setDays] = useState(() => [7, 30, 90, 365].includes(Number(params.get('days'))) ? Number(params.get('days')) : 30);
+  const [status, setStatus] = useState(params.get('status') || ''); const [errorCode, setErrorCode] = useState(params.get('errorCode') || '');
+  const [search, setSearch] = useState(params.get('search') || ''); const [companyId, setCompanyId] = useState(params.get('companyId') || ''); const [connectionId, setConnectionId] = useState(params.get('connectionId') || '');
   const [page, setPage] = useState(1); const [data, setData] = useState(null); const [summary, setSummary] = useState(null);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null); const [compare, setCompare] = useState([]); const [testRevision, setTestRevision] = useState(0);
-  const loadSequence = useRef(0); const detailSequence = useRef(0);
+  const loader = useRef(null); const detailSequence = useRef(0);
+  if (!loader.current) loader.current = createDiagnosticLoader({
+    request: getDiagnostics,
+    onData: (list) => { setData(list); setSummary(list.summary); },
+    onError: (failure) => setError(failure ? describeError(failure) : ''),
+    onLoading: setLoading,
+  });
   const selectedId = params.get('id');
-  const load = useCallback(async () => {
-    const sequence = ++loadSequence.current;
-    setLoading(true); setError('');
-    try { const [list, overview] = await Promise.all([getDiagnostics({ days, status, errorCode, search, companyId,
-      connectionId: connectionId || undefined, page }), getDiagnosticSummary(days)]);
-      if (sequence === loadSequence.current) { setData(list); setSummary(overview); } }
-    catch (e) { if (sequence === loadSequence.current) setError(describeError(e)); }
-    finally { if (sequence === loadSequence.current) setLoading(false); }
-  }, [days, status, errorCode, search, companyId, connectionId, page]);
-  useEffect(() => { const timer = setTimeout(load, 300); return () => clearTimeout(timer); }, [load]);
+  const openDiagnostic = (id) => {
+    setTab('queries');
+    setParams((current) => { current.set('id', id); return current; });
+  };
+  const load = useCallback(() => loader.current.load({
+    days, status, errorCode, search, companyId, connectionId: connectionId || undefined, page,
+  }), [days, status, errorCode, search, companyId, connectionId, page]);
+  useEffect(() => {
+    const timer = setTimeout(load, 300);
+    return () => { clearTimeout(timer); loader.current.invalidate(); };
+  }, [load]);
   const loadDetail = useCallback(async () => {
     const sequence = ++detailSequence.current;
     if (!selectedId) { setDetail(null); return; }
@@ -192,35 +206,30 @@ export default function DiagnosticsPage() {
     try { const row = await getDiagnostic(id); setCompare((current) => current.length < 2 ? [...current, row] : current); }
     catch (e) { setError(describeError(e)); }
   }
-  return <div className="dg-page">
-    <div className="dg-toolbar"><div><h1>Sorgu izleme</h1><p className="gf-muted">Hataları inceleyin, sorguları karşılaştırın ve düzeltmeleri doğrulayın.</p></div>
+  return <div className="gf-page dg-page">
+    <div className="dg-toolbar"><div><h1 className="gf-page-title">Sorgu Kalitesi</h1><p className="gf-muted">Hataları inceleyin, sorguları karşılaştırın ve düzeltmeleri doğrulayın.</p></div>
       <button className="gf-btn" disabled={loading} onClick={() => { load(); loadDetail(); }}>Yenile</button></div>
-    <nav className="dg-tabs" aria-label="Sorgu izleme bölümleri">{[['queries', 'Sorgular'], ['compare', `Karşılaştır (${compare.length}/2)`], ['tests', 'Doğrulama örnekleri'], ['settings', 'Ayarlar ve yönetim izi']]
+    <nav className="dg-tabs" aria-label="Sorgu izleme bölümleri">{[['queries', 'Sorgular'], ['analysis', 'Analiz'], ['compare', `Karşılaştır (${compare.length}/2)`], ['tests', 'Doğrulama örnekleri'], ['settings', 'Ayarlar ve yönetim izi']]
       .map(([key, label]) => <button key={key} className={`gf-btn${tab === key ? ' gf-btn--primary' : ''}`} onClick={() => setTab(key)}>{label}</button>)}</nav>
     {error && <p className="dg-error" role="alert">{error}</p>}
+    {(tab === 'queries' || tab === 'analysis') && <div className="dg-toolbar"><label>Dönem<select value={days} onChange={(e) => { setDays(Number(e.target.value)); setPage(1); }}>
+        {[7, 30, 90, 365].map((d) => <option key={d} value={d}>Son {d} gün</option>)}</select></label><span className="gf-muted gf-text-sm">Özet ve analiz mevcut filtreleri kullanır.</span></div>}
     {tab === 'queries' && <>
-      <div className="dg-toolbar"><label>Dönem<select value={days} onChange={(e) => { setDays(Number(e.target.value)); setPage(1); }}>
-        {[7, 30, 90, 365].map((d) => <option key={d} value={d}>Son {d} gün</option>)}</select></label></div>
       {summary && <>
-        <div className="dg-stats">{[['Toplam istek', summary.total], ['Tamamlandı', summary.completed], ['Başarısız', summary.failed],
+        <div className="dg-stats">{[['Toplam istek', summary.total], ['Başarısız', summary.failed],
           ['Başarı oranı', summary.successRate == null ? '—' : `%${(summary.successRate * 100).toFixed(1)}`],
-          ['Boş sonuç', summary.emptyResults], ['Olumsuz geri bildirim', `${summary.negativeFeedback} / ${summary.ratedCount} oy`],
-          ['Yanıt süresi · %95', summary.p95Ms === null ? '—' : seconds(summary.p95Ms)]].map(([label, value]) => <div className="gf-card dg-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-        <section className="gf-card dg-detail"><h2>İncelenmesi gerekenler</h2>
-          {summary.repeatedErrors?.map((group) => <p className="dg-notice" key={group.code}>
-            <button className="dg-link" onClick={() => { setErrorCode(group.code); setPage(1); }}>{ERRORS[group.code] ?? group.code}: {group.count} tekrar</button></p>)}
-          {summary.inconsistent?.map((group, i) => <p className="dg-notice" key={i}>Aynı bağlamda farklı sonuç: {group.question} · {group.count} istek{' '}
-            <button className="dg-link" onClick={async () => { try { setCompare(await Promise.all(group.ids.slice(0, 2).map(getDiagnostic))); setTab('compare'); } catch (e) { setError(describeError(e)); } }}>Karşılaştır</button></p>)}
-          {summary.slowQueries?.map((row) => <p key={row.id}><button className="dg-link" onClick={() => setParams({ id: row.id })}>{row.question}</button> · {seconds(row.durationMs)}</p>)}
-          {summary.negativeQueries?.map((row) => <p key={`feedback-${row.id}`}>Olumsuz geri bildirim: <button className="dg-link" onClick={() => setParams({ id: row.id })}>{row.question}</button></p>)}
-          {summary.repeatedQuestions?.map((group, i) => <p key={`retry-${i}`}>Tekrarlanan soru · {group.count} istek: <button className="dg-link" onClick={() => { setSearch(group.question); setPage(1); }}>{group.question}</button></p>)}
-          {!summary.repeatedErrors?.length && !summary.inconsistent?.length && !summary.slowQueries?.length && !summary.negativeQueries?.length && !summary.repeatedQuestions?.length && <p className="gf-muted">Seçilen dönemde uyarı eşiğini aşan bir durum yok.</p>}
-        </section>
+          ['Yanıt süresi · %95', summary.visibility?.latency.p95Ms == null ? '—' : seconds(summary.visibility.latency.p95Ms)]].map(([label, value]) => <div className="gf-card dg-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+        <p className="gf-muted">Başarı oranı = tamamlandı / (tamamlandı + başarısız). Boş sonuçlar başarısızların alt kümesidir; bekleyen, iptal ve açıklama isteyen istekler orana dahil değildir. Bu oran sonuç doğruluğunu ölçmez. P95, tamamlanan, başarısız, iptal edilen ve açıklama isteyen kayıtların sürelerinden hesaplanır.</p>
+        <PriorityIssues summary={summary} onOpen={openDiagnostic} onFilter={(patch) => {
+          if ('status' in patch) setStatus(patch.status);
+          if ('errorCode' in patch) setErrorCode(patch.errorCode);
+          setPage(1);
+        }} />
       </>}
       <div className="dg-filters">
         <label>Soru veya takip numarası<input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Ara…" /></label>
-        <label>Durum<select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">Tümü</option>{Object.entries(STATUS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label>Hata türü<select value={errorCode} onChange={(e) => { setErrorCode(e.target.value); setPage(1); }}><option value="">Tümü</option>{Object.entries(ERRORS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label>Durum<select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}><option value="">Tümü</option>{status && !STATUS[status] && <option value={status}>{status || 'Bilinmeyen'}</option>}{Object.entries(STATUS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label>Hata türü<select value={errorCode} onChange={(e) => { setErrorCode(e.target.value); setPage(1); }}><option value="">Tümü</option>{errorCode && !ERRORS[errorCode] && <option value={errorCode}>{errorCode}</option>}{Object.entries(ERRORS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         <label>Firma numarası<input value={companyId} onChange={(e) => { setCompanyId(e.target.value); setPage(1); }} /></label>
         <label>Bağlantı numarası<input value={connectionId} onChange={(e) => { setConnectionId(e.target.value); setPage(1); }} /></label>
       </div>
@@ -229,7 +238,7 @@ export default function DiagnosticsPage() {
       <div className="gf-card dg-table-wrap"><table className="pa-table"><thead><tr><th>Karşılaştır</th><th>Tarih / takip</th><th>Soru</th><th>Sonuç</th><th>İnceleme</th><th>Süre</th></tr></thead>
         <tbody>{data?.items?.map((row) => <tr key={row.id}><td><input type="checkbox" aria-label={`${row.question} sorgusunu karşılaştır`} checked={compare.some((r) => r.id === row.id)} disabled={compare.length === 2 && !compare.some((r) => r.id === row.id)} onChange={() => selectCompare(row.id)} /></td>
           <td>{date(row.createdAt)}<small className="dg-id">{row.id}</small></td>
-          <td><button className="dg-link" onClick={() => setParams({ id: row.id })}>{row.question}</button>{row.legacy && <small className="dg-id">Eski kayıt</small>}</td>
+          <td><button className="dg-link" onClick={() => openDiagnostic(row.id)}>{row.question}</button>{row.legacy && <small className="dg-id">Eski kayıt</small>}</td>
           <td>{STATUS[row.status] ?? row.status}{row.errorCode && <small className="dg-id">{ERRORS[row.errorCode] ?? row.errorCode}</small>}</td>
           <td>{row.legacy ? '—' : REVIEWS[row.reviewStatus]}</td><td>{seconds(row.durationMs)}</td></tr>)}</tbody></table>
         {data && data.total === 0 && <p className="dg-detail">Bu filtrelere uygun kayıt yok.</p>}
@@ -239,6 +248,28 @@ export default function DiagnosticsPage() {
         <button className="gf-btn" disabled={page * 50 >= (data?.total ?? 0) || loading} onClick={() => setPage(page + 1)}>Sonraki</button></div></div>
       {detail && <DiagnosticDetail key={detail.id} row={detail} onRefresh={async () => { await loadDetail(); await load(); }} onError={setError} onTestCreated={() => setTestRevision((r) => r + 1)} />}
     </>}
+    {tab === 'analysis' && summary && <>
+        <div className="dg-stats">{[['Tamamlandı', summary.completed], ['Boş sonuç · başarısızların içinde', summary.emptyResults],
+          ['Olumsuz geri bildirim', `${summary.negativeFeedback ?? 0} / ${summary.ratedCount ?? 0} oy`],
+          ['Ortalama yanıt', summary.visibility?.latency.averageMs == null ? '—' : seconds(summary.visibility.latency.averageMs)]].map(([label, value]) => <div className="gf-card dg-stat" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+        <DiagnosticsOverview summary={summary} onOpen={openDiagnostic} onFilter={(patch) => {
+          if ('companyId' in patch) setCompanyId(patch.companyId);
+          if ('connectionId' in patch) setConnectionId(patch.connectionId);
+          if ('status' in patch) setStatus(patch.status);
+          if ('errorCode' in patch) setErrorCode(patch.errorCode);
+          setPage(1);
+          setTab('queries');
+        }} />
+        <section className="gf-card dg-detail"><h2>Tekrarlanan sorunlar ve sorgular</h2>
+          {summary.repeatedErrors?.map((group) => <p className="dg-notice" key={group.code}>
+            <button className="dg-link" onClick={() => { setErrorCode(group.code); setPage(1); setTab('queries'); }}>{ERRORS[group.code] ?? group.code}: {group.count} tekrar</button></p>)}
+          {summary.inconsistent?.map((group, i) => <p className="dg-notice" key={i}>Aynı bağlamda farklı sonuç: {group.question} · {group.count} istek{' '}
+            <button className="dg-link" onClick={async () => { try { setCompare(await Promise.all(group.ids.slice(0, 2).map(getDiagnostic))); setTab('compare'); } catch (e) { setError(describeError(e)); } }}>Karşılaştır</button></p>)}
+          {summary.slowQueries?.map((row) => <p key={row.id}><button className="dg-link" onClick={() => openDiagnostic(row.id)}>{row.question}</button> · {seconds(row.durationMs)}</p>)}
+          {summary.negativeQueries?.map((row) => <p key={`feedback-${row.id}`}>Olumsuz geri bildirim: <button className="dg-link" onClick={() => openDiagnostic(row.id)}>{row.question}</button></p>)}
+          {summary.repeatedQuestions?.map((group, i) => <p key={`retry-${i}`}>Tekrarlanan soru · {group.count} istek: <button className="dg-link" onClick={() => { setSearch(group.question); setPage(1); setTab('queries'); }}>{group.question}</button></p>)}
+          {!summary.repeatedErrors?.length && !summary.inconsistent?.length && !summary.slowQueries?.length && !summary.negativeQueries?.length && !summary.repeatedQuestions?.length && <p className="gf-muted">Seçilen dönemde uyarı eşiğini aşan bir durum yok.</p>}
+        </section></>}
     {tab === 'compare' && <Compare rows={compare} />}
     {tab === 'tests' && <TestsPanel onError={setError} revision={testRevision} />}
     {tab === 'settings' && <SettingsPanel onError={setError} />}

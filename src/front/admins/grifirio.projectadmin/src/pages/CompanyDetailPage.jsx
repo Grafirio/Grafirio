@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import ConfirmDialog from '../components/ops/ConfirmDialog';
 import {
   cancelSubscription,
   createSubscription,
@@ -24,6 +25,7 @@ export default function CompanyDetailPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [plan, setPlan] = useState('STANDARD');
+  const [confirmation, setConfirmation] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,7 +90,13 @@ export default function CompanyDetailPage() {
         </div>
       </div>
 
-      {error && <div className="gf-alert gf-alert--danger">{error}</div>}
+      {error && <div className="gf-alert gf-alert--danger" role="alert">{error}</div>}
+      <Link className="gf-btn" to={`/diagnostics?companyId=${encodeURIComponent(companyId)}`}>Firmanın sorgularını incele</Link>
+      {confirmation && <ConfirmDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => {
+        const current = confirmation;
+        setConfirmation(null);
+        run(current.key, current.action);
+      }} />}
 
       <section className="gf-card pa-section">
         <div className="gf-card__header">
@@ -147,8 +155,10 @@ export default function CompanyDetailPage() {
                       {s.isCurrentlyActive && (
                         <button
                           className="gf-btn gf-btn--sm gf-btn--danger"
-                          disabled={busy === `cancel-${s.id}`}
-                          onClick={() => run(`cancel-${s.id}`, () => cancelSubscription(s.id))}
+                          disabled={!!busy}
+                          onClick={() => setConfirmation({ key: `cancel-${s.id}`, title: 'Aboneliği iptal et',
+                            message: `${company?.name}: ${s.plan} aboneliği iptal edilecek. Başka aktif abonelik yoksa firma kullanıcıları ürüne erişemeyecek.`,
+                            confirmLabel: 'Aboneliği iptal et', action: () => cancelSubscription(s.id) })}
                         >
                           İptal et
                         </button>
@@ -185,8 +195,10 @@ export default function CompanyDetailPage() {
                     <td>
                       <button
                         className="gf-btn gf-btn--sm gf-btn--danger"
-                        disabled={busy === `revoke-${u.id}`}
-                        onClick={() => run(`revoke-${u.id}`, () => revokeRole(u.keycloakUserId, companyId))}
+                        disabled={!!busy}
+                        onClick={() => setConfirmation({ key: `revoke-${u.id}`, title: 'Kullanıcı erişimini kaldır',
+                          message: `${u.keycloakUserId} kullanıcısının ${company?.name} firmasındaki üyeliği ve rol erişimi kaldırılacak.`,
+                          confirmLabel: 'Erişimi kaldır', action: () => revokeRole(u.keycloakUserId, companyId) })}
                       >
                         Yetkiyi al
                       </button>

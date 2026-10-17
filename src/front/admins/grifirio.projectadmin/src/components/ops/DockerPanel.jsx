@@ -12,7 +12,7 @@ export default function DockerPanel({ docker, operation, isBusy, onStartDocker, 
       <div className="gf-card__body gf-stack">
         {!docker.available && (
           <p className="gf-muted">
-            Docker çalışmıyor; konteynerler yönetilemez. Önce Docker Desktop&apos;ı başlatın, ardından altyapıyı kaldırın.
+            Docker çalışmıyor; konteynerler yönetilemez. Önce Docker Desktop&apos;ı başlatın, ardından altyapıyı ayağa kaldırın.
           </p>
         )}
         <div className="gf-row">
@@ -20,7 +20,7 @@ export default function DockerPanel({ docker, operation, isBusy, onStartDocker, 
             Docker&apos;ı başlat
           </button>
           <button className="gf-btn gf-btn--primary" disabled={isBusy || Boolean(operation.active)} onClick={onInfrastructureUp}>
-            Altyapıyı kaldır
+            Altyapıyı ayağa kaldır
           </button>
         </div>
         <OperationNote operation={operation} />

@@ -4,6 +4,9 @@ import { getDownServices } from '../../utils/opsView';
 export default function ImpactSummary({ services }) {
   const down = getDownServices(services);
   if (down.length === 0) {
+    if (!services.length || services.some((service) => service.status !== 'up')) {
+      return <div className="gf-alert gf-alert--warning" role="status">Bazı servislerin durumu henüz doğrulanamadı.</div>;
+    }
     return <div className="gf-alert gf-alert--success" role="status">Tüm servisler çalışıyor.</div>;
   }
 

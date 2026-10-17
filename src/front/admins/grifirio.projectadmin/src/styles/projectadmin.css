@@ -2,8 +2,8 @@
    Renk, tipografi ve bilesenler theme.css'ten (Modern Minimalist) gelir. */
 
 .pa-shell {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
   min-height: 100vh;
   background: var(--surface-sunken);
 }
@@ -20,13 +20,16 @@
 /* --- Header --------------------------------------------------------------- */
 .pa-header {
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  flex-direction: column;
   gap: var(--space-5);
   padding: var(--space-3) var(--space-5);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
+  height: 100vh;
+  border-right: 1px solid var(--border);
   z-index: 10;
 }
 
@@ -38,6 +41,7 @@
 
 .pa-nav {
   display: flex;
+  flex-direction: column;
   gap: var(--space-1);
 }
 
@@ -61,10 +65,27 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-left: auto;
+  margin-top: auto;
+  flex-wrap: wrap;
 }
 
-.pa-main { flex: 1; }
+.pa-main { min-width: 0; }
+.pa-brand small { display: block; color: var(--text-muted); font-weight: 400; margin-top: var(--space-1); }
+.pa-context { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 28px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: var(--text-sm); }
+.pa-eyebrow { font-size: var(--text-xs); letter-spacing: .12em; color: var(--text-muted); margin-bottom: 8px; }
+.pa-dashboard { display: grid; gap: var(--space-5); }
+.pa-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+.pa-kpi { display: grid; gap: 12px; padding: var(--space-5); color: var(--text); }
+.pa-kpi strong { font-size: var(--text-2xl); }
+.pa-kpi small { color: var(--text-muted); }
+.pa-dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); align-items: start; }
+.pa-issue-list { display: grid; gap: var(--space-3); }
+.pa-issue { display: flex; align-items: flex-start; gap: var(--space-3); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.pa-issue > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pa-issue > .gf-badge { flex-shrink: 0; }
+.pa-benchmark-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid var(--border); padding-top: 12px; overflow-wrap: anywhere; }
+.pa-confirm { margin: auto; color: var(--text); border: 1px solid var(--border); max-height: 85vh; padding: 0; }
+.pa-confirm::backdrop { background: rgba(0, 0, 0, .45); }
 
 /* --- Firma agaci ---------------------------------------------------------- */
 .pa-tree { padding: var(--space-2) 0; }
@@ -131,8 +152,13 @@
 }
 
 @media (max-width: 768px) {
-  .pa-header { flex-wrap: wrap; gap: var(--space-3); }
-  .pa-user { width: 100%; margin-left: 0; }
+  .pa-shell { grid-template-columns: minmax(0, 1fr); }
+  .pa-header { position: static; height: auto; gap: var(--space-3); }
+  .pa-nav { flex-direction: row; flex-wrap: wrap; }
+  .pa-user { margin-top: 0; }
+  .pa-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pa-dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+  .pa-issue { flex-wrap: wrap; }
   /* Kimlik sutunlari uzun; dar ekranda tabloyu kendi icinde kaydir. */
   .pa-section .gf-card__body { overflow-x: auto; }
 }
