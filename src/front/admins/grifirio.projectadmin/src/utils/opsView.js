@@ -1,7 +1,7 @@
 import { CATEGORY_ORDER, SERVICE_ACTION, SERVICE_STATUS } from '../constants/ops';
 
-export const formatTime = (value) => (value ? new Date(value).toLocaleTimeString('tr-TR') : '—');
-export const formatDateTime = (value) => (value ? new Date(value).toLocaleString('tr-TR') : '—');
+export const formatTime = (value) => (value ? new Date(value).toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—');
+export const formatDateTime = (value) => (value ? new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '—');
 
 /** Groups services by category in the display order; unknown categories go last. */
 export function groupByCategory(services) {

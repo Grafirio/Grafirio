@@ -63,6 +63,9 @@ export default function CompaniesPage() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [search, setSearch] = useState('');
+  const needle = search.trim().toLocaleLowerCase('tr-TR');
+  const visibleCompanies = needle ? companies.filter((company) => `${company.name} ${company.code || ''}`.toLocaleLowerCase('tr-TR').includes(needle)) : companies;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,6 +168,9 @@ export default function CompaniesPage() {
         </form>
       )}
 
+      <div className="gf-field pa-section"><label className="gf-label" htmlFor="company-search">Firma ara</label>
+        <input id="company-search" className="gf-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Firma adı veya kodu" />
+        <span className="gf-muted gf-text-sm">{visibleCompanies.length} firma{needle ? ' · arama sonuçları düz liste olarak gösterilir' : ''}</span></div>
       {loading ? (
         <div className="gf-card gf-stack" style={{ padding: 'var(--space-5)' }}>
           {[0, 1, 2].map((i) => (
@@ -185,7 +191,8 @@ export default function CompaniesPage() {
         </div>
       ) : (
         <div className="gf-card pa-tree">
-          {buildTree(companies).map((node) => (
+          {visibleCompanies.length === 0 && <p className="gf-empty">Aramanıza uygun firma yok.</p>}
+          {(needle ? visibleCompanies.map((company) => ({ ...company, children: [] })) : buildTree(companies)).map((node) => (
             <CompanyRow
               key={node.id}
               node={node}

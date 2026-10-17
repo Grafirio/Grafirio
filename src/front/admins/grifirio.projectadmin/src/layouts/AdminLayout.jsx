@@ -2,11 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useKeycloak } from '@react-keycloak/web';
 
 const NAV = [
-  { to: '/observability', label: 'Sistem metrikleri' },
-  { to: '/semantic', label: 'Semantik zekâ' },
-  { to: '/diagnostics', label: 'Sorgu izleme' },
-  { to: '/companies', label: 'Firmalar' },
-  { to: '/services', label: 'Servisler' },
+  { to: '/', label: 'Genel Bakış' },
+  { to: '/diagnostics', label: 'Sorgu Kalitesi' },
+  { to: '/semantic', label: 'AI & Benchmark' },
+  { to: '/observability', label: 'Log & Telemetri' },
+  { to: '/companies', label: 'Firma Yönetimi' },
+  { to: '/services', label: 'Servis Yönetimi' },
 ];
 
 /** Token'daki business_roles claim'i platform ekibini isaret ediyor mu. */
@@ -64,12 +65,13 @@ export default function AdminLayout() {
   return (
     <div className="pa-shell">
       <header className="pa-header">
-        <div className="pa-brand">Grafirio · ProjectAdmin</div>
-        <nav className="pa-nav">
+        <div className="pa-brand">Grafirio <small>Yönetim Merkezi</small></div>
+        <nav className="pa-nav" aria-label="Ana menü">
           {NAV.map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}
+              end={to === '/'}
               className={({ isActive }) => `pa-nav__link${isActive ? ' is-active' : ''}`}
             >
               {label}
@@ -86,6 +88,7 @@ export default function AdminLayout() {
         </div>
       </header>
       <main className="pa-main">
+        <div className="pa-context"><span>Platform yönetimi</span><span>{window.location.hostname}</span></div>
         <Outlet />
       </main>
     </div>

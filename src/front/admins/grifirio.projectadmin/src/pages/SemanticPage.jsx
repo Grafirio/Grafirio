@@ -19,7 +19,7 @@ function Delta({ current, previous }) {
   const d = delta(current.value, previous.value, current.unit, current.direction);
   if (!d) return null;
   return (
-    <span className={`sm-delta sm-delta--${d.tone}`} title="Bir önceki koşuya göre">
+    <span className={`sm-delta sm-delta--${d.tone}`} title="Karşılaştırılan koşuya göre">
       {d.arrow} {d.text}
     </span>
   );
@@ -149,7 +149,7 @@ function RunMetricsTable({ run, previous }) {
   return (
     <table className="pa-table">
       <thead>
-        <tr><th>Metrik</th><th>Bu koşu</th><th>Önceki</th><th>Fark</th></tr>
+        <tr><th>Metrik</th><th>Bu koşu</th><th>Karşılaştırılan</th><th>Fark</th></tr>
       </thead>
       <tbody>
         {metrics.map((m) => {
@@ -214,13 +214,14 @@ function CasesTable({ cases }) {
 function CapabilityDetail({ capability, runs, signals }) {
   const [metricName, setMetricName] = useState(null);
   const [runId, setRunId] = useState(null);
+  const [baselineId, setBaselineId] = useState('');
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState('');
 
   const latest = runs?.[0];
   const selectedRun = runs?.find((r) => r.id === runId) ?? latest;
   const selectedIndex = runs?.indexOf(selectedRun) ?? -1;
-  const previousRun = selectedIndex >= 0 ? runs?.[selectedIndex + 1] : null;
+  const previousRun = baselineId ? runs?.find((run) => run.id === baselineId) : selectedIndex >= 0 ? runs?.[selectedIndex + 1] : null;
   const metric = metricName ?? headlineOf(capability, latest)?.name;
   const unit = metricOf(latest, metric)?.unit;
 
@@ -268,6 +269,11 @@ function CapabilityDetail({ capability, runs, signals }) {
         ) : (
           <>
             <div className="sm-detail__toolbar">
+              <label className="gf-label" htmlFor="sm-baseline">Karşılaştırma koşusu</label>
+              <select id="sm-baseline" className="gf-select" value={baselineId} onChange={(event) => setBaselineId(event.target.value)}>
+                <option value="">Bir önceki koşu</option>
+                {(runs ?? []).map((run) => <option key={run.id} value={run.id}>{run.label || new Date(run.startedAt).toLocaleString('tr-TR')} · {run.gitCommit?.slice(0, 8) || 'Sürüm yok'}</option>)}
+              </select>
               <label className="gf-label" htmlFor="sm-metric">Metrik</label>
               <select id="sm-metric" className="gf-select" value={metric ?? ''} onChange={(e) => setMetricName(e.target.value)}>
                 {names.map((n) => <option key={n} value={n}>{metricLabel(n)}</option>)}
@@ -292,6 +298,7 @@ function CapabilityDetail({ capability, runs, signals }) {
                   {` · ${selectedRun.passedCount}/${selectedRun.caseCount} vaka başarılı`}
                 </p>
                 <RunMetricsTable run={selectedRun} previous={previousRun} />
+                <p className="gf-muted gf-text-sm">Karşılaştırılan: {previousRun?.label || (previousRun ? new Date(previousRun.startedAt).toLocaleString('tr-TR') : 'Koşu yok')}. Veri seti, ortam ve sürüm farklarını kontrol edin; değişim tek başına model etkisini kanıtlamaz.</p>
               </div>
               <div>
                 <h3 className="sm-h3">Üretimden canlı sinyaller</h3>
@@ -385,9 +392,9 @@ export default function SemanticPage() {
     <div className="gf-page">
       <div className="gf-page-header sm-page-header">
         <div>
-          <h1 className="gf-page-title">Semantik zekâ</h1>
+          <h1 className="gf-page-title">AI & Benchmark</h1>
           <p className="gf-page-subtitle">
-            Altı yetenek, doğru cevabı bilinen test veritabanlarına karşı katman katman ölçülüyor; altında
+            Yetenekler ve sonuç doğrulaması, doğru cevabı bilinen test veritabanlarına karşı ölçülüyor; altında
             üretimden gelen canlı sinyaller.
           </p>
         </div>

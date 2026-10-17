@@ -23,7 +23,7 @@ export const STATUS_BADGES = {
 
 export const OPERATION_LABELS = {
   'docker-start': 'Docker başlatma',
-  'infrastructure-up': 'Altyapıyı kaldırma',
+  'infrastructure-up': 'Altyapıyı ayağa kaldırma',
 };
 
 export const EVENT_LABELS = {

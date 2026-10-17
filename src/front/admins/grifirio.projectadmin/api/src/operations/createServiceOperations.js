@@ -15,25 +15,25 @@ function createServiceOperations({ registry, docker, settings, audit, monitor, c
   let lastOperation = null;
 
   async function controlService(serviceId, action, actor) {
-    const service = registry.byId.get(serviceId);
-    if (!service) throw new OpsError(HTTP_NOT_FOUND, 'Unknown service');
-    if (!SERVICE_ACTIONS.has(action)) throw new OpsError(HTTP_NOT_FOUND, 'Unknown action');
-    if (!(await docker.isAvailable())) throw new OpsError(HTTP_CONFLICT, 'Docker is not running');
-
-    const container = await docker.getContainerState(service.container);
-    if (!container.exists) {
-      throw new OpsError(HTTP_CONFLICT, 'Container does not exist; use "bring infrastructure up" to create it');
-    }
-
     try {
+      const service = registry.byId.get(serviceId);
+      if (!service) throw new OpsError(HTTP_NOT_FOUND, 'Unknown service');
+      if (!SERVICE_ACTIONS.has(action)) throw new OpsError(HTTP_NOT_FOUND, 'Unknown action');
+      if (!(await docker.isAvailable())) throw new OpsError(HTTP_CONFLICT, 'Docker is not running');
+
+      const container = await docker.getContainerState(service.container);
+      if (!container.exists) {
+        throw new OpsError(HTTP_CONFLICT, 'Container does not exist; use "bring infrastructure up" to create it');
+      }
+
       await docker.applyAction(service.container, action);
+      if (action === 'stop') settings.markManuallyStopped(serviceId);
+      else settings.clearManuallyStopped(serviceId);
     } catch (error) {
       audit.record({ actor, action, target: serviceId, outcome: 'failed', detail: error.message });
       throw error;
     }
 
-    if (action === 'stop') settings.markManuallyStopped(serviceId);
-    else settings.clearManuallyStopped(serviceId);
     audit.record({ actor, action, target: serviceId, outcome: 'succeeded' });
     void monitor.checkNow();
   }

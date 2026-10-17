@@ -85,7 +85,8 @@ test('control actions only accept registry ids and never reach the docker client
     assert.equal(server.fixtures.settings.isManuallyStopped('db'), false);
 
     const audit = await (await call(server.baseUrl, '/api/ops/audit', { token: 'admin-token' })).json();
-    assert.deepEqual(audit.map((entry) => entry.action), ['start', 'stop']);
+    assert.deepEqual(audit.map((entry) => entry.action), ['start', 'stop', 'format', 'stop']);
+    assert.deepEqual(audit.map((entry) => entry.outcome), ['succeeded', 'succeeded', 'failed', 'failed']);
     assert.equal(audit[0].actor.id, 'admin');
   } finally {
     await server.close();
@@ -98,6 +99,27 @@ test('control is refused with 409 when Docker is not running', async () => {
     server.fixtures.docker.available = false;
     const response = await call(server.baseUrl, '/api/ops/services/db/restart', { method: 'POST', token: 'admin-token' });
     assert.equal(response.status, 409);
+    assert.equal(server.fixtures.docker.calls.length, 0);
+    const [entry] = server.fixtures.audit.readRecent();
+    assert.equal(entry.outcome, 'failed');
+    assert.equal(entry.actor.id, 'admin');
+    assert.equal(entry.target, 'db');
+    assert.equal(entry.action, 'restart');
+  } finally {
+    await server.close();
+  }
+});
+
+test('a missing container is audited without attempting a Docker action', async () => {
+  const server = await startServer();
+  try {
+    const response = await call(server.baseUrl, '/api/ops/services/api/start', { method: 'POST', token: 'admin-token' });
+    assert.equal(response.status, 409);
+    assert.equal(server.fixtures.docker.calls.length, 0);
+    const [entry] = server.fixtures.audit.readRecent();
+    assert.equal(entry.target, 'api');
+    assert.equal(entry.outcome, 'failed');
+    assert.match(entry.detail, /Container does not exist/);
   } finally {
     await server.close();
   }

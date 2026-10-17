@@ -17,6 +17,8 @@ Grafirio; React panelleri, .NET servisleri, Python analiz motoru ve müşteri a�
 - Bağımsız çalışma için mevcut uygun worktree'yi tercih edin. `docker-compose.yml` sabit port/konteyner adları içerir; farklı worktree'de ikinci kez başlatmak izolasyon sağlamaz. Yerel test ortamı için `docs/calisma-ortami.md` kullanın.
 - Doğrulama planı: `node tools/quality/plan.mjs`; ilgili otomatik kontroller `.github/workflows/quality.yml` içindedir. Salt belge değişikliği için uygulama testlerini zorunlu tutmayın.
 
+- Kod değişikliği tamamlandığında ilgili kontrolleri çalıştırıp işi kapsamı belirli bir commit ve PR ile teslim edin. Tamamlanmış değişiklikleri çalışma ağacında biriktirmeyin; ilgisiz mevcut değişiklikleri aynı PR'a eklemeyin.
+
 ## Odaklı iş akışları
 
 Bu depoda `.agents/skills/` altında üç skill bulunur. Oturumda otomatik listelenmiyorlarsa ilgili `SKILL.md` dosyasını doğrudan okuyarak uygulayın:
