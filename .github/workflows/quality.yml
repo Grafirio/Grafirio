@@ -1,0 +1,195 @@
+name: Grafirio quality
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      dotnet: ${{ steps.plan.outputs.dotnet }}
+      python: ${{ steps.plan.outputs.python }}
+      frontends: ${{ steps.plan.outputs.frontends }}
+      ops: ${{ steps.plan.outputs.ops }}
+      browser: ${{ steps.plan.outputs.browser }}
+      shared_ref: ${{ steps.shared.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tools/quality/plan.test.mjs
+      - id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            node tools/quality/plan.mjs --all
+          else
+            node tools/quality/plan.mjs --base "$BASE"
+          fi
+      - id: shared
+        shell: bash
+        run: |
+          ref=$(tr -d '[:space:]' < shared-packages.ref)
+          [[ "$ref" =~ ^[a-fA-F0-9]{40}$ ]] || exit 1
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+  dotnet:
+    needs: plan
+    if: needs.plan.outputs.dotnet == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Grafirio/Packages
+          ref: ${{ needs.plan.outputs.shared_ref }}
+          path: .quality-shared
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Isolate the NuGet cache
+        shell: pwsh
+        run: '"NUGET_PACKAGES=$env:RUNNER_TEMP/grafirio-nuget" >> $env:GITHUB_ENV'
+      - name: Build pinned shared packages
+        shell: pwsh
+        run: ./scripts/Prepare-TestPackages.ps1 -SharedSource .quality-shared -OutputDirectory "$env:RUNNER_TEMP/grafirio-packages"
+      - name: Unit and contract tests (integration environments are separate)
+        shell: pwsh
+        run: |
+          $projects = Get-ChildItem tests -Filter '*.csproj' -Recurse | Where-Object { $_.Name -notmatch 'IntegrationTests|Benchmarks' }
+          if (!$projects) { throw 'No test projects found' }
+          foreach ($project in $projects) {
+            dotnet restore $project.FullName --configfile "$env:RUNNER_TEMP/grafirio-packages/NuGet.Config"
+            if ($LASTEXITCODE -ne 0) { throw "Restore failed: $($project.Name)" }
+            dotnet test $project.FullName -c Release --no-restore --logger trx --results-directory "artifacts/quality/$($project.BaseName)"
+            if ($LASTEXITCODE -ne 0) { throw "Tests failed: $($project.Name)" }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dotnet-test-results
+          path: artifacts/quality
+          if-no-files-found: ignore
+
+  python:
+    needs: plan
+    if: needs.plan.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.version }}
+          cache: pip
+          cache-dependency-path: |
+            tools/quality/requirements.txt
+            src/ai/ai-service-pycaret-engine/requirements-test.txt
+      - run: 'python -m pip install --only-binary=:all: -r tools/quality/requirements.txt'
+      - run: python tools/quality/run-python-tests.py
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Worktree environment isolation (no containers started)
+        shell: pwsh
+        run: ./tools/quality/test-worktree.ps1
+
+  frontend:
+    needs: plan
+    if: needs.plan.outputs.frontends != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.frontends) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - run: npm ci
+      - name: Existing JavaScript regression tests
+        shell: bash
+        run: |
+          mapfile -d '' suites < <(find tests src -type f -name '*.test.js' -print0 2>/dev/null || true)
+          if [ "${#suites[@]}" -gt 0 ]; then node --experimental-test-module-mocks --test "${suites[@]}"; fi
+      - run: npm run build
+        env:
+          VITE_API_URL: https://gateway.test.invalid
+          VITE_KEYCLOAK_URL: https://identity.test.invalid
+
+  ops:
+    needs: plan
+    if: needs.plan.outputs.ops == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/front/admins/grifirio.projectadmin/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm test
+
+  browser:
+    needs: plan
+    if: needs.plan.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/front/admins/grifirio.projectadmin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: src/front/admins/grifirio.projectadmin/test-results
+          if-no-files-found: ignore
+
+  gate:
+    name: Quality gate
+    if: always()
+    needs: [plan, dotnet, python, frontend, ops, browser, infrastructure]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject failed or cancelled checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const n=JSON.parse(process.env.RESULTS); if(n.plan.result!=="success" || Object.values(n).some(j=>!["success","skipped"].includes(j.result))) process.exit(1)'

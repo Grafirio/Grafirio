@@ -363,3 +363,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Isolated quality tooling, local test environments and browser artifacts
+.quality/
+.quality-shared/
+.worktree/
+playwright-report/
