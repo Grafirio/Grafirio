@@ -13,6 +13,6 @@ UI, gateway, .NET, Python ve Bridge sınırlarında ilk bozulan sözleşmeyi bul
 
 Yetki/bağlantı hatalarında firma sahipliği, platform admin rolü, Bridge kimliği ve iç servis kimliğini ayrı kontrol et. Mevcut güvenlik kontrolünü kaldırarak sorunu gizleme. Bir bağlantı başarısızsa otomatik olarak başka müşteri bağlantısını deneme.
 
-Uygun olduğunda küçük bir yeniden üretme veya mevcut testte gözlemlenebilir davranış kontrolü kullan. Yetkili kapsamda kök nedeni düzelt ve etkilenen testleri çalıştır. `result-validation.md` içindeki özel SQL ortam koşullarını ve uzak/model çağrılarının yan etkilerini yerel testlerden ayır.
+Uygun olduğunda küçük bir yeniden üretme veya mevcut testte gözlemlenebilir davranış kontrolü kullan. Yetkili kapsamda kök nedeni düzelt ve etkilenen testleri çalıştır. `docs/olcum/README.md` içindeki ortam koşullarını ve uzak/model çağrılarının yan etkilerini yerel testlerden ayır. Ayrı sonuç doğrulama çalışması henüz bu dala dahil değilse o araçları varmış gibi çalıştırma.
 
 Sonuçta neden, değişen davranış, doğrulama ve kalan belirsizliği kısa anlat. Aynı hatanın tekrarını yakalayacak mevcut mekanizmayı belirt; ancak gerekli olmayan genel bir refaktör veya yeni altyapı ekleme.

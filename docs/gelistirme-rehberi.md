@@ -47,7 +47,7 @@ Aşağıdaki komutlar başlangıç örnekleridir; bu belge hazırlanırken çal�
 
 - Birim/sözleşme testleri: yerel davranış ve servisler arası veri biçimleri.
 - Teşhis örnekleri: soru çevirisinin beklenen parametre/sözlük kapsamına uygunluğu. `tools/run-diagnostic-tests.mjs` gateway ve platform admin token ister; ağ/model çağrıları ve uzak test koşusu kayıtları oluşturabilir. Çalıştırmadan önce hedef ortamı ve görev yetkisini doğrulayın.
-- Sonuç benchmark'ı: hazır aday SQL sonucunun onaylanmış sonuçla karşılaştırılması. SQL üretme başarısını ölçmez. Ayrı sentetik, READ_ONLY test ortamı ve diğer korumalar için `docs/result-validation.md` bağlayıcı başlangıç kaynağıdır. Otomatik yayın yapmayın.
+- Sonuç doğrulaması: hazır SQL sonucunu beklenen sonuçla karşılaştıran ayrı çalışma bu dala dahil değildir. Mevcut araçların kapsamı için `docs/olcum/README.md` kullanın. Canlı model çağrısı veya müşteri SQL çalıştırmasını yerel birim testi gibi çalıştırmayın; ayrı sentetik ortam gerekir. Otomatik yayın yapmayın.
 
 ## Yeniden kullanım için mevcut örnekler
 
@@ -55,7 +55,7 @@ Aşağıdaki komutlar başlangıç örnekleridir; bu belge hazırlanırken çal�
 | --- | --- |
 | Yeni analiz endpoint'i | `Features/Analysis/AnalysisEndpoints.cs` ve `Features/Agent/AgentQueryEndpoints.cs`: yetki, sahiplik, iptal ve hata dönüşü |
 | Yeni veri erişimi | `IDataSourceFactory`, `Data/Access`, `Grafirio.QueryPolicy`: Bridge/doğrudan bağlantı ayrımını çağırana taşımama |
-| Yarışan panel istekleri | `src/front/admins/grifirio.projectadmin/src/utils/diagnosticLoader.js` ve testi: eski yanıtların yeni durumu ezmesini önleme |
+| Yarışan panel istekleri | `src/front/admins/grifirio.projectadmin/src/pages/DiagnosticsPage.jsx` içindeki istek sırası kontrolü: eski yanıtların yeni durumu ezmesini önleme |
 | Python sorgu davranışı | `query_spec.py` ve `test_query_spec.py`: toplulaştırma, sıralama, parametreleme ve join kuralları |
 | Teşhis kaydı | `Infrastructure/Telemetry/QueryDiagnostics.cs` ve `docs/query-diagnostics.md` |
 

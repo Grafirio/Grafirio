@@ -4,7 +4,7 @@
 
 | Araç | Sürüm / kapsam | Yerel sonuç |
 | --- | --- | --- |
-| Dependabot | npm, NuGet, pip, Docker, GitHub Actions | Haftalık, sınırlı PR sayısı; otomatik merge yok |
+| Dependabot | npm, pip, Docker, GitHub Actions | Haftalık, sınırlı PR sayısı; otomatik merge yok; NuGet botu kullanıcı tercihiyle ertelendi |
 | Gitleaks CLI | 8.30.1, SHA-256 sabit | Gerçek scanner ile 4 sentetik depo testi başarılı |
 | actionlint | 1.7.12, SHA-256 sabit | Bütün workflow dosyaları başarılı |
 | jscpd | 5.4.1, npm lock sabit | 23 tekrar adayı; satırların yaklaşık %1,10'u; kapıyı engellemeyen rapor |
@@ -26,7 +26,7 @@ Yeni PR'lar yalnızca kendi commit aralıkları için taranır. Haftalık geçmi
 ## GitHub'da etkinleşme koşulları
 
 - Değişikliklerin GitHub'a gönderilmesi ve zamanlanmış işler/Dependabot için default branch'e ulaşması gerekir. Bu çalışma push veya dağıtım yapmaz.
-- NuGet botunun özel feed çözümlemesi için **Dependabot secret** olarak `GRAFIRIO_PACKAGES_READ_TOKEN` gerekir. Token'ın ilgili paketlerde okuma yetkisi ve gerekiyorsa kuruluş SSO izni olmalıdır. Değer kaynakta veya sohbette tutulmaz. Diğer ekosistemler bu secret'ı kullanmaz.
+- NuGet botu kullanıcı tercihiyle ertelendi; eksik secret gerektiren yapılandırma bırakılmadı. .NET CI ve FsCheck testleri bu ertelemeden etkilenmez.
 - CI testleri ortak paketleri kaynaktan üretmeye devam eder; CI için bu token eklenmez. `Grafirio.*` paket sürümleri ve `shared-packages.ref` otomatik güncellenmez.
 - PR birleştirme kuralı için GitHub ruleset içinde Quality gate ayrıca zorunlu seçilmelidir; mevcut dağıtım işleri kalite kapısına bağlıdır.
 

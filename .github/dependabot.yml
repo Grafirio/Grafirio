@@ -1,12 +1,4 @@
 version: 2
-registries:
-  grafirio-packages:
-    type: nuget-feed
-    url: https://nuget.pkg.github.com/Grafirio/index.json
-    token: ${{ secrets.GRAFIRIO_PACKAGES_READ_TOKEN }}
-  nuget-public:
-    type: nuget-feed
-    url: https://api.nuget.org/v3/index.json
 updates:
   - package-ecosystem: npm
     directories:
@@ -30,25 +22,8 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
 
-  - package-ecosystem: nuget
-    directory: /
-    registries: [grafirio-packages, nuget-public]
-    schedule:
-      interval: weekly
-      day: tuesday
-      time: '09:30'
-      timezone: Europe/Istanbul
-    open-pull-requests-limit: 2
-    groups:
-      dotnet-compatible:
-        patterns: ['*']
-        update-types: [minor, patch]
-    ignore:
-      # These are built together from shared-packages.ref, not independently upgraded.
-      - dependency-name: 'Grafirio.*'
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
-
+  # NuGet bot is deferred until read-only package registry access is available.
+  # .NET CI still builds pinned shared sources without registry credentials.
   - package-ecosystem: pip
     directories:
       - /src/ai/ai-service-pycaret-engine

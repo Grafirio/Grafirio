@@ -9,7 +9,7 @@ Grafirio; React panelleri, .NET servisleri, Python analiz motoru ve müşteri a�
 - Veri erişiminde mevcut `IDataSourceFactory` ve QueryPolicy yaklaşımını inceleyin. Yeni doğrudan SQL bağlantısı veya ayrı sorgu doğrulayıcısı eklemeden önce mevcut sınırları kullanın.
 - Firma/bağlantı sahipliği, platform yöneticisi yetkisi, Bridge kimliği ve Python iç servis kimliğini farklı güven sınırları olarak değerlendirin.
 - `shared-packages.ref` değişikliğinde `shared-packages.md` ve bütün tüketici servislerin CI tetiklerini kontrol edin. Yalnızca bir servisin derlenmesi uyumluluğu kanıtlamaz.
-- Model çevirisi, SQL politika uygunluğu, çalıştırma başarısı ve sonuç doğruluğunu ayrı değerlendirin. Ölçüm kapsamı için `docs/query-diagnostics.md` ve `docs/result-validation.md` kullanın.
+- Model çevirisi, SQL politika uygunluğu, çalıştırma başarısı ve sonuç doğruluğunu ayrı değerlendirin. Ölçüm kapsamı için `docs/query-diagnostics.md` ve `docs/olcum/README.md` kullanın. Ayrı sonuç doğrulama çalışması bu dala taşındığında onun ortam koşullarını da okuyun.
 - Testi değişen davranışa göre seçin; çalıştırılamayan kontrolün nedenini belirtin. Canlı teşhis/model çağrıları ve benchmark yayınları yerel birim testi değildir; ilgili araç ve ortam koşullarını önce okuyun.
 - Tekrar eden kod için önce mevcut arayüz, yardımcı ve benzer uygulamayı bulun. Yeni ortak soyutlamayı gerçek tekrar ve davranış ortaklığı varsa çıkarın; yalnızca görünüşü benzer kodları birleştirmeyin.
 - Kütüphane API'si belirsizse önce projedeki sürümü belirleyin, sonra Context7 veya resmi belge kullanın. Context7'ye gizli değer veya özel kaynak kodu göndermeyin.
