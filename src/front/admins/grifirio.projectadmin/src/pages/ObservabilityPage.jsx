@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import TelemetryArchivePanel from '../components/TelemetryArchivePanel';
 import { getObservability, OBSERVABILITY_SERVICES } from '../services/observabilityApi';
 import '../styles/observability.css';
 
@@ -33,6 +34,8 @@ function ServiceCard({ result }) {
           <p className="ob-warning">Metrik toplayıcısı bekleniyor veya veri güncel değil.</p>}
         {(data.droppedLogs > 0 || data.droppedTraces > 0 || data.omittedMetrics > 0) &&
           <p className="ob-warning">Kapasite nedeniyle çıkarılan: {data.droppedLogs} log, {data.droppedTraces} iz, {data.omittedMetrics} metrik serisi.</p>}
+        {data.archive && <p className="gf-muted gf-text-sm">Kalıcı aktarım: {data.archive.enabled ? 'açık' : 'kapalı'} · kuyruk: {data.archive.queued} · düşen: {data.archive.dropped} · başarısız gönderim: {data.archive.failures}</p>}
+        {data.archive?.enabled && (data.archive.failures > 0 || data.archive.dropped > 0) && <p className="ob-warning">Arşiv aktarımında başarısızlık veya kayıp var. Süreç görünümü kalıcı arşivin eksiksiz olduğunu kanıtlamaz.</p>}
       </>}
     </article>
   );
@@ -85,7 +88,7 @@ function TelemetryTable({ rows, tab, onTrace }) {
   </>;
 }
 
-export default function ObservabilityPage() {
+function LiveObservability() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -126,15 +129,15 @@ export default function ObservabilityPage() {
   const selectTrace = (value) => { setTraceId(value); setTraceInput(value); setTab('traces'); };
   const matches = selected.reduce((total, result) => total + (result.data?.[tab === 'logs' ? 'matchingLogs' : 'matchingTraces'] || 0), 0);
 
-  return <div className="gf-page ob-page">
+  return <div className="ob-page">
     <header className="gf-page-header">
-      <div><h1>Sistem gözlemlenebilirliği</h1><p className="gf-muted">Metrikler, uygulama logları ve dağıtık izler · yalnızca platform yönetimi</p></div>
+      <div><h1 className="gf-page-title">Log & Telemetri</h1><p className="gf-muted">Metrikler, uygulama logları ve dağıtık izler · yalnızca platform yönetimi</p></div>
       <div className="ob-actions">
         <label><input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} /> 10 sn yenile</label>
         <button className="gf-btn" disabled={loading} onClick={() => setRevision((value) => value + 1)}>Yenile</button>
       </div>
     </header>
-    <aside className="gf-card ob-notice">
+    <details className="gf-card ob-notice"><summary>Veri kapsamı ve saklama sınırları</summary>
       <strong>Canlı, süreç içi görünüm — kalıcı arşiv değil.</strong>
       <p>Gateway, Identity, Commerce ve Data Analysis servislerinin mevcut OpenTelemetry verileri gösterilir.
         Her yanıtta tek servis örneği vardır; çoklu replikaların toplamı değildir. Yeniden başlatmada kayıtlar sıfırlanır.</p>
@@ -142,7 +145,7 @@ export default function ObservabilityPage() {
         Metrikler 10 saniyede toplanır; sayaç ve histogramlar süreç başlangıcından itibaren birikimlidir, zaman filtresinden etkilenmez.</p>
       <p>Log parametreleri, SQL, istek gövdeleri ve hata ayrıntıları aktarılmaz; yapılandırılmış mesaj şablonu gösterilir.
         Harici altyapı/konteyner logları bu kapsamda değildir. <Link to="/services">Servis kontrolleri</Link> · <Link to="/semantic">Semantik ve değerlendirme metrikleri</Link></p>
-    </aside>
+    </details>
     <div className="ob-filters">
       <label>Servis<select className="gf-select" value={service} onChange={(event) => setService(event.target.value)}>
         <option value="">Tüm servisler</option>{OBSERVABILITY_SERVICES.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
@@ -167,5 +170,17 @@ export default function ObservabilityPage() {
     {tab !== 'metrics' && <p className="gf-muted">Tamponda {matches} eşleşme. Servis başına en yeni 200 kayıt üzerinde arama yapılır.{traceId && ' Trace filtresi: ' + traceId}</p>}
     {tab === 'traces' && <p className="gf-muted">Yalnızca tamamlanmış ve örneklenmiş span kayıtları; Unset, açık bir başarı/hata durumu işaretlenmediği anlamına gelir.</p>}
     <TelemetryTable key={[tab, service, search, minutes, level, traceId].join(':')} rows={rows} tab={tab} onTrace={selectTrace} />
+  </div>;
+}
+
+export default function ObservabilityPage() {
+  const [params, setParams] = useSearchParams();
+  const archive = params.get('source') === 'archive';
+  return <div className="gf-page dg-page">
+    <nav className="dg-tabs" aria-label="Telemetri kaynağı">
+      <button className={`gf-btn${!archive ? ' gf-btn--primary' : ''}`} onClick={() => setParams({})}>Canlı süreç görünümü</button>
+      <button className={`gf-btn${archive ? ' gf-btn--primary' : ''}`} onClick={() => setParams({ source: 'archive' })}>Kalıcı arşiv</button>
+    </nav>
+    {archive ? <TelemetryArchivePanel /> : <LiveObservability />}
   </div>;
 }

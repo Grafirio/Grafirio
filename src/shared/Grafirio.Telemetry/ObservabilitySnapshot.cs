@@ -18,6 +18,7 @@ public sealed record TraceSample(DateTime Timestamp, string Name, string Kind, s
 
 public sealed class ObservabilitySnapshot(string serviceName, string environment)
 {
+    public TelemetryArchive? Archive { get; set; }
     public const string Policy = "GrafirioObservabilityAdmin";
     public const int EventCapacity = 1000;
     public const int MetricCapacity = 1000;
@@ -27,6 +28,7 @@ public sealed class ObservabilitySnapshot(string serviceName, string environment
     private readonly Queue<TraceSample> traces = new();
     private readonly DateTime startedAt = DateTime.UtcNow;
     private readonly string instanceId = Guid.NewGuid().ToString("N");
+    public string InstanceId => instanceId;
     private MetricSample[] metrics = [];
     private DateTime? metricsCollectedAt;
     private long droppedLogs;
@@ -41,6 +43,8 @@ public sealed class ObservabilitySnapshot(string serviceName, string environment
             metrics = bounded.Take(MetricCapacity).ToArray();
             omittedMetrics = omitted + Math.Max(0, bounded.Length - MetricCapacity);
             metricsCollectedAt = DateTime.UtcNow;
+            foreach (var metric in metrics) Archive?.Record(new ArchiveEvent { Kind = "metric", Name = "metric",
+                Timestamp = metricsCollectedAt.Value, Metric = new(metric.Name, metric.Unit, metric.Kind, metric.Value, metric.Count, metric.Sum, metric.Min, metric.Max, metric.Tags) });
         }
     }
 
@@ -51,6 +55,8 @@ public sealed class ObservabilitySnapshot(string serviceName, string environment
             TrimExpired();
             if (logs.Count == EventCapacity) { logs.Dequeue(); droppedLogs++; }
             logs.Enqueue(sample);
+            Archive?.Record(new ArchiveEvent { Timestamp = sample.Timestamp, Level = sample.Level,
+                Category = sample.Category, ExceptionType = sample.ExceptionType, TraceId = sample.TraceId, SpanId = sample.SpanId });
         }
     }
 
@@ -61,6 +67,11 @@ public sealed class ObservabilitySnapshot(string serviceName, string environment
             TrimExpired();
             if (traces.Count == EventCapacity) { traces.Dequeue(); droppedTraces++; }
             traces.Enqueue(sample);
+            Archive?.Record(new ArchiveEvent { Kind = "trace", Name = "activity", Timestamp = sample.Timestamp,
+                TraceId = sample.TraceId, SpanId = sample.SpanId, ParentSpanId = sample.ParentSpanId,
+                Level = sample.Status == "Error" ? "Error" : "Information", ExceptionType = sample.Tags.GetValueOrDefault("error.type"),
+                Status = sample.Status, DurationMs = sample.DurationMs,
+                QueryId = sample.Tags.GetValueOrDefault("grafirio.query_id"), DiagnosticId = sample.Tags.GetValueOrDefault("grafirio.diagnostic.id") });
         }
     }
 
@@ -83,6 +94,7 @@ public sealed class ObservabilitySnapshot(string serviceName, string environment
                 startedAt, capturedAt = DateTime.UtcNow, metricsCollectedAt,
                 retentionMinutes = Retention.TotalMinutes, eventCapacity = EventCapacity,
                 droppedLogs, droppedTraces, omittedMetrics,
+                archive = Archive?.Status,
                 runtime = new
                 {
                     uptimeSeconds = (DateTime.UtcNow - startedAt).TotalSeconds,

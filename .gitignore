@@ -370,3 +370,4 @@ FodyWeavers.xsd
 .worktree/
 playwright-report/
 test-results/
+src/front/admins/grifirio.projectadmin/api/data/

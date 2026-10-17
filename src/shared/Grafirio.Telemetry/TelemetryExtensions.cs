@@ -31,6 +31,10 @@ public static class TelemetryExtensions
         this IHostApplicationBuilder builder, string serviceName)
     {
         var snapshot = new ObservabilitySnapshot(serviceName, builder.Environment.EnvironmentName);
+        var archive = new TelemetryArchive(serviceName.Replace("-api", ""), builder.Environment.EnvironmentName, builder.Configuration, snapshot.InstanceId);
+        snapshot.Archive = archive;
+        builder.Services.AddSingleton(archive);
+        builder.Services.AddHostedService(provider => provider.GetRequiredService<TelemetryArchive>());
         builder.Services.AddSingleton(snapshot);
         builder.Services.AddAuthorization(options => options.AddPolicy(ObservabilitySnapshot.Policy, policy => policy
             .AddAuthenticationSchemes("Bearer")
@@ -55,7 +59,7 @@ public static class TelemetryExtensions
 
         var otel = builder.Services.AddOpenTelemetry()
             .ConfigureResource(resource => resource
-                .AddService(serviceName, serviceVersion: GrafirioTelemetry.Version)
+                .AddService(serviceName, serviceVersion: GrafirioTelemetry.Version, serviceInstanceId: snapshot.InstanceId)
                 .AddAttributes(new Dictionary<string, object>
                 {
                     ["deployment.environment.name"] = builder.Environment.EnvironmentName

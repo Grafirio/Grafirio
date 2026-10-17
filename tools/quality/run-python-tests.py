@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory(prefix="grafirio-tests-") as temp:
     env = dict(os.environ, PYTHONUTF8="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
                DATA_ANALYSIS_API_URL="http://127.0.0.1:1", INTERNAL_API_KEY="synthetic-test-key",
                AGENT_JOB_DB_PATH=str(Path(temp) / "jobs.sqlite3"),
+               TELEMETRY_ARCHIVE_ENDPOINT="", TELEMETRY_ARCHIVE_KEY="",
                MODEL_STORAGE_PATH=str(Path(temp) / "models"))
     for suite in tests:
         command = [sys.executable, suite.name] if suite.name in scripts else [sys.executable, "-m", "pytest", "-q", suite.name]

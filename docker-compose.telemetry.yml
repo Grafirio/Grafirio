@@ -1,0 +1,57 @@
+# Optional local overlay; use with the main compose file. Never start a second full stack in a worktree.
+services:
+  telemetry-archive:
+    profiles: [telemetry]
+    build:
+      context: ./src/front/admins/grifirio.projectadmin/api
+      dockerfile: Dockerfile.telemetry
+    environment:
+      OPS_OIDC_ISSUER: http://localhost:8080/realms/grafirio
+      OPS_OIDC_JWKS_URL: http://keycloak:8080/realms/grafirio/protocol/openid-connect/certs
+      OPS_ALLOWED_ORIGINS: http://localhost:59265
+      TELEMETRY_GATEWAY_KEY: ${TELEMETRY_GATEWAY_KEY:?Set a distinct gateway telemetry key}
+      TELEMETRY_IDENTITY_KEY: ${TELEMETRY_IDENTITY_KEY:?Set a distinct identity telemetry key}
+      TELEMETRY_COMMERCE_KEY: ${TELEMETRY_COMMERCE_KEY:?Set a distinct commerce telemetry key}
+      TELEMETRY_DATA_ANALYSIS_KEY: ${TELEMETRY_DATA_ANALYSIS_KEY:?Set a distinct analysis telemetry key}
+      TELEMETRY_PYTHON_KEY: ${TELEMETRY_PYTHON_KEY:?Set a distinct Python telemetry key}
+    ports: ['127.0.0.1:3002:3001']
+    volumes: [telemetry.archive.volume:/data]
+    networks: [grifirio_network]
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: { max-size: '5m', max-file: '2' }
+  gateway:
+    environment:
+      TelemetryArchive__Endpoint: http://telemetry-archive:3001/api/telemetry/ingest
+      TelemetryArchive__AllowInsecureTransport: 'true'
+      TelemetryArchive__Key: ${TELEMETRY_GATEWAY_KEY:?Set gateway telemetry key}
+  identity.api:
+    environment:
+      TelemetryArchive__Endpoint: http://telemetry-archive:3001/api/telemetry/ingest
+      TelemetryArchive__AllowInsecureTransport: 'true'
+      TelemetryArchive__Key: ${TELEMETRY_IDENTITY_KEY:?Set identity telemetry key}
+  commerce.api:
+    environment:
+      TelemetryArchive__Endpoint: http://telemetry-archive:3001/api/telemetry/ingest
+      TelemetryArchive__AllowInsecureTransport: 'true'
+      TelemetryArchive__Key: ${TELEMETRY_COMMERCE_KEY:?Set commerce telemetry key}
+  data-analysis.api:
+    environment:
+      TelemetryArchive__Endpoint: http://telemetry-archive:3001/api/telemetry/ingest
+      TelemetryArchive__AllowInsecureTransport: 'true'
+      TelemetryArchive__Key: ${TELEMETRY_DATA_ANALYSIS_KEY:?Set analysis telemetry key}
+  pycaret.engine:
+    environment:
+      TELEMETRY_ARCHIVE_ENDPOINT: http://telemetry-archive:3001/api/telemetry/ingest
+      TELEMETRY_ALLOW_INSECURE_TRANSPORT: 'true'
+      TELEMETRY_ARCHIVE_KEY: ${TELEMETRY_PYTHON_KEY:?Set Python telemetry key}
+  projectadmin:
+    environment:
+      VITE_TELEMETRY_ARCHIVE_URL: http://localhost:3002/api/telemetry
+volumes:
+  telemetry.archive.volume:

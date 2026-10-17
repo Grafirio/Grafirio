@@ -19,7 +19,8 @@ public class BridgeWorker(
     BridgeQueryPump pump,
     BridgeTokenSource tokens,
     IBridgeDisplay display,
-    ILogger<BridgeWorker> logger) : BackgroundService
+    ILogger<BridgeWorker> logger,
+    BridgeTelemetryBuffer? telemetry = null) : BackgroundService
 {
     private readonly BridgeOptions _options = options.Value;
 
@@ -41,12 +42,17 @@ public class BridgeWorker(
             }
         }
 
+        if (state.BridgeId is { } owner) telemetry?.SetOwner(owner);
         await using var connection = Build(stoppingToken);
 
         using var subscription = pump.Attach(connection, stoppingToken);
+        var telemetryAvailable = false;
+        using var capability = connection.On<bool>(BridgeProtocol.ServerToBridge.TelemetryAvailable, available => telemetryAvailable = available);
 
         connection.Reconnecting += error =>
         {
+            telemetryAvailable = false;
+            telemetry?.Record("bridge.disconnected");
             logger.LogWarning(error, "Bulut bağlantısı koptu, yeniden bağlanılıyor.");
             display.ShowStatus(BridgeStatus.Disconnected, error?.Message);
             return Task.CompletedTask;
@@ -54,6 +60,7 @@ public class BridgeWorker(
 
         connection.Reconnected += _ =>
         {
+            telemetry?.Record("bridge.connected");
             logger.LogInformation("Bulut bağlantısı yeniden kuruldu.");
             display.ShowStatus(BridgeStatus.Connected);
             return Task.CompletedTask;
@@ -72,10 +79,18 @@ public class BridgeWorker(
                     await ConnectWithRetryAsync(connection, stoppingToken);
 
                 if (connection.State == HubConnectionState.Connected)
+                {
                     await connection.InvokeAsync(
                         BridgeProtocol.BridgeToServer.Heartbeat,
                         new BridgeHeartbeat(_options.Version, pump.ActiveQueryCount),
                         stoppingToken);
+                    if (telemetry is not null && telemetryAvailable)
+                    {
+                        var batch = telemetry.Peek();
+                        if (batch.Events.Count > 0 && await connection.InvokeAsync<bool>(BridgeProtocol.BridgeToServer.PushTelemetry, batch, stoppingToken).WaitAsync(TimeSpan.FromSeconds(10), stoppingToken))
+                            telemetry.Acknowledge(batch);
+                    }
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -174,6 +189,7 @@ public class BridgeWorker(
             try
             {
                 await connection.StartAsync(ct);
+                telemetry?.Record("bridge.connected");
                 logger.LogInformation("Buluta bağlanıldı. Bridge: {BridgeId}", state.BridgeId);
                 display.ShowStatus(BridgeStatus.Connected);
                 return;

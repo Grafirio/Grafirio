@@ -10,7 +10,7 @@ internal static class ObservabilityPrivacy
 {
     private static readonly HashSet<string> AllowedTags =
     [
-        "http.request.method", "http.response.status_code", "http.route", "error.type",
+        "http.request.method", "http.response.status_code", "http.route", "error.type", "grafirio.query_id", "grafirio.diagnostic.id",
         "network.protocol.version", "url.scheme", "server.port", "db.system", "db.system.name",
         "llm.operation", "llm.outcome", "llm.token.type", "gen_ai.request.model",
         "datasource.route", "datasource.method", "datasource.outcome", "question.outcome",
@@ -31,6 +31,7 @@ internal static class ObservabilityPrivacy
     public static bool IsNoise(string? path) => path is not null &&
         (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
          || path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase)
+         || path.Contains("/api/telemetry", StringComparison.OrdinalIgnoreCase)
          || path.Contains("/admin/observability", StringComparison.OrdinalIgnoreCase));
 }
 

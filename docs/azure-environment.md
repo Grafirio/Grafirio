@@ -164,6 +164,7 @@ Kalıcı veri yönetilen servislerde:
 | Keycloak (kullanıcılar, client'lar, bridge kimlikleri) | Azure Database for PostgreSQL `grifirio-keycloak-db`, veritabanı `keycloak_db` |
 | Kayıtlı bağlantılar, analizler, sorgu geçmişi (data-analysis-api) | Aynı sunucu, veritabanı `grafirio_dataanalysis`, rol `dataanalysis_user` (yalnızca bu veritabanının sahibi) |
 | Bridge yönlendirmeleri, tablo seçimleri | Cosmos DB for MongoDB (vCore) `grafirio-mongo` (`mongo-connection` secret'ı) |
+| Kalıcı yönetim telemetrisi ve arşiv ayarı audit kayıtları | `grifirio-keycloak-db` üzerinde ayrı `grafirio_telemetry` veritabanı; aynı adlı kısıtlı uygulama rolü |
 
 `grifirio-keycloak-db`: Burstable B1ms, PostgreSQL 16, 35 gün otomatik yedek (coğrafi yedek ve HA kapalı).
 data-analysis-api bağlantı dizesi `dataanalysis-db-connection` secret'ından gelir
@@ -181,3 +182,18 @@ yönetim için geçici bir IP kuralı ekleyip işiniz bitince silin.
 - Keycloak: `start --import-realm` + [keycloak/realm-grafirio.json](../keycloak/realm-grafirio.json)
 - data-analysis-api: açılışta `EnsureCreated()` çağırır; hata olursa loglar (`Database initialization failed`)
   ama servis ayakta kalır, bu yüzden bağlantı/yetki düzeldikten sonra servisi yeniden başlatmak gerekir.
+
+## Yönetim telemetri arşivi (18 Ekim 2026)
+
+`telemetry-archive` aynı Container Apps ortamında internal ingress ve zorunlu HTTPS kullanır.
+Arşiv ve audit geçici konteyner diskinde tutulmaz. Ayrı PostgreSQL şeması kontrollü kurulum
+adımında hazırlanır; runtime kullanıcısına DDL ve audit silme yetkisi verilmez.
+
+Gateway `/admin/telemetry/*` yolu `PlatformAdmin` politikasıyla toplayıcıya HTTPS üzerinden
+gider. Üreticiler bu yönetici yolunu kullanmaz: dört .NET servisinin her birinde
+`TelemetryArchive__Endpoint` / `TelemetryArchive__Key`, Python'da
+`TELEMETRY_ARCHIVE_ENDPOINT` / `TELEMETRY_ARCHIVE_KEY` bulunur. Her servis farklı bir
+secret kullanır. Üretim için açık HTTP opt-in verilmez. Panel varsayılan gateway yolunu
+kullanır; ayrıca dışa açık toplayıcı adresi veya yeni alan adı gerekmez.
+
+Kurulum, sınırlar ve işletim aracı: [Kalıcı telemetri arşivi](telemetry-archive.md).

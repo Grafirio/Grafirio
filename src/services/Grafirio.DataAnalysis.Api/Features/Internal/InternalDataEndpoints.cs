@@ -99,6 +99,7 @@ public static class InternalDataEndpoints
         }
 
         var rowLimit = Math.Clamp(request.MaxRows ?? DefaultRowLimit, 1, MaxRowLimit);
+        System.Diagnostics.Activity.Current?.SetTag("grafirio.query_id", request.QueryId.ToString("N"));
 
         try
         {

@@ -4,6 +4,7 @@ using Grafirio.DataAnalysis.Api.Data.Mongo;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
+using Grafirio.Telemetry;
 
 namespace Grafirio.DataAnalysis.Api.Data.Access;
 
@@ -13,7 +14,8 @@ public sealed class DataSourceFactory(
     IHubContext<BridgeHub> hub,
     ILoggerFactory loggerFactory,
     ConnectionProfileStore profiles,
-    DirectConnectionPolicy? directPolicy = null) : IDataSourceFactory
+    DirectConnectionPolicy? directPolicy = null,
+    TelemetryArchive? archive = null) : IDataSourceFactory
 {
     private readonly DirectConnectionPolicy _directPolicy = directPolicy ?? new(new ConfigurationBuilder().Build());
     public Task<IDataSourceSession> OpenAsync(SavedConnection connection, CancellationToken ct = default) =>
@@ -83,7 +85,7 @@ public sealed class DataSourceFactory(
             loggerFactory.CreateLogger<BridgeDataSourceSession>(),
             new ConfigureConnectionRequest(connectionId, name, target.Host, target.Port,
                 target.Database, target.Username, target.Password, target.TrustServerCertificate,
-                target.AllowedTables), temporary);
+                target.AllowedTables), temporary, archive);
 
     private async Task<IDataSourceSession> OpenDirectAsync(
         DataSourceTarget target, int timeoutSeconds, CancellationToken ct)

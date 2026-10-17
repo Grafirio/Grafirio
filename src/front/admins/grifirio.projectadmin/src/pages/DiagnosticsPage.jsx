@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { describeError } from '../services/authClient';
 import { createDiagnosticLoader } from '../utils/diagnosticLoader';
 import { comparisonRows, createDiagnosticTest, deleteDiagnosticTest, ERRORS, getDiagnostic, getDiagnosticEvents, getDiagnostics,
@@ -33,6 +33,7 @@ function DiagnosticDetail({ row, onRefresh, onError, onTestCreated }) {
   }
   return <section className="gf-card dg-detail">
     <h2>Sorgu ayrıntısı</h2><p className="dg-question">{row.question}</p>
+    <Link className="gf-btn" to={`/observability?source=archive&diagnosticId=${encodeURIComponent(row.id)}`}>İlişkili telemetri kayıtları →</Link>
     <dl className="dg-meta">
       <div><dt>Takip numarası</dt><dd>{row.id}</dd></div>
       <div><dt>Sorgu numarası</dt><dd>{row.queryId ?? 'Çalıştırma başlamadı'}</dd></div>
