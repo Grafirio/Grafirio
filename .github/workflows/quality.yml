@@ -25,7 +25,7 @@ jobs:
       browser: ${{ steps.plan.outputs.browser }}
       shared_ref: ${{ steps.shared.outputs.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
@@ -55,8 +55,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           repository: Grafirio/Packages
           ref: ${{ needs.plan.outputs.shared_ref }}
@@ -99,7 +99,7 @@ jobs:
       matrix:
         version: ['3.11', '3.12']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.version }}
@@ -117,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the full production dependency environment (no push or deploy)
         run: docker build --progress plain -t grafirio-analysis-check:ci src/ai/ai-service-pycaret-engine
       - name: Check installed dependency constraints
@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Worktree environment isolation (no containers started)
         shell: pwsh
         run: ./tools/quality/test-worktree.ps1
@@ -148,7 +148,7 @@ jobs:
       run:
         working-directory: ${{ matrix.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -174,7 +174,7 @@ jobs:
       run:
         working-directory: src/front/admins/grifirio.projectadmin/api
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -190,7 +190,7 @@ jobs:
       run:
         working-directory: src/front/admins/grifirio.projectadmin
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
