@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Grafirio.DataAnalysis.Api.Application.Analysis;
@@ -39,19 +40,20 @@ public static class DiagnosticEndpoints
         int DurationMs, short? FeedbackRating, string ReviewStatus, string ReviewNote, bool Legacy,
         JsonNode? Parameters, JsonNode? Context, JsonNode? Audit, JsonNode? Events);
 
-    public static View ToView(QueryDiagnostic row, QueryHistory? query = null)
+    public static View ToView(QueryDiagnostic row, QueryHistory? query = null, DateTime? capturedAt = null)
     {
+        var now = capturedAt ?? DateTime.UtcNow;
         var result = QueryDiagnostics.Parse(query?.ResultJson) as JsonObject;
         var error = result?["error"]?.ToString() ?? row.Error;
         var status = query?.Status ?? row.Status;
         // A crash between receiving and finishing remains visible instead of looking indefinitely active.
-        if (query is null && status == "preparing" && DateTime.UtcNow - row.CreatedAt > TimeSpan.FromMinutes(15))
+        if (query is null && status == "preparing" && now - row.CreatedAt > TimeSpan.FromMinutes(15))
         { status = "failed"; error = "İstek hazırlık aşamasında tamamlanmadı; servis kesintisi veya bağlantı iptali olabilir."; }
-        var code = status == "failed" ? result?["errorCode"]?.ToString() ?? row.ErrorCode ?? QueryDiagnostics.Classify(error, row.Stage) : null;
+        var code = status == "failed" ? QueryDiagnostics.ResolveErrorCode(result, row.ErrorCode, error, row.Stage) : null;
         var duration = query?.CompletedAt is { } finished
             ? (int)Math.Clamp((finished - query.CreatedAt).TotalMilliseconds + (query.PreparationMs ?? 0), 0, int.MaxValue)
             : query is not null && status is "processing" or "queued" or "cancelling"
-                ? (int)Math.Clamp((DateTime.UtcNow - query.CreatedAt).TotalMilliseconds + (query.PreparationMs ?? 0), 0, int.MaxValue) : row.DurationMs;
+                ? (int)Math.Clamp((now - query.CreatedAt).TotalMilliseconds + (query.PreparationMs ?? 0), 0, int.MaxValue) : row.DurationMs;
         return new(row.Id, query?.Id ?? row.QueryId, row.ConnectionId, row.CompanyId, QueryDiagnostics.Mask(row.Question),
             row.CreatedAt, query is null ? row.CompletedAt : query.CompletedAt, status, row.Stage,
             code, QueryDiagnostics.SafeText(error), row.Model, row.PromptVersion, row.BuildVersion, row.DictionaryHash,
@@ -61,96 +63,246 @@ public static class DiagnosticEndpoints
             QueryDiagnostics.Parse(row.EventsJson));
     }
 
-    private static async Task<List<View>> Load(DataAnalysisDbContext db, int days, CancellationToken ct)
+    private sealed class DiagnosticSource
     {
-        var since = DateTime.UtcNow.AddDays(-Math.Clamp(days, 1, 365));
-        var rows = await db.QueryDiagnostics.AsNoTracking().Where(d => d.CreatedAt >= since)
-            .OrderByDescending(d => d.CreatedAt).Take(SampleLimit).ToListAsync(ct);
-        var ids = rows.Where(r => r.QueryId.HasValue).Select(r => r.QueryId!.Value).ToList();
-        var queries = await db.QueryHistories.AsNoTracking().Where(q => ids.Contains(q.Id))
-            .Select(q => new QueryHistory { Id = q.Id, Status = q.Status, CreatedAt = q.CreatedAt, CompletedAt = q.CompletedAt,
-                PreparationMs = q.PreparationMs, FeedbackRating = q.FeedbackRating, ResultJson = q.Status == "failed" ? q.ResultJson : "{}" })
-            .ToDictionaryAsync(q => q.Id, ct);
-        var views = rows.Select(r => ToView(r, r.QueryId is { } id ? queries.GetValueOrDefault(id) : null)).ToList();
+        public QueryDiagnostic Diagnostic { get; init; } = null!;
+        public QueryHistory? Query { get; init; }
+    }
+
+    private static IQueryable<DiagnosticSource> ScopedDiagnostics(DataAnalysisDbContext db, DateTime since,
+        DateTime staleBefore, string? companyId, Guid? connectionId, string? status) =>
+        from d in db.QueryDiagnostics.AsNoTracking()
+        join q in db.QueryHistories.AsNoTracking() on d.QueryId equals (Guid?)q.Id into linked
+        from q in linked.DefaultIfEmpty()
+        where d.CreatedAt >= since && d.CreatedAt < staleBefore.AddMinutes(15)
+            && (string.IsNullOrEmpty(companyId) || d.CompanyId == companyId)
+            && (connectionId == null || d.ConnectionId == connectionId)
+            && (string.IsNullOrEmpty(status) || (q != null ? q.Status
+                : d.Status == "preparing" && d.CreatedAt < staleBefore ? "failed" : d.Status) == status)
+        select new DiagnosticSource { Diagnostic = d, Query = q };
+
+    private sealed class LegacySource
+    {
+        public QueryHistory Query { get; init; } = null!;
+        public AnalysisConfig Config { get; init; } = null!;
+    }
+
+    private static IQueryable<LegacySource> ScopedLegacy(DataAnalysisDbContext db, DateTime since,
+        string? companyId, Guid? connectionId, string? status, DateTime until) =>
+        from q in db.QueryHistories.AsNoTracking()
+        join c in db.AnalysisConfigs.AsNoTracking() on q.ConfigId equals c.Id
+        where q.CreatedAt >= since && q.CreatedAt < until && !db.QueryDiagnostics.Any(d => d.QueryId == q.Id)
+            && (string.IsNullOrEmpty(companyId) || c.CompanyId == companyId)
+            && (connectionId == null || c.ConnectionId == connectionId)
+            && (string.IsNullOrEmpty(status) || q.Status == status)
+        select new LegacySource { Query = q, Config = c };
+
+    // Scalar projection lets PostgreSQL aggregate both sources without transferring their bodies.
+    private static IQueryable<string> ScopedStatuses(DataAnalysisDbContext db, DateTime since, DateTime staleBefore,
+        string? companyId, Guid? connectionId, string? status) =>
+        ScopedDiagnostics(db, since, staleBefore, companyId, connectionId, status)
+            .Select(x => x.Query != null ? x.Query.Status
+                : x.Diagnostic.Status == "preparing" && x.Diagnostic.CreatedAt < staleBefore ? "failed" : x.Diagnostic.Status)
+            .Concat(ScopedLegacy(db, since, companyId, connectionId, status, staleBefore.AddMinutes(15)).Select(x => x.Query.Status));
+
+    private static async Task<List<View>> Load(DataAnalysisDbContext db, int days, CancellationToken ct, string? companyId, Guid? connectionId, string? status, DateTime now, int? takePerSource = null, DateTime? from = null, DateTime? until = null)
+    {
+        var since = from ?? now.AddDays(-Math.Clamp(days, 1, 365));
+        var end = until ?? now;
+        var staleBefore = now.AddMinutes(-15);
+        var diagnosticQuery = (from source in ScopedDiagnostics(db, since, staleBefore, companyId, connectionId, status)
+            where source.Diagnostic.CreatedAt < end
+            let d = source.Diagnostic
+            let q = source.Query
+            select new {
+                Diagnostic = new QueryDiagnostic { Id = d.Id, QueryId = d.QueryId, ConnectionId = d.ConnectionId,
+                    CompanyId = d.CompanyId, Question = d.Question, CreatedAt = d.CreatedAt, CompletedAt = d.CompletedAt,
+                    Status = d.Status, Stage = d.Stage, ErrorCode = d.ErrorCode, Error = d.Error,
+                    Model = d.Model, PromptVersion = d.PromptVersion, BuildVersion = d.BuildVersion,
+                    DictionaryHash = d.DictionaryHash, ContextHash = d.ContextHash, DurationMs = d.DurationMs,
+                    ReviewStatus = d.ReviewStatus, ReviewNote = d.ReviewNote },
+                Query = q == null ? null : new QueryHistory { Id = q.Id, Status = q.Status,
+                    CreatedAt = q.CreatedAt, CompletedAt = q.CompletedAt, PreparationMs = q.PreparationMs,
+                    FeedbackRating = q.FeedbackRating, ResultJson = q.Status == "failed" ? q.ResultJson : "{}" }
+            }).OrderByDescending(x => x.Diagnostic.CreatedAt).ThenByDescending(x => x.Diagnostic.Id);
+        var rows = await (takePerSource is { } diagnosticLimit ? diagnosticQuery.Take(diagnosticLimit) : diagnosticQuery).ToListAsync(ct);
+        var views = rows.Select(x => ToView(x.Diagnostic, x.Query, now)).ToList();
         // Existing records remain inspectable; missing historical context is explicitly labelled.
-        var legacy = await (from q in db.QueryHistories.AsNoTracking()
-            join c in db.AnalysisConfigs.AsNoTracking() on q.ConfigId equals c.Id
-            where q.CreatedAt >= since && !db.QueryDiagnostics.Any(d => d.QueryId == q.Id)
+        var legacyQuery = (from source in ScopedLegacy(db, since, companyId, connectionId, status, end)
+            let q = source.Query
+            let c = source.Config
             orderby q.CreatedAt descending
             select new { Query = new QueryHistory { Id = q.Id, Question = q.Question, Status = q.Status, CreatedAt = q.CreatedAt,
                 CompletedAt = q.CompletedAt, PreparationMs = q.PreparationMs, FeedbackRating = q.FeedbackRating,
-                ResultJson = q.Status == "failed" ? q.ResultJson : "{}" }, c.ConnectionId, c.CompanyId }).Take(SampleLimit).ToListAsync(ct);
+                ResultJson = q.Status == "failed" ? q.ResultJson : "{}" }, c.ConnectionId, c.CompanyId }).OrderByDescending(x => x.Query.CreatedAt).ThenByDescending(x => x.Query.Id);
+        var legacy = await (takePerSource is { } legacyLimit ? legacyQuery.Take(legacyLimit) : legacyQuery).ToListAsync(ct);
         views.AddRange(legacy.Select(x => ToView(new QueryDiagnostic
         {
             Id = x.Query.Id, QueryId = x.Query.Id, ConnectionId = x.ConnectionId, CompanyId = x.CompanyId,
             Question = x.Query.Question, CreatedAt = x.Query.CreatedAt, Status = x.Query.Status, Model = "legacy",
             Stage = "execution", CompletedAt = x.Query.CompletedAt
-        }, x.Query)));
-        return views.OrderByDescending(x => x.CreatedAt).Take(SampleLimit).ToList();
+        }, x.Query, now)));
+        return views;
     }
 
     public static async Task<IResult> List(DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct,
-        int days = 30, int page = 1, string? status = null, string? errorCode = null, string? search = null, string? companyId = null, Guid? connectionId = null)
+        int days = 30, int page = 1, string? status = null, string? errorCode = null, string? search = null, string? companyId = null, Guid? connectionId = null, bool includeSummary = false)
     {
         if (!Allowed(identity)) return Results.Forbid();
+        if (includeSummary)
+        {
+            // PostgreSQL repeatable-read pins all reads (diagnostics, legacy history, settings)
+            // to one MVCC snapshot. No writes, DDL or application startup are involved.
+            return await ReadSnapshot(db, async () =>
+            {
+                var capturedAt = DateTime.UtcNow;
+                var rows = await LoadFiltered(db, identity, days, status, errorCode, search, companyId, connectionId, ct, capturedAt);
+                var settings = await ReadSettings(db, ct);
+                page = Math.Max(1, page);
+                var comparison = await BuildComparison(db, identity, rows, settings, capturedAt, days, status, errorCode, search, companyId, connectionId, ct);
+                var summary = BuildSummary(rows, settings, days, comparison: comparison);
+                var response = Results.Ok(new {
+                    items = rows.Skip((int)Math.Min((long)(page - 1) * 50, int.MaxValue)).Take(50)
+                        .Select(r => r with { Context = null, Audit = null, Parameters = null, Events = null }).ToArray(),
+                    total = rows.Count, page, pageSize = 50, sampled = false, sampleLimit = SampleLimit,
+                    summary, capturedAt
+                });
+                return response;
+            }, ct);
+        }
+        page = Math.Max(1, page);
+        List<View> filtered;
+        int total;
+        if (string.IsNullOrWhiteSpace(search) && string.IsNullOrEmpty(errorCode))
+        {
+            var now = DateTime.UtcNow;
+            total = await ScopedStatuses(db, now.AddDays(-Math.Clamp(days, 1, 365)), now.AddMinutes(-15), companyId, connectionId, status).CountAsync(ct);
+            // To form a merged page, at most page * pageSize candidates from each source are needed.
+            // Count is computed separately over every match, with no sample limit.
+            filtered = total == 0 || (long)(page - 1) * 50 >= total ? []
+                : await Load(db, days, ct, companyId, connectionId, status, now, (int)Math.Min((long)page * 50, int.MaxValue));
+            filtered = filtered.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToList();
+        }
+        else
+        {
+            filtered = await LoadFiltered(db, identity, days, status, errorCode, search, companyId, connectionId, ct);
+            total = filtered.Count;
+        }
+        return Results.Ok(new { items = filtered.Skip((int)Math.Min((long)(page - 1) * 50, int.MaxValue)).Take(50).Select(r => r with { Context = null, Audit = null, Parameters = null, Events = null }),
+            total, page, pageSize = 50, sampled = false, sampleLimit = SampleLimit });
+    }
+
+    private static async Task<List<View>> LoadFiltered(DataAnalysisDbContext db, IIdentityService identity, int days,
+        string? status, string? errorCode, string? search, string? companyId, Guid? connectionId, CancellationToken ct, DateTime? capturedAt = null, DateTime? from = null, DateTime? until = null)
+    {
         List<View> rows;
         if (Guid.TryParse(search, out var lookup))
         {
             // Tracking IDs must remain discoverable outside the overview sample/date window.
             var diagnosticId = await db.QueryDiagnostics.AsNoTracking().Where(d => d.Id == lookup || d.QueryId == lookup)
                 .Select(d => (Guid?)d.Id).FirstOrDefaultAsync(ct) ?? lookup;
-            var found = await Detail(diagnosticId, db, identity, ct);
+            var found = await DetailAt(diagnosticId, db, identity, ct, capturedAt ?? DateTime.UtcNow);
             rows = (found as IValueHttpResult)?.Value is View view ? [view] : [];
         }
-        else rows = await Load(db, days, ct);
+        else rows = await Load(db, days, ct, companyId, connectionId, status, capturedAt ?? DateTime.UtcNow, from: from, until: until);
         var filtered = rows.Where(r => (string.IsNullOrEmpty(status) || r.Status == status)
             && (string.IsNullOrEmpty(errorCode) || r.ErrorCode == errorCode)
             && (string.IsNullOrEmpty(companyId) || r.CompanyId == companyId)
             && (connectionId is null || r.ConnectionId == connectionId)
             && (string.IsNullOrWhiteSpace(search) || r.Question.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || r.Id.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) || r.QueryId?.ToString() == search)).ToList();
-        page = Math.Max(1, page);
-        return Results.Ok(new { items = filtered.Skip((page - 1) * 50).Take(50).Select(r => r with { Context = null, Audit = null, Parameters = null, Events = null }),
-            total = filtered.Count, page, pageSize = 50, sampled = rows.Count >= SampleLimit, sampleLimit = SampleLimit });
+                || r.Id.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) || r.QueryId?.ToString().Equals(search, StringComparison.OrdinalIgnoreCase) == true)).ToList();
+        return filtered.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).ToList();
     }
 
-    public static async Task<IResult> Detail(Guid id, DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct)
+    public static Task<IResult> Detail(Guid id, DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct)
+        => DetailAt(id, db, identity, ct, DateTime.UtcNow);
+
+    private static async Task<IResult> DetailAt(Guid id, DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct, DateTime capturedAt)
     {
         if (!Allowed(identity)) return Results.Forbid();
         var row = await db.QueryDiagnostics.AsNoTracking().FirstOrDefaultAsync(d => d.Id == id, ct);
         if (row is not null)
         {
             var query = row.QueryId is { } queryId ? await db.QueryHistories.AsNoTracking().FirstOrDefaultAsync(q => q.Id == queryId, ct) : null;
-            return Results.Ok(ToView(row, query));
+            return Results.Ok(ToView(row, query, capturedAt));
         }
         var legacy = await db.QueryHistories.AsNoTracking().FirstOrDefaultAsync(q => q.Id == id, ct);
         var config = legacy is null ? null : await db.AnalysisConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == legacy.ConfigId, ct);
         return legacy is null || config is null ? Results.NotFound() : Results.Ok(ToView(new QueryDiagnostic
         { Id = id, QueryId = id, Question = legacy.Question, ConnectionId = config.ConnectionId, CompanyId = config.CompanyId,
-            CreatedAt = legacy.CreatedAt, Model = "legacy", Stage = "execution" }, legacy));
+            CreatedAt = legacy.CreatedAt, Model = "legacy", Stage = "execution" }, legacy, capturedAt));
     }
 
-    public static async Task<IResult> Summary(DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct, int days = 30)
+    public static async Task<IResult> Summary(DataAnalysisDbContext db, IIdentityService identity, CancellationToken ct, int days = 30,
+        string? status = null, string? errorCode = null, string? search = null, string? companyId = null, Guid? connectionId = null)
     {
         if (!Allowed(identity)) return Results.Forbid();
-        var rows = await Load(db, days, ct);
-        var settings = await ReadSettings(db, ct);
-        var terminal = rows.Where(r => r.Status is "completed" or "failed" or "clarification" or "cancelled").ToList();
+        return await ReadSnapshot(db, async () =>
+        {
+            var now = DateTime.UtcNow;
+            var rows = await LoadFiltered(db, identity, days, status, errorCode, search, companyId, connectionId, ct, now);
+            var settings = await ReadSettings(db, ct);
+            Dictionary<string, int>? statusCounts = null;
+            if (string.IsNullOrWhiteSpace(search) && string.IsNullOrEmpty(errorCode))
+            {
+                var counts = await ScopedStatuses(db, now.AddDays(-Math.Clamp(days, 1, 365)), now.AddMinutes(-15), companyId, connectionId, status)
+                    .GroupBy(value => value).Select(g => new { Status = g.Key, Count = g.Count() }).ToListAsync(ct);
+                statusCounts = counts.GroupBy(x => DiagnosticMetrics.Group(x.Status))
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.Count));
+            }
+            var comparison = await BuildComparison(db, identity, rows, settings, now, days, status, errorCode, search, companyId, connectionId, ct);
+            var response = Results.Ok(BuildSummary(rows, settings, days, statusCounts, comparison));
+            return response;
+        }, ct);
+    }
+
+    // User-started transactions must run inside Npgsql's configured retry strategy.
+    // Each retry reads the whole response again; no partial result escapes a failed attempt.
+    private static Task<T> ReadSnapshot<T>(DataAnalysisDbContext db, Func<Task<T>> read, CancellationToken ct)
+        => db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct) : null;
+            var result = await read();
+            if (transaction is not null) await transaction.CommitAsync(ct);
+            return result;
+        });
+
+    private static async Task<object> BuildComparison(DataAnalysisDbContext db, IIdentityService identity,
+        List<View> current, DiagnosticSettings settings, DateTime now, int days, string? status, string? errorCode,
+        string? search, string? companyId, Guid? connectionId, CancellationToken ct)
+    {
+        var span = Math.Clamp(days, 1, 365);
+        var tracking = Guid.TryParse(search, out _);
+        var previous = tracking ? [] : await LoadFiltered(db, identity, days, status, errorCode, search,
+            companyId, connectionId, ct, now, now.AddDays(-2 * span), now.AddDays(-span));
+        return DiagnosticVisibility.Compare(current, previous, now, days, settings.RetentionDays, tracking);
+    }
+
+    private static object BuildSummary(List<View> rows, DiagnosticSettings settings, int days, Dictionary<string, int>? statusCounts = null, object? comparison = null)
+    {
+        var terminal = rows.Where(r => DiagnosticMetrics.IsTerminal(r.Status)).ToList();
+        statusCounts ??= rows.GroupBy(r => DiagnosticMetrics.Group(r.Status)).ToDictionary(g => g.Key, g => g.Count());
+        var completed = statusCounts.GetValueOrDefault("completed");
+        var failed = statusCounts.GetValueOrDefault("failed");
         var durations = terminal.Select(r => r.DurationMs).Order().ToArray();
         var errors = rows.Where(r => r.ErrorCode is not null).GroupBy(r => r.ErrorCode)
-            .Select(g => new { code = g.Key, count = g.Count(), ids = g.Take(10).Select(r => r.Id) }).ToList();
+            .Select(g => new { code = g.Key, count = g.Count(), ids = g.Take(10).Select(r => r.Id) })
+            .OrderByDescending(g => g.count).ThenBy(g => g.code).ToList();
         var inconsistent = rows.Where(r => !string.IsNullOrEmpty(r.ContextHash))
             .GroupBy(r => new { r.CompanyId, r.ConnectionId, r.ContextHash })
             .Where(g => g.Any(r => r.Status == "completed") && g.Any(r => r.Status == "failed"))
             .Select(g => new { question = g.First().Question, count = g.Count(), ids = g.Where(r => r.Status == "completed").Take(1)
                 .Concat(g.Where(r => r.Status == "failed").Take(1)).Select(r => r.Id) }).ToList();
-        return Results.Ok(new
+        return new
         {
-            total = rows.Count, terminalCount = terminal.Count, completed = rows.Count(r => r.Status == "completed"),
-            failed = rows.Count(r => r.Status == "failed"), emptyResults = rows.Count(r => r.ErrorCode == "empty_result"),
-            successRate = rows.Count(r => r.Status is "completed" or "failed") == 0 ? (double?)null
-                : (double)rows.Count(r => r.Status == "completed") / rows.Count(r => r.Status is "completed" or "failed"),
-            clarification = rows.Count(r => r.Status == "clarification"), negativeFeedback = rows.Count(r => r.FeedbackRating == -1),
+            visibility = DiagnosticVisibility.Build(rows, settings), comparison,
+            total = rows.Count, terminalCount = terminal.Count, completed,
+            failed, emptyResults = rows.Count(r => DiagnosticMetrics.IsEmptyResult(r.Status, r.ErrorCode)),
+            successRate = DiagnosticMetrics.SuccessRate(completed, failed),
+            pending = statusCounts.GetValueOrDefault("pending"), cancelled = statusCounts.GetValueOrDefault("cancelled"),
+            other = statusCounts.GetValueOrDefault("other"),
+            clarification = statusCounts.GetValueOrDefault("clarification"), negativeFeedback = rows.Count(r => r.FeedbackRating == -1),
             ratedCount = rows.Count(r => r.FeedbackRating.HasValue),
             p95Ms = durations.Length == 0 ? (int?)null : durations[(int)Math.Ceiling(durations.Length * .95) - 1],
             errors, inconsistent,
@@ -160,8 +312,8 @@ public static class DiagnosticEndpoints
                 .Take(20).Select(g => new { question = g.First().Question, count = g.Count(), ids = g.Take(10).Select(r => r.Id) }),
             repeatedErrors = errors.Where(g => g.count >= settings.RepeatedErrorThreshold),
             slowQueries = rows.Where(r => r.DurationMs > settings.SlowQuerySeconds * 1000).Take(20).Select(r => new { r.Id, r.Question, r.DurationMs }),
-            sampled = rows.Count >= SampleLimit, sampleLimit = SampleLimit, days = Math.Clamp(days, 1, 365)
-        });
+            sampled = false, sampleLimit = SampleLimit, days = Math.Clamp(days, 1, 365)
+        };
     }
 
     public sealed record ReviewRequest(string Status, string Note);

@@ -53,9 +53,96 @@ Başarı oranının paydası yalnızca `completed + failed`; bekleyen, iptal edi
 Olumsuz oylar yalnızca oy verilmiş kayıtlarla birlikte gösterilir. Yanıt süresinin %95 değeri terminal kayıtlar üzerinden hesaplanır.
 
 Panel içi uyarılar dönem ve eşiklere göre hesaplanır; harici e-posta gönderimi yoktur.
-Liste/özet seçilen dönemde en yeni **5.000 kayıtla** sınırlıdır ve sınır dolduğunda panelde belirtilir.
-Soru/durum filtreleri bu örneklem üzerinde çalışır. Tam takip veya sorgu numarasıyla arama dönem/örneklem sınırını aşarak
-ilgili kaydı doğrudan getirir; eski bir takip numarası `/diagnostics?id=...` ile de açılabilir.
+Liste ve özet aynı dönem/firma/bağlantı/durum/hata/arama filtrelerini kullanır.
+Sayfa numarası yalnızca listeyi etkiler; toplam ve özet bütün eşleşmeleri kapsar.
+5.000 kayıt örneklem sınırı kaldırılmıştır. `sampled` false döner;
+`sampleLimit: 5000` eski istemciler için korunan tarihsel sözleşme alanıdır, uygulanmış bir sınır değildir.
+Tam takip veya sorgu UUID'siyle arama, hem listede hem özette dönem sınırını aşar;
+diğer filtreler uygulanmaya devam eder. `/diagnostics?id=...` ayrıntı bağlantısı korunur.
+
+### Metrik tanımları (A aşaması)
+
+- `total` teşhis isteği sayısıdır; çalıştırılan SQL sayısı veya doğru cevap sayısı değildir.
+- Ana gruplar birbirini dışlar: `completed`, `failed`, `pending`, `clarification`, `cancelled`, `other`.
+- `pending`: preparing, submitted, queued, processing, cancelling. Tanınmayan durumlar `other` içinde korunur.
+- `total = completed + failed + pending + clarification + cancelled + other`.
+- `emptyResults`, yalnızca failed durumunda empty_result kodu taşıyan kayıtlardır; failed sayısına yeniden eklenmez.
+- `successRate = completed / (completed + failed)`; payda sıfırsa null. Bu işlem başarı oranıdır, sonuç doğruluğu değildir.
+- Mevcut `terminalCount` ve nearest-rank `p95Ms` kapsamı korunur: completed, failed, clarification, cancelled.
+- Hata kodu önceliği: sonuçtaki errorCode, audit.errorCode, saklanan teşhis kodu, hata metninden sınıflandırma. Boş kodlar atlanır.
+- B aşamasıyla liste ve özet aynı filtreleme kurallarını kullanır; API yolları ve mevcut alanlar korunur.
+
+### B aşaması — ortak filtreleme ve tam sayım
+
+- Firma, bağlantı, tarih ve etkin durum filtreleri veritabanında uygulanır.
+  Bağlı QueryHistory durumu önceliklidir; 15 dakikadan eski hazırlık kaydı için mevcut kesinti kuralı korunur.
+- Legacy kayıtlar NOT EXISTS ile bağlı teşhislerden ayrılır; bir sorgu iki kere sayılmaz.
+- Arama/hata filtresi yokken COUNT ve durum GROUP BY veritabanında çalışır.
+  Liste sayfası için her kaynaktan en fazla sayfa numarası × 50 aday alınır, kararlı tarih/kimlik sırasıyla birleştirilir.
+- Maskelenmiş metin araması ve tarihsel JSON/hata metninden kod türetme uygulama tarafında ortak kurallarla çalışır.
+  Bu filtrelerde eşleşen kapsamın hafif kayıtları taranır; kesinti veya örneklem uygulanmaz.
+- Bağlam, sözlük, parametre ve olay gövdeleri liste/özet sorgularında yüklenmez;
+  başarısız QueryHistory kayıtlarının ResultJson alanı hata kodu çözümü için okunur.
+  P95 ve inceleme önerileri uygulama tarafında hesaplanır. Çok büyük filtre kapsamlarında bellek/maliyet sınırı devam eder.
+- Şema/indeks değişikliği yapılmadı. PostgreSQL SQL çevirisi bağlantı açmadan test edilir;
+  üretimde sorgu planı veya performans ölçümü yapılmamıştır.
+- C aşamasında panel, aşağıdaki birleşik okuma yoluna geçirilmiştir. Eski ayrı uçlar korunur.
+
+### C aşaması — tutarlı veri görüntüsü
+
+Panel `GET /api/admin/diagnostics?includeSummary=true` ile listeyi ve özeti tek yanıt olarak alır.
+Eski liste alanları korunur; yalnızca bu seçenek istendiğinde `summary` ve UTC `capturedAt` eklenir.
+Sayfalama yalnızca items alanına uygulanır. Özet bütün filtrelenmiş, belleğe alınmış kayıt kümesinden üretilir;
+bu nedenle sayfa boş olsa bile toplam ve özet korunur. Eski `/summary` ve varsayılan liste sözleşmesi devam eder.
+
+PostgreSQL'de birleşik okuma Repeatable Read işlemi içinde teşhis, legacy geçmiş ve ayarları okur.
+İşlem Npgsql'nin yapılandırılmış yeniden deneme stratejisi içinde çalışır; başarısız denemenin kısmi yanıtı yayımlanmaz.
+Ortak capturedAt; dönem sınırları, eski hazırlık sınıflandırması ve devam eden istek sürelerinde kullanılır.
+Eski `/summary` ucunun birden fazla okuması da aynı izolasyonla korunur.
+Ayrı HTTP istekleri veya farklı sayfa yenilemeleri arasında aynı snapshot tutulmaz.
+`capturedAt` veritabanında saklanan bir snapshot kimliği değildir; bu yanıtın UTC hesaplama referansıdır.
+
+Birleşik yol özeti zaten yüklenen kayıtlardan hesaplar, ek GROUP BY okuması yapmaz.
+Firma/bağlantı/tarih/durum filtreleri SQL'de kalır; büyük kapsamların bellek maliyeti B aşamasında belirtilen sınırdır.
+İşlem yalnızca mevcut veriyi okur; şema, kayıt veya saklama ayarı değiştirmez.
+
+Frontend bir yanıtın liste ve özetini birlikte uygular. Filtre değişimi/ayrılma eski isteği hemen geçersiz kılar;
+300 ms debounce sırasında gelen eski yanıtlar ve hatalar güncel ekranı değiştiremez.
+
+Testler bellek içi veritabanı ve taklit bağımlılıklarla çalışır. PostgreSQL eşzamanlılık testi veya üretim bağlantısı
+çalıştırılmamıştır; ilişkisel snapshot garantisi Repeatable Read işlemiyle sağlanır. Frontend yarış testleri:
+`node --test tests/diagnosticLoader.test.js` (ProjectAdmin dizininde).
+
+### D aşaması — görünürlük ve aksiyon
+
+Mevcut kart/tablo stilleri korunur; özet yanıtına eklemeli `visibility` ve `comparison` alanları eklenir.
+`visibility` ham durum dağılımı, sıklığa göre hata listesi, firma ve firma/bağlantı kırılımları,
+süre örneklemi ve gerekçeli inceleme adaylarını içerir. Firma, bağlantı, durum ve hata satırları
+aynı filtre kapsamındaki sorgu listesine geçiş yapar; adaylar sorgu ayrıntısını açar.
+Kimlikler kayıttaki gerçek değerlerdir; firma adı veya sorgu yürütme kanıtı uydurulmaz.
+`executionJobsCreated` yalnızca QueryId bulunan istek sayısıdır, SQL çalıştırma sayısı değildir.
+
+Yeni `visibility.latency` ve kırılım/dönem süreleri aynı örneklem üzerinde hesaplanır:
+terminal durumda, CompletedAt bulunan ve negatif olmayan süreye sahip kayıtlar.
+Ortalama aritmetik ortalama, P95 nearest-rank yöntemidir. Eksik süreler sıfır kabul edilmez;
+sampleCount/missingCount ayrıca verilir. Mevcut üst düzey p95Ms alanı eski sözleşmesiyle korunur;
+panel yeni süre örneklemini gösterir. Boş örneklemde ortalama/P95 null döner.
+
+İnceleme adayları başarısızlık, olumsuz oy, açıklama gereksinimi veya yavaşlık gerekçesi taşır.
+Düzeltildi/doğrulandı kayıtlar dışlanır; legacy kayıtlarda inceleme durumu bilinmez.
+Bir aday bir kez gösterilir, birden fazla gerekçesi olabilir. Başarısızlar, gerekçe sayısı ve süreye göre
+sıralanır; en fazla 20 adayla birlikte tam aday sayısı verilir. Mevcut tekrar/tutarsızlık incelemeleri korunur.
+
+Dönemler UTC oluşturulma zamanına göre [şimdi-N gün, şimdi) ve [şimdi-2N gün, şimdi-N gün) aralıklarıdır.
+Her iki aralığa aynı filtreler uygulanır, 365 günlük seçimde önceki aralık da tam 365 gündür.
+İki dönem aynı Repeatable Read işlemi içinde okunur. Geçmiş dönemin o günkü durumunu yeniden kurmaz;
+isteklerin şu an bilinen son durumlarını karşılaştırır. Başarı oranı değişimi yüzde puan,
+süre farkları milisaniye olarak verilir; eksik payda/örneklemde fark null olur.
+Takip UUID'si araması dönem dışına çıkabildiğinden karşılaştırma kapalıdır.
+Legacy kayıtlar ve saklama süresini aşan aralıklar için kapsam uyarısı gösterilir;
+boş bir dönem, geçmişte hiç trafik olmadığının kanıtı sayılmaz.
+
+Bu aşama şema, migration, geçmiş kayıt düzeltmesi veya benchmark çalıştırması içermez.
 
 ## Doğrulama örnekleri
 

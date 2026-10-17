@@ -275,7 +275,7 @@ public sealed class PyCaretQueryService(
             if (query.Status == "failed")
             {
                 row.Error = QueryDiagnostics.SafeText(result?["error"]?.ToString());
-                row.ErrorCode = result?["audit"]?["errorCode"]?.ToString() ?? QueryDiagnostics.Classify(row.Error);
+                row.ErrorCode = QueryDiagnostics.ResolveErrorCode(result, null, row.Error);
             }
             var context = QueryDiagnostics.Parse(row.ContextJson) as JsonObject ?? new JsonObject();
             // Keep execution metadata, but never copy raw result tables into diagnostic logs.
