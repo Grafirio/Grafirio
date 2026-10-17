@@ -26,6 +26,7 @@ public static class BridgeProtocol
         public const string CancelQuery = nameof(CancelQuery);
         public const string ConfigureConnection = nameof(ConfigureConnection);
         public const string RemoveConnection = nameof(RemoveConnection);
+        public const string TelemetryAvailable = nameof(TelemetryAvailable);
     }
 
     /// <summary>Bridge'in sunucuya cagirdigi metotlar.</summary>
@@ -35,6 +36,7 @@ public static class BridgeProtocol
         public const string CompleteQuery = nameof(CompleteQuery);
         public const string FailQuery = nameof(FailQuery);
         public const string Heartbeat = nameof(Heartbeat);
+        public const string PushTelemetry = nameof(PushTelemetry);
     }
 }
 
@@ -199,3 +201,7 @@ public sealed record QueryFailure(string RequestId, string Code, string Message)
 public sealed record BridgeHeartbeat(
     string BridgeVersion,
     int ActiveQueryCount);
+
+// Deliberately no company, trace, diagnostic, SQL, message or credential fields.
+public sealed record BridgeTelemetryEvent(string Id, DateTime Timestamp, string InstanceId, string Version, string Name, string? RequestId);
+public sealed record BridgeTelemetryBatch(IReadOnlyList<BridgeTelemetryEvent> Events, int Dropped);

@@ -1,0 +1,11 @@
+FROM node:24-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY src ./src
+COPY telemetry-server.js ./
+RUN mkdir -p /data && chown node:node /data
+USER node
+ENV OPS_DATA_DIR=/data OPS_BIND_HOST=0.0.0.0 OPS_PORT=3001
+EXPOSE 3001
+CMD ["node", "telemetry-server.js"]

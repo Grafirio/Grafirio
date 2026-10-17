@@ -44,6 +44,11 @@ public static class AgentQueryEndpoints
                         .ChangeTracker.Entries<QueryDiagnostic>().FirstOrDefault()?.Entity;
                     if (diagnostic is not null && !context.HttpContext.Response.HasStarted)
                         context.HttpContext.Response.Headers["X-Diagnostic-Id"] = diagnostic.Id.ToString();
+                    if (diagnostic is not null)
+                        context.HttpContext.RequestServices.GetService<TelemetryArchive>()?.Record(new ArchiveEvent {
+                            Name = "query.correlation", DiagnosticId = diagnostic.Id.ToString("N"),
+                            Level = diagnostic.Status == "failed" ? "Error" : "Information", Status = diagnostic.Status,
+                            QueryId = diagnostic.QueryId?.ToString("N"), CompanyId = diagnostic.CompanyId });
                 }
             })
             .RequirePermission(AppPermissions.AnalysisCreate)

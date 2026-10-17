@@ -2,6 +2,7 @@ using Grafirio.Bridge.Contracts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Grafirio.Telemetry;
 
 namespace Grafirio.DataAnalysis.Api.Features.Bridge;
 
@@ -29,8 +30,29 @@ public class BridgeHub(
     BridgeRegistry registry,
     IBridgePresence presence,
     ILogger<BridgeHub> logger,
-    BridgeConnectionSync? connectionSync = null) : Hub
+    BridgeConnectionSync? connectionSync = null,
+    TelemetryArchive? archive = null) : Hub
 {
+    public async Task<bool> PushTelemetry(BridgeTelemetryBatch batch)
+    {
+        var (bridgeId, companyId) = Identify();
+        if (batch?.Events is null || batch.Events.Count > 50 || batch.Dropped < 0)
+            throw new HubException("Invalid telemetry batch");
+        var current = await registry.ConnectionIdOfAsync(bridgeId, companyId, Context.ConnectionAborted);
+        if (current != Context.ConnectionId) throw new HubException("Stale Bridge connection");
+        var allowed = new HashSet<string> { "bridge.connected", "bridge.disconnected", "bridge.query.started", "bridge.query.completed", "bridge.query.failed" };
+        if (batch.Events.Any(item => item is null || !allowed.Contains(item.Name)
+            || !Guid.TryParse(item.Id, out _) || !Guid.TryParse(item.InstanceId, out _)
+            || (item.RequestId is not null && !Guid.TryParse(item.RequestId, out _))
+            || string.IsNullOrWhiteSpace(item.Version) || item.Version.Length > 100 || item.Timestamp < DateTime.UtcNow.AddDays(-7) || item.Timestamp > DateTime.UtcNow.AddMinutes(5)))
+            throw new HubException("Invalid telemetry event");
+        if (archive is null) return false;
+        var events = batch.Events.Select(item => new ArchiveEvent { Id = item.Id, Timestamp = item.Timestamp,
+            Service = "bridge", InstanceId = item.InstanceId, Version = item.Version, Name = item.Name,
+            CompanyId = companyId, BridgeId = bridgeId.ToString("N"), RequestId = item.RequestId,
+            TraceId = null, SpanId = null, Level = item.Name.EndsWith("failed") ? "Error" : "Information" }).ToArray();
+        return await archive.ForwardBridgeAsync(events, batch.Dropped, Context.ConnectionAborted);
+    }
     public override async Task OnConnectedAsync()
     {
         var (bridgeId, companyId) = Identify();
@@ -54,6 +76,8 @@ public class BridgeHub(
 
         await registry.AttachAsync(bridgeId, Context.ConnectionId, companyId, version, Context.ConnectionAborted);
         await presence.TouchAsync(bridgeId, version, Context.ConnectionAborted);
+        if (archive?.Enabled == true)
+            await Clients.Caller.SendAsync(BridgeProtocol.ServerToBridge.TelemetryAvailable, true, Context.ConnectionAborted);
 
         // Baglanti tanimlarini gonder. Bunsuz bridge baglanir, kalp atisi
         // gonderir ve her sorguyu "bu baglanti tanimli degil" diye reddeder.

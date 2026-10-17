@@ -14,6 +14,7 @@ from agent_contract import AgentAnalyzeRequest, ConfigHash, Identifier, json_obj
 from chart_validation import validate_charts
 from data_port import DataPortError, GatewayDataPort
 from job_store import JobConflict, JobStore, QueueFull
+from telemetry_archive import start_telemetry, stop_telemetry, telemetry_event, correlation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent/analyze")
@@ -51,6 +52,14 @@ class CancellableDataPort:
 
 
 def execute_analysis(payload, store):
+    token = correlation.set({'queryId': payload.get('query_id')})
+    try:
+        return _execute_analysis(payload, store)
+    finally:
+        correlation.reset(token)
+
+
+def _execute_analysis(payload, store):
     request = AgentAnalyzeRequest.model_validate(payload)
     context = request.model_dump()
 
@@ -96,6 +105,7 @@ class JobRunner:
                     except TimeoutError:
                         pass
                     continue
+                telemetry_event('python.job.started', queryId=payload['query_id'], status='started')
                 future = asyncio.get_running_loop().run_in_executor(self.executor, self.execute, payload, self.store)
                 while not future.done():
                     await asyncio.wait({future}, timeout=self.store.lease_seconds / 3)
@@ -110,6 +120,9 @@ class JobRunner:
                                  payload["query_id"], type(error).__name__)
                     result = {"success": False, "error": "Analysis execution failed."}
                 await asyncio.to_thread(self.store.finish, payload["query_id"], self.owner, result)
+                telemetry_event('python.job.completed' if result.get('success') else 'python.job.failed',
+                                level='Information' if result.get('success') else 'Error',
+                                queryId=payload['query_id'], status='completed' if result.get('success') else 'failed')
             except Exception:
                 logger.exception("Durable job worker failed; lease recovery will mark interrupted work.")
                 try:
@@ -129,10 +142,12 @@ async def agent_lifespan(app):
     app.state.agent_store = store
     app.state.agent_runner = runner
     runner.start()
+    start_telemetry()
     try:
         yield
     finally:
         await runner.close()
+        stop_telemetry()
 
 
 @router.post("")

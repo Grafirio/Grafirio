@@ -4,6 +4,7 @@ using Grafirio.Bridge.Contracts;
 using Grafirio.DataAnalysis.Api.Infrastructure.Telemetry;
 using Grafirio.DataAnalysis.Api.Features.Bridge;
 using Microsoft.AspNetCore.SignalR;
+using Grafirio.Telemetry;
 
 namespace Grafirio.DataAnalysis.Api.Data.Access;
 
@@ -26,7 +27,8 @@ public sealed class BridgeDataSourceSession(
     BridgeRegistry registry,
     ILogger<BridgeDataSourceSession> logger,
     ConfigureConnectionRequest? configuration = null,
-    bool temporary = false) : IDataSourceSession
+    bool temporary = false,
+    TelemetryArchive? archive = null) : IDataSourceSession
 {
     private string? _configuredClient;
 
@@ -81,6 +83,8 @@ public sealed class BridgeDataSourceSession(
         var requestId = Guid.NewGuid().ToString("N");
         var connectionIdOfBridge = await ResolveAsync(ct);
         var pending = await registry.RegisterAsync(requestId, bridgeId, ct);
+        archive?.Record(new ArchiveEvent { Name = "bridge.dispatch", RequestId = requestId, CompanyId = companyId,
+            BridgeId = bridgeId.ToString("N"), QueryId = Activity.Current?.GetTagItem("grafirio.query_id")?.ToString() });
 
         try
         {

@@ -47,6 +47,7 @@ public sealed class PyCaretClient(HttpClient client, IConfiguration configuratio
         using var request = new HttpRequestMessage(method,
             (configuration["PyCaret:BaseUrl"] ?? DefaultBaseUrl).TrimEnd('/') + path);
         request.Headers.Add(ApiKeyHeader, ApiKey);
+        request.Headers.Add("X-Grafirio-Query-Id", scope.QueryId.ToString("N"));
         if (payload is not null) request.Content = JsonContent.Create(payload);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(RequestTimeout);

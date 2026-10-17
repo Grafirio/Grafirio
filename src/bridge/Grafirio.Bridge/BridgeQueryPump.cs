@@ -15,7 +15,8 @@ namespace Grafirio.Bridge;
 public class BridgeQueryPump(
     QueryExecutor executor,
     BridgeState state,
-    ILogger<BridgeQueryPump> logger)
+    ILogger<BridgeQueryPump> logger,
+    BridgeTelemetryBuffer? telemetry = null)
 {
     private int _activeQueries;
 
@@ -82,6 +83,7 @@ public class BridgeQueryPump(
         HubConnection connection, ExecuteQueryRequest request, CancellationToken ct)
     {
         Interlocked.Increment(ref _activeQueries);
+        telemetry?.Record("bridge.query.started", request.RequestId);
 
         try
         {
@@ -95,11 +97,13 @@ public class BridgeQueryPump(
                         break;
 
                     case QueryCompleted completed:
+                        telemetry?.Record("bridge.query.completed", request.RequestId);
                         await connection.InvokeAsync(
                             BridgeProtocol.BridgeToServer.CompleteQuery, completed, ct);
                         break;
 
                     case QueryFailure failure:
+                        telemetry?.Record("bridge.query.failed", request.RequestId);
                         await connection.InvokeAsync(
                             BridgeProtocol.BridgeToServer.FailQuery, failure, ct);
                         break;
@@ -108,6 +112,7 @@ public class BridgeQueryPump(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            telemetry?.Record("bridge.query.failed", request.RequestId);
             // Buraya dusen sey beklenmeyen bir hata. Sunucu tarafi sonsuza
             // kadar beklemesin diye yine de bildiriliyor: teshis edilemeyen bir
             // askida kalma, gorulebilen bir hatadan cok daha kotudur.

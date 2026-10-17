@@ -39,6 +39,7 @@ public static class BridgeCore
             Resolve(Options(provider).AuditLogPath, "audit.tsv")));
 
         services.AddSingleton<BridgeDeviceLogin>();
+        services.AddSingleton(new BridgeTelemetryBuffer(Resolve("telemetry-outbox.json", "telemetry-outbox.json")));
         services.AddSingleton<BridgeEnrollment>();
         services.AddSingleton<QueryExecutor>();
         services.AddSingleton<BridgeQueryPump>();

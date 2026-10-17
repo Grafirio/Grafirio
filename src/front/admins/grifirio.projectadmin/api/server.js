@@ -12,12 +12,16 @@ const { createServiceMonitor } = require('./src/monitor/createServiceMonitor');
 const { createEmailNotifier } = require('./src/alerts/createEmailNotifier');
 const { createServiceOperations } = require('./src/operations/createServiceOperations');
 const { createApp } = require('./src/http/createApp');
+const { createTelemetryArchive } = require('./src/telemetry/createTelemetryArchive');
+const path = require('node:path');
 
 const config = loadConfig();
 const registry = loadRegistry();
 const docker = createDockerClient();
 const settings = createSettingsStore(config.dataDir);
 const audit = createAuditLog(config.dataDir);
+const archive = config.telemetryEnabled ? createTelemetryArchive(path.join(config.dataDir, 'telemetry')) : null;
+if (archive) setInterval(() => { try { archive.prune(); } catch { console.error('Telemetry cleanup failed'); } }, 60000).unref();
 const notifier = createEmailNotifier({ smtp: config.smtp, minIntervalMs: config.alertMinIntervalMs });
 
 const monitor = createServiceMonitor({
@@ -34,6 +38,7 @@ const operations = createServiceOperations({
 });
 
 const app = createApp({
+  archive,
   config,
   monitor,
   operations,

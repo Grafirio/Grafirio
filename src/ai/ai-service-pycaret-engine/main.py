@@ -16,11 +16,13 @@ load_dotenv()
 from agent_contract import Identifier  # noqa: E402
 from agent_jobs import agent_lifespan, router  # noqa: E402
 from internal_auth import InternalAuthMiddleware  # noqa: E402
+from telemetry_archive import TelemetryMiddleware  # noqa: E402
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Grafirio PyCaret Engine", version="1.0.0", lifespan=agent_lifespan)
+app.add_middleware(TelemetryMiddleware)
 app.add_middleware(InternalAuthMiddleware)
 app.include_router(router)
 
