@@ -14,6 +14,8 @@ CI .NET testleri üretimdekiyle aynı `shared-packages.ref` commit'inden ortak p
 
 Yerelde Python 3.12 ile ayrı sanal ortam oluşturun ve `tools/quality/requirements.txt` bağımlılıklarını kurun. Ardından o ortamın Python'u ile `tools/quality/run-python-tests.py` çalıştırın. CI hem üretim Docker imajındaki Python 3.11'i hem yerel test ortamındaki 3.12'yi kapsar. Bu hafif test ortamı tam PyCaret eğitim/tahmin ortamını doğrulamaz. `.quality/` klasörü yerel araçlar için Git dışında tutulur.
 
+Analiz motoru kaynakları/bağımlılıkları veya kalite araçları değiştiğinde **Analysis production image** kontrolü ayrıca gerçek Dockerfile ile tam üretim imajını derler, `pip check` çalıştırır ve ağ erişimi kapalı konteynerde uygulama, PyCaret regresyon/zaman serisi ve veritabanı sürücülerini içe aktarır. İmaj registry'ye gönderilmez ve dağıtım yapılmaz; bu kontrol Quality gate'e dahildir. Canlı veri bağlantısı veya model servisi çağrısı yapmaz. PyCaret 3.3.2 için üretim Python sürümü 3.11'dir; 3.12 birim testlerinin geçmesi bütün ML ortamının o sürümde desteklendiğini göstermez. Dependabot Python imajının minor yükseltmelerini önermez; Python sürümü yükseltmesi ML bağımlılıklarıyla birlikte ayrı doğrulanmalıdır.
+
 ## Tarayıcı testleri
 
 ProjectAdmin klasöründe:
