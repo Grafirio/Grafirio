@@ -1,0 +1,11 @@
+{
+  "name": "grafirio-quality-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "duplicates": "jscpd --config ../../.jscpd.json ../../src"
+  },
+  "devDependencies": {
+    "jscpd": "5.4.1"
+  }
+}

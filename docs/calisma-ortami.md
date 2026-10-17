@@ -24,7 +24,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Playwright sürümü package-lock ile sabittir. Ek bir MCP kurulumu gerekmez. Dört başlangıç senaryosu: oturumsuz erişim, firma rolüyle platform paneline erişim engeli, teşhis araması/boş sonuç ve API kesintisinin hata olarak görünmesi.
+Playwright sürümü package-lock ile sabittir. Ek bir MCP kurulumu gerekmez. Altı senaryo: oturumsuz erişim, firma rolüyle platform paneline erişim engeli, teşhis araması/boş sonuç, API kesintisinin hata olarak görünmesi, filtreyi koruyan sayfalama ve takip numarasıyla ayrıntı açma.
 
 Test giriş noktası `e2e/index.html`, test Vite yapılandırması `e2e/vite.config.mjs` dosyasıdır. Gerçek uygulama bileşenleri yüklenir; kimlik sağlayıcı yalnızca bu ayrı test sunucusunda taklit edilir. Üretim main/index/config bu taklidi içe aktarmaz. Testler dış origin isteklerini engeller; API verileri sentetiktir. Bu senaryolar gerçek OIDC, API yetkilendirmesi, SQL sonucu veya tam uçtan uca entegrasyon kanıtı değildir.
 
@@ -55,3 +55,29 @@ Konteynerleri durdurmak için aynı `--env-file` ve `-f` ile `stop` kullanın. V
 Henüz eski/yeni yöntem karşılaştırması yapılmadı. Pilot ölçümlerini `evals/development/pilot.csv` içinde tutun. Kod anlama, hata düzeltme, sözleşme değişikliği ve tekrar eden kod görevlerinden benzer zorlukta örnekler seçin. Aynı modeli, benzer ortamı ve aynı doğrulama kapsamını kullanın; aynı görevi tekrar çözmenin öğrenme avantajını kaydedin. Eski yönteme ait ölçüm yoksa sayı uydurmayın.
 
 Görev süresi, müdahale, ilk doğrulama sonucu ve sonradan bulunan regresyonları değerlendirin. Token/maliyet bilgisi görev bazında erişilemiyorsa boş bırakın; hesap genelindeki kullanım yüzdesini görev maliyeti saymayın. Pilot için üretim verisi veya model benchmark'ı çalıştırılması gerekmez.
+
+## Bağımlılık, gizli bilgi ve tekrar otomasyonu
+
+İlk paket uygulama çalışma zamanına eklenmez: Hypothesis ve FsCheck test bağımlılıklarıdır; jscpd ayrı `tools/quality/package.json` altında; Gitleaks/actionlint yalnızca `.quality/bin` altına kurulur. İkili araç sürümleri ve Windows/Linux x64 SHA-256 değerleri `tools/quality/binaries.json` içinde sabittir. Kurucu yalnızca gereken çalıştırılabilir dosyayı çıkarır, bütün arşivi açmaz. Diğer mimariler henüz desteklenmez.
+
+Yerelde, depo kökünden:
+
+```powershell
+# python yerine kalite sanal ortamının Python yolunu kullanabilirsiniz.
+python tools/quality/install-binaries.py gitleaks actionlint
+python tools/quality/scan-secrets.py
+npm ci --ignore-scripts --prefix tools/quality
+npm run duplicates --prefix tools/quality
+```
+
+Gitleaks varsayılan olarak yalnızca **stage edilmiş farkı** tarar; commit öncesi ilgili dosyaları `git add` ile seçin. Takip edilmeyen `.env` veya worktree sırlarını taramaz. Commit aralığı için `--base <tam-SHA>`, bütün commit geçmişi için `--history` kullanın. Bulgu çıkışı 1, araç/yapılandırma hatası 2'dir. Rapor yalnızca kural, dosya, satır, commit ve parmak izi alanlarını içerir; eşleşme metni/anahtar değeri ve ham scanner çıktısı rapora aktarılmaz. Bu maskeleme sentetik token içeren bağımsız Git depolarında test edilir. Bulgu, aktif bir anahtarın doğrulandığı anlamına gelmez; araç dış servislerde kimlik bilgisi denemez.
+
+`repository-checks.yml`, kalite kapısı içinden her PR/dağıtım kontrolünde çağrılır. Yeni commit aralığındaki gizli bilgi bulguları ve workflow hataları kapıyı durdurur. Elle dağıtımda olayın başlangıç commit'i yoksa son commit farkı taranır. Haftalık salı 08:00 İstanbul koşusu ve doğrudan elle başlatılan bakım koşusu (varsayılan `history_scan=true`) bütün geçmişi tarar; eski bulgular da inceleme için başarısız sonuç oluşturabilir. Bu geçmiş taraması olağan PR kapısından ayrıdır. Ham bulgu değerleri hiçbir rapora konmaz. Tekrar tespiti mevcut tekrar oranı nedeniyle kapıyı durdurmaz; araç çalışamazsa başarısız olur. Bakım raporları 14 gün saklanır.
+
+`jscpd` yalnızca `src` içinde çalışır; node_modules, bin/obj, dist, migration, tarayıcı fixture ve sıkıştırılmış çıktılar dışlanır. İlk yerel koşuda 23 tekrar adayı (satır bazında yaklaşık %1,10) bulundu. Bu değer hedef eşik veya onaylanmış refaktör listesi değildir. Temalar, test/örnek kodlar ve kasıtlı tekrarlar insan incelemesi gerektirebilir. Rapor `artifacts/quality/duplicates/jscpd-report.json` dosyasındadır.
+
+`.github/dependabot.yml` npm, NuGet, pip, Docker ve GitHub Actions için salı günleri haftalık PR planlar; otomatik merge yapmaz. npm/NuGet/pip/Docker ana sürüm yükseltmeleri ve sayısal/ML Python paketlerinin yan sürüm yükseltmeleri bu ilk pakette otomatik önerilmez; bu sınırlamalar güvenlik güncellemesi kapsamını da etkileyebilir. GitHub Actions ana sürüm PR'ları açıktır. `Grafirio.*` paketleri ve `shared-packages.ref` olağan sürüm güncellemesi olarak değiştirilmez.
+
+**NuGet için GitHub etkinleştirme adımı:** Repository Settings → Secrets and variables → Dependabot altında `GRAFIRIO_PACKAGES_READ_TOKEN` tanımlayın. Kimlik yalnızca gereken Grafirio paketlerini okuyabilmelidir; secret değerini kaynak dosyaya veya sohbete koymayın. Botun NuGet çözümlemesi, güncellenmeyen ortak paketleri de okuyabilmek zorundadır. CI testlerinin kaynaktan paket üretmesi bu bot erişiminin yerini tutmaz. Secret yoksa NuGet botu çalışmaz; diğer ekosistemler bu secret'a bağlı değildir. Kuruluşun paket erişimi/SSO politikası ayrıca izin gerektirebilir. Config default branch'e ulaşmadan ve GitHub'ın Dependabot/Actions özellikleri açık olmadan zamanlanmış işler aktif sayılmaz.
+
+Hypothesis, Python'da 3 özellik için en fazla 200'er deterministik örnek; FsCheck, .NET'te 4 özellik için 200'er örnek üretir. Bağlı filtre değerlerinin ayrı kalması, ay başı sınırı, identifier kaçışı, allowlist ayrımı ve ikinci yazma ifadesinin reddi kontrol edilir. Bu sınırlı üretim kapsamı bütün olası girdilerin güvenli olduğunu kanıtlamaz. Var olan örnek testleri ve veritabanı yetki kontrolleri korunur.

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 const apps = ['src/front/grifirio.front', 'src/front/admins/grifirio.projectadmin', 'src/front/admins/grifirio.useradmin'];
 export function planChecks(files, all = false) {
   const paths = files.map((p) => p.replaceAll('\\', '/'));
-  const tooling = paths.some((p) => /^(tools\/quality\/|\.github\/workflows\/|scripts\/Prepare-TestPackages\.ps1)/.test(p));
+  const tooling = paths.some((p) => /^(tools\/quality\/|\.github\/workflows\/|\.github\/dependabot.yml$|scripts\/Prepare-TestPackages\.ps1)/.test(p));
   const dotnet = all || tooling || paths.some((p) => /^(src\/(services|shared|bridge)\/|tests\/|tools\/Grafirio\.|shared-packages\.ref$|nuget\.config$|Grafirio\.sln$)/.test(p));
   const python = all || tooling || paths.some((p) => /^(src\/ai\/|src\/shared\/Grafirio.QueryPolicy\/|src\/services\/Grafirio.DataAnalysis.Api\/|src\/bridge\/Grafirio.Bridge.Contracts\/)/.test(p));
   const sharedFront = all || tooling || paths.some((p) => p.startsWith('src/front/shared/'));

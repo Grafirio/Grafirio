@@ -8,6 +8,9 @@ on:
     paths:
       - .github/workflows/azure-containerapps-cicd.yml
       - .github/workflows/quality.yml
+      - .github/workflows/repository-checks.yml
+      - .gitleaks.toml
+      - .jscpd.json
       - tools/quality/**
       - scripts/Prepare-TestPackages.ps1
       - tests/**

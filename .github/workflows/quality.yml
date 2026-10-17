@@ -9,6 +9,11 @@ permissions:
   contents: read
 
 jobs:
+  repository:
+    uses: ./.github/workflows/repository-checks.yml
+    permissions:
+      contents: read
+
   plan:
     runs-on: ubuntu-latest
     outputs:
@@ -185,7 +190,7 @@ jobs:
   gate:
     name: Quality gate
     if: always()
-    needs: [plan, dotnet, python, frontend, ops, browser, infrastructure]
+    needs: [plan, dotnet, python, frontend, ops, browser, infrastructure, repository]
     runs-on: ubuntu-latest
     steps:
       - name: Reject failed or cancelled checks

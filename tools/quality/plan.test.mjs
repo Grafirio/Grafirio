@@ -22,3 +22,8 @@ test('manual full verification and Windows paths are supported', () => {
   assert.ok(planChecks(['src\\shared\\Grafirio.QueryPolicy\\QueryPolicy.cs']).python);
   assert.equal(planChecks([], true).frontends.length, 3);
 });
+test('dependency configuration changes run every consumer suite', () => {
+  const plan = planChecks(['.github/dependabot.yml']);
+  assert.ok(plan.dotnet && plan.python && plan.browser && plan.ops);
+  assert.equal(plan.frontends.length, 3);
+});

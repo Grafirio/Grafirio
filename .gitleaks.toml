@@ -1,0 +1,6 @@
+title = "Grafirio secret scanning"
+
+[extend]
+useDefault = true
+
+# No blanket test/documentation exclusions: add only individually reviewed false positives.
